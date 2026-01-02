@@ -9,12 +9,12 @@ def layout():
                 --nicegui-default-padding: 0.1rem;
                 --nicegui-default-gap: 0.1rem;
 
-                --primary: #6366f1;
-                --secondary: #a855f7;
-                --accent: #ec4899;
-                --dark-bg: #0f172a;
-                --card-bg: #1e293b;
-                --text-main: #f8fafc;
+                --primary: #a8a29e;
+                --secondary: #7c3aed;
+                --accent: #db2777;
+                --dark-bg: #131314;
+                --card-bg: #1e1f20;
+                --text-main: #e2e8f0;
                 --text-muted: #94a3b8;
             }
             body {
