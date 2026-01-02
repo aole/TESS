@@ -85,4 +85,4 @@ async def batch_page():
     await batch.create_page()
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(title='Ollama Manager', dark=True, reload=True, port=8080)
+    ui.run(title='Ollama Manager', dark=True, reload=True, port=8080, storage_secret='ollama_manager_secret')

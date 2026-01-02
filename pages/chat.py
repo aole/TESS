@@ -10,11 +10,13 @@ async def create_page(model_param: str = None):
     # Use the passed parameter
     query_model = model_param
     # State
-    messages = []
+    if 'messages' not in app.storage.user:
+        app.storage.user['messages'] = []
+    messages = app.storage.user['messages']
     state = {'processing': False, 'stopping': False}
     
     # Layout using a row for sidebar + chat
-    with ui.row().classes('w-full max-w-[1200px] mx-auto h-[calc(100vh-3rem)] pt-14 px-4 gap-6 items-stretch'):
+    with ui.row().classes('w-full max-w-[1200px] mx-auto h-[calc(100vh-3rem)] pt-14 px-4 gap-6 items-stretch flex-nowrap'):
         
         # --- Left Sidebar (Controls) ---
         with ui.column().classes('w-72 shrink-0 gap-4'):
@@ -49,6 +51,13 @@ async def create_page(model_param: str = None):
                 ui.label('Top P').classes('text-xs text-muted mb-2')
                 
                 system_prompt = ui.textarea(label='System Prompt', placeholder='You are a helpful assistant...').classes('w-full text-sm').props('rows=5')
+                
+                def clear_chat():
+                    messages.clear()
+                    app.storage.user['messages'] = []
+                    chat_container.clear()
+                
+                ui.button('Clear Chat', on_click=clear_chat).props('outline color=negative').classes('w-full mt-2')
 
             # Parameter update logic
             async def update_params():
@@ -76,6 +85,26 @@ async def create_page(model_param: str = None):
         with ui.column().classes('flex-grow h-full gap-2 relative min-w-0'):
             # Chat Area
             chat_container = ui.column().classes('w-full flex-grow overflow-y-auto p-4 gap-4 rounded-lg bg-black/20 border border-white/5').props('id=chat-scroll-area')
+            
+            with chat_container:
+                for msg in messages:
+                    if msg['role'] == 'user':
+                        with ui.row().classes('w-full justify-end mb-2'):
+                            ui.label(msg['content']).classes('text-base px-5 py-3 rounded-2xl bg-[#27272a] text-white max-w-2xl break-words whitespace-pre-wrap')
+                    elif msg['role'] == 'assistant':
+                        with ui.row().classes('w-full justify-start gap-4 items-start mb-2'):
+                            with ui.avatar(color='transparent', square=True).classes('size-8 shrink-0'):
+                                ui.icon('smart_toy', size='24px').classes('text-indigo-400')
+                            
+                            with ui.column().classes('gap-2 max-w-3xl flex-grow'):
+                                ui.label(msg.get('model', 'Unknown Model')).classes('text-xs text-gray-400 font-bold')
+                                if msg.get('thinking'):
+                                    ui.label(msg['thinking']).classes('text-xs text-gray-400 font-mono bg-white/5 p-3 rounded-md border-l-2 border-indigo-500 whitespace-pre-wrap w-full')
+                                ui.markdown(msg.get('content', ''))
+            
+            # Scroll to bottom after loading history
+            if messages:
+                ui.run_javascript('var el = document.getElementById("chat-scroll-area"); if (el) el.scrollTop = el.scrollHeight;')
 
             # Input Area
             with ui.row().classes('w-full items-end gap-2 p-2 glass-panel rounded-lg'):
@@ -122,6 +151,7 @@ async def create_page(model_param: str = None):
                     # Add current user message
                     api_messages.append({'role': 'user', 'content': content})
                     messages.append({'role': 'user', 'content': content})
+                    app.storage.user['messages'] = messages  # Save to storage
 
                     # Display User Message
                     with chat_container:
@@ -137,6 +167,7 @@ async def create_page(model_param: str = None):
                             
                             response_col = ui.column().classes('gap-2 max-w-3xl flex-grow')
                             with response_col:
+                                 ui.label(model_select.value).classes('text-xs text-gray-400 font-bold')
                                  spinner = ui.spinner('dots', size='sm').classes('text-indigo-400')
                                  thinking_label = ui.label('').classes('hidden text-xs text-gray-400 font-mono bg-white/5 p-3 rounded-md border-l-2 border-indigo-500 whitespace-pre-wrap w-full')
                                  response_markdown = ui.markdown('')
@@ -183,7 +214,8 @@ async def create_page(model_param: str = None):
                             
                             await scroll_to_bottom()
                             
-                        messages.append({'role': 'assistant', 'content': response_content, 'thinking': full_thinking})
+                        messages.append({'role': 'assistant', 'content': response_content, 'thinking': full_thinking, 'model': model_select.value})
+                        app.storage.user['messages'] = messages  # Save to storage
                         await scroll_to_bottom()
                         
                     except Exception as e:
