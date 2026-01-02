@@ -1,3 +1,4 @@
+from typing import Callable, Optional
 from nicegui import ui
 from utils.ollama_client import client
 import asyncio
@@ -15,8 +16,7 @@ class PullState:
 
 # Global state to persist across refreshes
 pull_state = PullState()
-
-from typing import Callable, Optional
+current_pull_task: Optional[asyncio.Task] = None
 
 async def pull_model_task(model_name: str, on_complete: Optional[Callable] = None):
     pull_state.is_pulling = True
@@ -134,6 +134,17 @@ def create_page():
             else:
                 ui.notify(f'Failed to delete {model}', type='negative')
 
+    async def cancel_pull():
+        global current_pull_task
+        if current_pull_task and not current_pull_task.done():
+            current_pull_task.cancel()
+            try:
+                await current_pull_task
+            except asyncio.CancelledError:
+                pass
+            ui.notify('Download cancelled', type='warning')
+
+
     async def rename_model_dialog(model):
         with ui.dialog() as dialog, ui.card():
             ui.label(f'Rename {model}').classes('text-lg font-bold')
@@ -172,7 +183,8 @@ def create_page():
         ui.notify(f'Pulling {model_name}...', type='info')
         
         # Start background task
-        asyncio.create_task(pull_model_task(model_name, on_complete=refresh_list))
+        global current_pull_task
+        current_pull_task = asyncio.create_task(pull_model_task(model_name, on_complete=refresh_list))
 
     # Layout
     with ui.column().classes('w-full h-full pt-14 px-4 max-w-7xl mx-auto'):
@@ -196,6 +208,7 @@ def create_page():
                          ui.label().bind_text_from(pull_state, 'status_text').classes('text-sm font-mono text-indigo-300')
                          ui.label().bind_text_from(pull_state, 'progress_text').classes('text-sm font-mono font-bold text-teal-400')
                      ui.linear_progress().bind_value_from(pull_state, 'progress').classes('w-full')
+                 ui.button(icon='cancel', on_click=cancel_pull).props('flat round color=negative dense')
 
         # Model Table
         columns = [
