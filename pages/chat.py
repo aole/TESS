@@ -1,5 +1,6 @@
 from nicegui import ui, app
 from utils.ollama_client import client
+from services.tool_service import tool_service
 import asyncio
 import uuid
 
@@ -17,6 +18,18 @@ async def create_page(model_param: str = None):
             msg['id'] = str(uuid.uuid4())
     
     state = {'processing': False, 'stopping': False}
+
+    # Helper to load tool code
+    def load_tool_function(code: str):
+        try:
+            local_scope = {}
+            exec(code, {}, local_scope)
+            for v in local_scope.values():
+                if callable(v):
+                    return v
+        except Exception as e:
+            print(f"Error loading tool code: {e}")
+        return None
     
     # Layout using a row for sidebar + chat
     with ui.row().classes('w-full max-w-[1200px] mx-auto h-[calc(100vh-3rem)] pt-14 px-4 gap-6 items-stretch flex-nowrap'):
@@ -61,6 +74,18 @@ async def create_page(model_param: str = None):
                     render_chat_messages.refresh()
                 
                 ui.button('Clear Chat', on_click=clear_chat).props('outline color=negative').classes('w-full mt-2')
+
+            # --- Tools Selection ---
+            available_tools = [t for t in tool_service.get_all_tools() if t.active]
+            tool_options = {t.name: t for t in available_tools}
+            tool_checks = {}
+            
+            if available_tools:
+                with ui.card().classes('w-full p-3 gap-2 bg-black/20 border-white/5'):
+                    ui.label('Tools').classes('text-sm font-bold text-gray-400 mb-1')
+                    with ui.column().classes('gap-1'):
+                        for t_name in tool_options.keys():
+                            tool_checks[t_name] = ui.checkbox(t_name, value=False).classes('text-sm text-gray-300')
 
             # Parameter update logic
             async def update_params():
@@ -169,7 +194,30 @@ async def create_page(model_param: str = None):
                                     else:
                                         if msg.get('thinking'):
                                             ui.label(msg['thinking']).classes('text-xs text-gray-400 font-mono bg-white/5 p-3 rounded-md border-l-2 border-indigo-500 whitespace-pre-wrap w-full')
-                                        ui.markdown(msg.get('content', ''))
+                                        
+                                        if msg.get('tool_calls'):
+                                            with ui.column().classes('gap-1 w-full my-2 bg-orange-900/10 p-2 rounded border border-orange-500/20'):
+                                                for tc in msg['tool_calls']:
+                                                    fname = tc.get('function', {}).get('name', 'unknown')
+                                                    try:
+                                                        args = tc.get('function', {}).get('arguments', '')
+                                                    except:
+                                                        args = '...'
+                                                    ui.label(f"🔧 Call: {fname}").classes('text-xs font-mono text-orange-300 font-bold')
+                                                    ui.label(str(args)).classes('text-xs font-mono text-orange-200/70 truncate pl-4')
+
+                                        if msg.get('content'):
+                                            ui.markdown(msg.get('content', '')).classes('w-full prose dark:prose-invert text-gray-100')
+                                        elif msg['role'] == 'assistant' and not msg.get('tool_calls') and not msg.get('thinking'):
+                                            ui.label('...').classes('text-gray-500 italic')
+                        
+                        elif msg['role'] == 'tool':
+                             with ui.row().classes('w-full justify-start gap-4 items-start mb-2'):
+                                with ui.avatar(color='transparent', square=True).classes('size-8 shrink-0'):
+                                    ui.icon('output', size='20px').classes('text-gray-500')
+                                with ui.column().classes('gap-1 max-w-3xl flex-grow'):
+                                    ui.label(f"Tool Output: {msg.get('name', 'unknown')}").classes('text-xs text-gray-500 font-bold')
+                                    ui.label(msg['content']).classes('text-xs font-mono bg-white/5 p-2 rounded text-gray-300 whitespace-pre-wrap')
 
             
             with chat_container:
@@ -208,96 +256,169 @@ async def create_page(model_param: str = None):
                         state['processing'] = True
                         state['stopping'] = False
                         update_button_state()
+
+                        # Prepare functions map
+                        tool_funcs_map = {}
+                        if available_tools:
+                            for name, checkbox in tool_checks.items():
+                                if checkbox.value and name in tool_options:
+                                    func = load_tool_function(tool_options[name].code)
+                                    if func:
+                                        tool_funcs_map[func.__name__] = func
                         
-                        # Prepare messages
+                        # Helper to execute tool
+                        async def execute_tool_call(tool_call):
+                            try:
+                                fname = tool_call.get('function', {}).get('name')
+                                args = tool_call.get('function', {}).get('arguments', {})
+                                if fname in tool_funcs_map:
+                                    func = tool_funcs_map[fname]
+                                    import inspect
+                                    if asyncio.iscoroutinefunction(func):
+                                        res = await func(**args)
+                                    else:
+                                        res = func(**args)
+                                    return str(res)
+                                return f"Error: Tool {fname} not found"
+                            except Exception as e:
+                                return f"Error executing tool: {e}"
+                        
+                        # Prepare initial messages
                         api_messages = []
                         if system_prompt.value:
                             api_messages.append({'role': 'system', 'content': system_prompt.value})
                         
                         for msg in messages:
-                            if msg['role'] in ['user', 'assistant']:
-                                clean_msg = {k:v for k,v in msg.items() if k in ['role', 'content', 'images']}
+                            if msg['role'] in ['user', 'assistant', 'tool']:
+                                clean_msg = {k:v for k,v in msg.items() if k in ['role', 'content', 'images', 'tool_calls']}
+                                # Sometimes tool_calls in storage are raw dicts, simple pass through
                                 api_messages.append(clean_msg)
                         
-                        # Streaming Response Setup
-                        response_content = ""
-                        full_thinking = ""
-                        
-                        # Temporary UI
-                        with streaming_container:
-                            response_row = ui.row().classes('w-full justify-start gap-4 items-start mb-2')
-                            with response_row:
-                               with ui.avatar(color='transparent', square=True).classes('size-8 shrink-0'):
-                                    ui.icon('smart_toy', size='24px').classes('text-indigo-400')
-                               
-                               response_col = ui.column().classes('gap-2 max-w-3xl flex-grow')
-                               with response_col:
-                                    ui.label(model_select.value).classes('text-xs text-gray-400 font-bold')
-                                    spinner = ui.spinner('dots', size='sm').classes('text-indigo-400')
-                                    thinking_label = ui.label('').classes('hidden text-xs text-gray-400 font-mono bg-white/5 p-3 rounded-md border-l-2 border-indigo-500 whitespace-pre-wrap w-full')
-                                    response_markdown = ui.markdown('')
-
-                        await scroll_to_bottom()
-
-                        try:
-                            stream = await client.chat(
-                                model=model_select.value,
-                                messages=api_messages,
-                                stream=True,
-                                options={
-                                    'temperature': temp_slider.value,
-                                    'top_p': top_p_slider.value
-                                }
-                            )
+                        # Conversation Loop
+                        while True:
+                            response_content = ""
+                            full_thinking = ""
+                            tool_calls = []
                             
-                            spinner.delete()
-                            
-                            async for chunk in stream:
-                                if state['stopping']:
-                                    if not response_content and not full_thinking:
-                                        response_markdown.content = '_Stopped by user_'
-                                    break
-
-                                msg_chunk = chunk.get('message', {})
-                                part = msg_chunk.get('content', '')
-                                thinking_part = msg_chunk.get('thinking', '')
-                                
-                                if thinking_part:
-                                    full_thinking += thinking_part
-                                    thinking_label.text = full_thinking
-                                    thinking_label.classes(remove='hidden')
-                                else:
-                                    response_content += part
-                                    response_markdown.content = response_content
-                                
-                                await scroll_to_bottom()
-                                
-                            # Finalize
-                            streaming_container.clear()
-                            
-                            assistant_msg = {
-                                'role': 'assistant', 
-                                'content': response_content, 
-                                'thinking': full_thinking, 
-                                'model': model_select.value,
-                                'id': str(uuid.uuid4())
-                            }
-                            messages.append(assistant_msg)
-                            app.storage.user['messages'] = messages
-                            render_chat_messages.refresh()
+                            # UI Setup
+                            with streaming_container:
+                                response_row = ui.row().classes('w-full justify-start gap-4 items-start mb-2')
+                                with response_row:
+                                   with ui.avatar(color='transparent', square=True).classes('size-8 shrink-0'):
+                                        ui.icon('smart_toy', size='24px').classes('text-indigo-400')
+                                   
+                                   response_col = ui.column().classes('gap-2 max-w-3xl flex-grow')
+                                   with response_col:
+                                        ui.label(model_select.value).classes('text-xs text-gray-400 font-bold')
+                                        spinner = ui.spinner('dots', size='sm').classes('text-indigo-400')
+                                        thinking_label = ui.label('').classes('hidden text-xs text-gray-400 font-mono bg-white/5 p-3 rounded-md border-l-2 border-indigo-500 whitespace-pre-wrap w-full')
+                                        response_markdown = ui.markdown('').classes('w-full prose dark:prose-invert text-gray-100')
+                                        tool_calls_label = ui.label('').classes('hidden text-xs font-mono text-orange-300 w-full whitespace-pre-wrap')
+    
                             await scroll_to_bottom()
                             
-                        except Exception as e:
                             try:
+                                list_tools = list(tool_funcs_map.values()) if tool_funcs_map else None
+                                stream = await client.chat(
+                                    model=model_select.value,
+                                    messages=api_messages,
+                                    stream=True,
+                                    options={
+                                        'temperature': temp_slider.value,
+                                        'top_p': top_p_slider.value
+                                    },
+                                    tools=list_tools
+                                )
+                                
                                 spinner.delete()
-                            except:
-                                pass
-                            ui.notify(f'Error: {e}', type='negative')
-                            streaming_container.clear()
-                        finally:
-                            state['processing'] = False
-                            state['stopping'] = False
-                            update_button_state()
+                                
+                                async for chunk in stream:
+                                    if state['stopping']:
+                                        if not response_content and not full_thinking:
+                                            response_markdown.content = '_Stopped by user_'
+                                        break
+    
+                                    msg_chunk = chunk.get('message', {})
+                                    part = msg_chunk.get('content') or ''
+                                    thinking_part = msg_chunk.get('thinking', '')
+                                    tool_calls_part = msg_chunk.get('tool_calls', [])
+                                    
+                                    if thinking_part:
+                                        full_thinking += thinking_part
+                                        thinking_label.text = full_thinking
+                                        thinking_label.classes(remove='hidden')
+                                    
+                                    if tool_calls_part:
+                                        tool_calls.extend(tool_calls_part)
+                                        names = [tc.get('function', {}).get('name', 'unknown') for tc in tool_calls]
+                                        tool_calls_label.text = f"Tool Calls: {', '.join(names)}"
+                                        tool_calls_label.classes(remove='hidden')
+                                    
+                                    if part:
+                                        response_content += part
+                                        response_markdown.content = response_content
+                                        
+                                    response_markdown.update()
+                                    await scroll_to_bottom()
+                                    
+                                # Loop Finishes (chunk stream done)
+                                streaming_container.clear()
+                                
+                                # Save Assistant Message
+                                assistant_msg = {
+                                    'role': 'assistant', 
+                                    'content': response_content, 
+                                    'thinking': full_thinking, 
+                                    'model': model_select.value,
+                                    'id': str(uuid.uuid4())
+                                }
+                                if tool_calls:
+                                    assistant_msg['tool_calls'] = tool_calls
+                                
+                                messages.append(assistant_msg)
+                                
+                                # Clean version for API
+                                clean_assist = {k:v for k,v in assistant_msg.items() if k in ['role', 'content', 'tool_calls']}
+                                api_messages.append(clean_assist) 
+
+                                app.storage.user['messages'] = messages
+                                render_chat_messages.refresh()
+                                await scroll_to_bottom()
+
+                                if state['stopping']:
+                                    break
+
+                                # Handle Tools
+                                if tool_calls:
+                                    for tc in tool_calls:
+                                        res = await execute_tool_call(tc)
+                                        tool_msg = {
+                                            'role': 'tool',
+                                            'content': res,
+                                            'name': tc.get('function', {}).get('name'),
+                                            'id': str(uuid.uuid4())
+                                        }
+                                        messages.append(tool_msg)
+                                        api_messages.append({'role': 'tool', 'content': res}) 
+                                    
+                                    app.storage.user['messages'] = messages
+                                    render_chat_messages.refresh()
+                                    await scroll_to_bottom()
+                                    # Continue loop to send tool output back to model
+                                else:
+                                    break # No tools, conversation turn ends
+
+                            except Exception as e:
+                                try:
+                                    spinner.delete()
+                                except: pass
+                                ui.notify(f'Error: {e}', type='negative')
+                                streaming_container.clear()
+                                break
+                        
+                        state['processing'] = False
+                        state['stopping'] = False
+                        update_button_state()
 
                 # --- User Action Handlers ---
                 async def save_and_respond(msg, new_content):

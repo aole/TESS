@@ -64,10 +64,33 @@ class OllamaClient:
             print(f"Error pulling model: {e}")
             yield {"status": "error", "error": str(e)}
 
-    async def chat(self, model: str, messages: List[Dict[str, str]], stream: bool = True, options: Dict[str, Any] = None):
+    async def generate(self, model: str, prompt: str, system: str = None, template: str = None, context: List[int] = None, stream: bool = True, options: Dict[str, Any] = None):
+        """Generate a response for a given prompt."""
+        try:
+            response = await self.client.generate(model=model, prompt=prompt, system=system, template=template, context=context, stream=stream, options=options)
+            if stream:
+                async def generator():
+                    async for chunk in response:
+                        yield (chunk.model_dump() if hasattr(chunk, 'model_dump') else (chunk.dict() if hasattr(chunk, 'dict') else dict(chunk)))
+                return generator()
+            else:
+                if hasattr(response, 'model_dump'):
+                    return response.model_dump()
+                elif hasattr(response, 'dict'):
+                    return response.dict()
+                return dict(response)
+        except Exception as e:
+            print(f"Error generating response: {e}")
+            if stream:
+                async def error_gen():
+                    yield {'response': f"Error: {str(e)}"}
+                return error_gen()
+            return {'response': f"Error: {str(e)}"}
+
+    async def chat(self, model: str, messages: List[Dict[str, str]], stream: bool = True, options: Dict[str, Any] = None, tools: List[Any] = None):
         """Chat with a model."""
         try:
-            response = await self.client.chat(model=model, messages=messages, stream=stream, options=options)
+            response = await self.client.chat(model=model, messages=messages, stream=stream, options=options, tools=tools)
             if stream:
                 async def generator():
                     async for chunk in response:
