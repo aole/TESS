@@ -16,6 +16,7 @@ def run_python_code(code: str, args: Optional[List[str]] = None) -> str:
     - This is NOT a bash shell. accessing files or system commands requires importing 'os' or 'subprocess'.
     - Math usage: Use '**' for power (e.g. 2**3 = 8), NOT '^'.
     - The code runs in the current process.
+    - JSON FORMATTING: When writing code strings, do NOT escape characters that don't need it (like '?'). Only escape double quotes (\") and backslashes (\\).
 
     Args:
         code (str): The valid Python code or expression to execute.
