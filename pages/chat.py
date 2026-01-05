@@ -82,9 +82,19 @@ async def create_page(model_param: str = None):
             if available_tools:
                 with ui.card().classes('w-full p-3 gap-2 bg-black/20 border-white/5'):
                     ui.label('Tools').classes('text-sm font-bold text-gray-400 mb-1')
+                    
+                    if 'selected_tools' not in app.storage.user:
+                        app.storage.user['selected_tools'] = []
+                    saved_tools = app.storage.user['selected_tools']
+
+                    def update_tool_storage():
+                        selected = [name for name, box in tool_checks.items() if box.value]
+                        app.storage.user['selected_tools'] = selected
+
                     with ui.column().classes('gap-1'):
                         for t_name in tool_options.keys():
-                            tool_checks[t_name] = ui.checkbox(t_name, value=False).classes('text-sm text-gray-300')
+                            is_checked = t_name in saved_tools
+                            tool_checks[t_name] = ui.checkbox(t_name, value=is_checked, on_change=update_tool_storage).classes('text-sm text-gray-300')
 
             # Parameter update logic
             async def update_params():
@@ -284,8 +294,14 @@ async def create_page(model_param: str = None):
                         
                         # Prepare initial messages
                         api_messages = []
-                        if system_prompt.value:
-                            api_messages.append({'role': 'system', 'content': system_prompt.value})
+                        sys_content = system_prompt.value or ""
+                        if tool_funcs_map: # If tools are active
+                            sys_content += "\n\nIMPORTANT: When generating tool calls, ensure strictly valid JSON. Do not use invalid escape sequences like '\\?' inside strings. Only escape backslashes and double quotes."
+                            if not system_prompt.value: # If user didn't provide one, start with a generic helpful one
+                                sys_content = "You are a helpful assistant.\n" + sys_content
+                        
+                        if sys_content:
+                            api_messages.append({'role': 'system', 'content': sys_content})
                         
                         for msg in messages:
                             if msg['role'] in ['user', 'assistant', 'tool']:
