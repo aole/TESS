@@ -28,7 +28,7 @@ def create_page():
                 if is_edit:
                     name_input.disable() # Don't allow renaming for simplicity in this version
                 
-                desc_input = ui.input('Description', value=desc_val).classes('flex-grow')
+                desc_input = ui.input('Description (Edit via Docstring)', value=desc_val).classes('flex-grow').props('readonly')
 
             ui.label('Python Code').classes('mt-2 text-sm text-muted')
             code_editor = ui.codemirror(value=code_val, language='python').classes('h-64 border rounded')

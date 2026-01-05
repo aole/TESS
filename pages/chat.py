@@ -20,13 +20,12 @@ async def create_page(model_param: str = None):
     state = {'processing': False, 'stopping': False}
 
     # Helper to load tool code
-    def load_tool_function(code: str):
+    def load_tool_function(name: str, code: str):
         try:
-            local_scope = {}
-            exec(code, {}, local_scope)
-            for v in local_scope.values():
-                if callable(v):
-                    return v
+            scope = {}
+            exec(code, scope)
+            if name in scope and callable(scope[name]):
+                return scope[name]
         except Exception as e:
             print(f"Error loading tool code: {e}")
         return None
@@ -262,7 +261,7 @@ async def create_page(model_param: str = None):
                         if available_tools:
                             for name, checkbox in tool_checks.items():
                                 if checkbox.value and name in tool_options:
-                                    func = load_tool_function(tool_options[name].code)
+                                    func = load_tool_function(name, tool_options[name].code)
                                     if func:
                                         tool_funcs_map[func.__name__] = func
                         
