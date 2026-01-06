@@ -183,27 +183,53 @@ class OllamaClient:
             return {'message': {'content': f"Error: {str(e)}"}}
 
     async def get_model_parameters(self, model_name: str) -> Dict[str, Any]:
-        """Get default parameters for a model."""
+        """Get default parameters and system prompt for a model."""
         try:
             info = await self.show_model(model_name)
-            params_text = info.get('parameters', '')
-            if not params_text:
-                return {}
-            
             params = {}
-            for line in params_text.split('\n'):
-                parts = line.strip().split()
-                if len(parts) >= 2:
-                    key = parts[0]
-                    value = parts[1]
-                    try:
-                        if key == 'temperature':
-                            params['temperature'] = float(value)
-                        elif key == 'top_p':
-                            params['top_p'] = float(value)
-                        # Add more parsers as needed
-                    except ValueError:
-                        pass
+            
+            # Get system prompt
+            if 'system' in info and info['system']:
+                params['system'] = info['system']
+            elif 'modelfile' in info:
+                # Fallback: parse Modelfile for SYSTEM command
+                # This is a simple parser and might not catch all edge cases (like multiline with triple quotes if not handled by API)
+                for line in info['modelfile'].split('\n'):
+                    if line.strip().upper().startswith('SYSTEM '):
+                        # Extract content after SYSTEM
+                        # Typically: SYSTEM "content" or SYSTEM content
+                        content = line.strip()[6:].strip()
+                        
+                        # Remove quotes if present
+                        if (content.startswith('"') and content.endswith('"')) or \
+                           (content.startswith("'") and content.endswith("'")):
+                            content = content[1:-1]
+                        
+                        # Handle triple quotes if simple one-liner
+                        if (content.startswith('"""') and content.endswith('"""')):
+                             content = content[3:-3]
+                        
+                        params['system'] = content
+                        break
+            
+            # Parse parameters blob
+            params_text = info.get('parameters', '')
+            if params_text:
+                for line in params_text.split('\n'):
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        key = parts[0]
+                        value = parts[1]
+                        try:
+                            if key == 'temperature':
+                                params['temperature'] = float(value)
+                            elif key == 'top_p':
+                                params['top_p'] = float(value)
+                            elif key == 'repeat_penalty':
+                                params['repeat_penalty'] = float(value)
+                            # Add more parsers as needed
+                        except ValueError:
+                            pass
             return params
         except Exception as e:
             print(f"Error getting parameters for {model_name}: {e}")

@@ -65,6 +65,9 @@ async def create_page(model_param: str = None):
                 top_p_slider = ui.slider(min=0, max=1, step=0.1, value=0.9).props('label-always')
                 ui.label('Top P').classes('text-xs text-muted mb-2')
                 
+                repeat_penalty_slider = ui.slider(min=0, max=2, step=0.1, value=1.1).props('label-always')
+                ui.label('Repeat Penalty').classes('text-xs text-muted mb-2')
+                
                 system_prompt = ui.textarea(label='System Prompt', placeholder='You are a helpful assistant...').classes('w-full text-sm').props('rows=5')
                 
                 def clear_chat():
@@ -111,6 +114,10 @@ async def create_page(model_param: str = None):
                         temp_slider.value = params['temperature']
                     if 'top_p' in params:
                         top_p_slider.value = params['top_p']
+                    if 'repeat_penalty' in params:
+                        repeat_penalty_slider.value = params['repeat_penalty']
+                    if 'system' in params:
+                        system_prompt.value = params['system']
             
             model_select.on_value_change(update_params)
             # Trigger initial update
@@ -340,7 +347,8 @@ async def create_page(model_param: str = None):
                                     stream=True,
                                     options={
                                         'temperature': temp_slider.value,
-                                        'top_p': top_p_slider.value
+                                        'top_p': top_p_slider.value,
+                                        'repeat_penalty': repeat_penalty_slider.value
                                     },
                                     tools=list_tools
                                 )
@@ -471,7 +479,7 @@ async def create_page(model_param: str = None):
                     
                     await generate_response()
 
-                user_input.on('keydown.ctrl.enter', lambda: send_message())
+                user_input.on('keydown.enter.prevent.exact', lambda: send_message())
                 send_btn = ui.button(icon='send', on_click=send_message).props('flat round color=primary')
             
         # Keyboard submit

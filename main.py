@@ -2,7 +2,8 @@ from nicegui import ui, app
 from pages import models, chat, arena, batch, tools, create
 
 # Page styling and configuration
-def layout():
+# Page styling and configuration
+def layout(page_path: str = ''):
     ui.add_head_html("""
         <style>
             :root {
@@ -54,46 +55,52 @@ def layout():
         
         ui.space()
         
-        with ui.row().classes('gap-4'):
+        with ui.row().classes('gap-4 items-center'):
             # Navigation Links
             def nav_link(text, target):
-                ui.link(text, target).classes('nav-item').style('font-weight: 500')
+                classes = 'nav-item'
+                if target == page_path:
+                    classes += ' active'
+                ui.link(text, target).classes(classes).style('font-weight: 500')
+            
+            nav_link('Chat', '/chat')
+            # Visual separator using a small vertical line or just margin
+            ui.element('div').classes('h-4 w-px bg-white/20 mx-2')
             
             nav_link('Models', '/')
             nav_link('Create', '/create')
             nav_link('Tools', '/tools')
-            nav_link('Chat', '/chat')
             nav_link('Arena', '/arena')
             nav_link('Batch', '/batch')
 
 @ui.page('/')
 def index():
-    layout()
+    layout('/')
     models.create_page()
 
 @ui.page('/chat')
 async def chat_page(model: str = None):
-    layout()
+    layout('/chat')
     await chat.create_page(model)
 
 @ui.page('/arena')
 async def arena_page():
-    layout()
+    layout('/arena')
     await arena.create_page()
 
 @ui.page('/batch')
 async def batch_page():
-    layout()
+    layout('/batch')
     await batch.create_page()
 
 @ui.page('/tools')
 def tools_page():
-    layout()
+    layout('/tools')
     tools.create_page()
 
 @ui.page('/create')
 def create_new_page(base_model: str = None):
-    layout()
+    layout('/create')
     create.create_page(base_model)
 
 if __name__ in {"__main__", "__mp_main__"}:

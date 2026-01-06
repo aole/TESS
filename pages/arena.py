@@ -153,5 +153,5 @@ async def create_page():
                 state['stopping'] = False
                 update_btn()
 
-            user_input.on('keydown.ctrl.enter', run_battle)
+            user_input.on('keydown.enter.prevent.exact', run_battle)
             send_btn = ui.button(icon='send', on_click=run_battle).props('flat round color=primary')

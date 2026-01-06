@@ -121,6 +121,7 @@ async def create_page():
                     state['stopping'] = False
                     update_btn()
 
+                user_prompt.on('keydown.enter.prevent.exact', run_batch)
                 run_btn = ui.button('Run Batch', on_click=run_batch).props('color=primary icon=play_arrow').classes('w-full h-12 text-lg')
 
         # Results Area
