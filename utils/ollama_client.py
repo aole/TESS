@@ -106,9 +106,10 @@ class OllamaClient:
             self._log('create_error', str(e), model)
             yield {'status': 'error', 'error': str(e)}
 
-    async def generate(self, model: str, prompt: str, system: str = None, template: str = None, context: List[int] = None, stream: bool = True, options: Dict[str, Any] = None):
+    async def generate(self, model: str, prompt: str, system: str = None, template: str = None, context: List[int] = None, stream: bool = True, options: Dict[str, Any] = None, log_requests: bool = True):
         """Generate a response for a given prompt."""
-        self._log('generate_request', {'prompt': prompt, 'system': system, 'options': options}, model)
+        if log_requests:
+            self._log('generate_request', {'prompt': prompt, 'system': system, 'options': options}, model)
         try:
             response = await self.client.generate(model=model, prompt=prompt, system=system, template=template, context=context, stream=stream, options=options)
             if stream:
@@ -119,17 +120,21 @@ class OllamaClient:
                             data = (chunk.model_dump() if hasattr(chunk, 'model_dump') else (chunk.dict() if hasattr(chunk, 'dict') else dict(chunk)))
                             full_response += data.get('response', '')
                             yield data
-                        self._log('generate_response', full_response, model)
+                        if log_requests:
+                            self._log('generate_response', full_response, model)
                     except Exception as e:
-                        self._log('generate_error', str(e), model)
+                        if log_requests:
+                            self._log('generate_error', str(e), model)
                         yield {'response': f"Error: {str(e)}"}
                 return generator()
             else:
                 data = (response.model_dump() if hasattr(response, 'model_dump') else (response.dict() if hasattr(response, 'dict') else dict(response)))
-                self._log('generate_response', data.get('response'), model)
+                if log_requests:
+                    self._log('generate_response', data.get('response'), model)
                 return data
         except Exception as e:
-            self._log('generate_error', str(e), model)
+            if log_requests:
+                self._log('generate_error', str(e), model)
             print(f"Error generating response: {e}")
             if stream:
                 async def error_gen():
@@ -137,9 +142,10 @@ class OllamaClient:
                 return error_gen()
             return {'response': f"Error: {str(e)}"}
 
-    async def chat(self, model: str, messages: List[Dict[str, str]], stream: bool = True, options: Dict[str, Any] = None, tools: List[Any] = None):
+    async def chat(self, model: str, messages: List[Dict[str, str]], stream: bool = True, options: Dict[str, Any] = None, tools: List[Any] = None, log_requests: bool = True):
         """Chat with a model."""
-        self._log('chat_request', {'messages': messages, 'options': options, 'tools': str(tools) if tools else None}, model)
+        if log_requests:
+            self._log('chat_request', {'messages': messages, 'options': options, 'tools': str(tools) if tools else None}, model)
         try:
             response = await self.client.chat(model=model, messages=messages, stream=stream, options=options, tools=tools)
             if stream:
@@ -162,19 +168,23 @@ class OllamaClient:
                             log_content['thinking'] = accumulated_thinking
                         if accumulated_tool_calls:
                             log_content['tool_calls'] = accumulated_tool_calls
-                        self._log('chat_response', log_content, model)
+                        if log_requests:
+                            self._log('chat_response', log_content, model)
                     
                     except Exception as e:
-                        self._log('chat_error', str(e), model)
+                        if log_requests:
+                            self._log('chat_error', str(e), model)
                         yield {'message': {'content': f"Error: {str(e)}"}}
 
                 return generator()
             else:
                 data = (response.model_dump() if hasattr(response, 'model_dump') else (response.dict() if hasattr(response, 'dict') else dict(response)))
-                self._log('chat_response', data.get('message'), model)
+                if log_requests:
+                    self._log('chat_response', data.get('message'), model)
                 return data
         except Exception as e:
-            self._log('chat_error', str(e), model)
+            if log_requests:
+                self._log('chat_error', str(e), model)
             print(f"Error chatting with model: {e}")
             if stream:
                 async def error_gen():

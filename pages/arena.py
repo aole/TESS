@@ -105,7 +105,7 @@ async def create_page():
                 output1 = ""
                 try:
                     # Async streaming
-                    stream1 = await client.chat(model=model1, messages=msgs, stream=True)
+                    stream1 = await client.chat(model=model1, messages=msgs, stream=True, log_requests=False)
                     spinner1.delete()
                     async for chunk in stream1:
                         if state['stopping']:
@@ -132,7 +132,7 @@ async def create_page():
                     
                     output2 = ""
                     try:
-                        stream2 = await client.chat(model=model2, messages=msgs, stream=True)
+                        stream2 = await client.chat(model=model2, messages=msgs, stream=True, log_requests=False)
                         spinner2.delete()
                         async for chunk in stream2:
                             if state['stopping']:
