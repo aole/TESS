@@ -82,50 +82,29 @@ class OllamaClient:
             print(f"Error pulling model: {e}")
             yield {"status": "error", "error": str(e)}
 
-    async def create_model(self, model: str, modelfile: str) -> AsyncGenerator[Dict[str, Any], None]:
-        """Create a model from a Modelfile using CLI."""
-        import tempfile
-        import asyncio
-        
-        # Create temp file
-        # Windows requires file to be closed before another process uses it
-        tmp_path = None
+    async def create_model(self, model: str, from_: str = None, system: str = None, template: str = None, parameters: Dict[str, Any] = None) -> AsyncGenerator[Dict[str, Any], None]:
+        """Create a model from components using the Ollama python client."""
         try:
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as tmp:
-                tmp.write(modelfile)
-                tmp_path = tmp.name
+            self._log('create_request', {'model': model, 'from': from_, 'system': system, 'parameters': parameters}, model)
             
-            self._log('create_request', {'modelfile': modelfile}, model)
+            # Construct arguments for client.create
+            create_args = {'model': model, 'stream': True}
             
-            process = await asyncio.create_subprocess_exec(
-                'ollama', 'create', model, '-f', tmp_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT
-            )
-            
-            # Read stdout
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    break
-                line_str = line.decode().strip()
-                if line_str:
-                    yield {'status': line_str}
-            
-            await process.wait()
-            
-            if process.returncode != 0:
-                raise Exception(f"Process exited with code {process.returncode}")
+            if from_: create_args['from_'] = from_
+            if system: create_args['system'] = system
+            if template: create_args['template'] = template
+            if parameters: create_args['parameters'] = parameters
+
+            # Use the python client directly
+            # stream=True yields progress updates
+            resp = await self.client.create(**create_args)
+            async for chunk in resp:
+                 data = (chunk.model_dump() if hasattr(chunk, 'model_dump') else (chunk.dict() if hasattr(chunk, 'dict') else dict(chunk)))
+                 yield data
                 
         except Exception as e:
             self._log('create_error', str(e), model)
             yield {'status': 'error', 'error': str(e)}
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except:
-                    pass
 
     async def generate(self, model: str, prompt: str, system: str = None, template: str = None, context: List[int] = None, stream: bool = True, options: Dict[str, Any] = None):
         """Generate a response for a given prompt."""
