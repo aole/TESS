@@ -144,16 +144,17 @@ def create_page():
         # Slots
         table.add_slot('body-cell-active', r'''
             <q-td key="active" :props="props">
-                <q-icon :name="props.row.active ? 'check_circle' : 'cancel'" 
-                        :class="props.row.active ? 'text-green-400' : 'text-red-400'" size="sm" />
+                <q-icon :name="props.row.active ? 'toggle_on' : 'toggle_off'" 
+                        :class="props.row.active ? 'text-green-400 cursor-pointer' : 'text-gray-500 cursor-pointer'" 
+                        size="md"
+                        @click="$parent.$emit('toggle', props.row)">
+                    <q-tooltip>Click to Toggle</q-tooltip>
+                </q-icon>
             </q-td>
         ''')
 
         table.add_slot('body-cell-actions', r'''
             <q-td key="actions" :props="props" class="flex gap-2 justify-end">
-                <q-btn flat round color="secondary" icon="power_settings_new" size="sm" @click="$parent.$emit('toggle', props.row)" >
-                    <q-tooltip>Toggle Active</q-tooltip>
-                </q-btn>
                 <q-btn flat round color="warning" icon="edit" size="sm" @click="$parent.$emit('edit', props.row)" />
                 <q-btn flat round color="negative" icon="delete" size="sm" @click="$parent.$emit('delete', props.row)" />
             </q-td>

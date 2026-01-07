@@ -3,5 +3,6 @@
         "chat": false,
         "arena": false,
         "batch": false
-    }
+    },
+    "inactive_tools": []
 }

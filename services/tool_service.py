@@ -7,6 +7,8 @@ from typing import List, Optional
 
 TOOLS_DIR = 'data/tools'
 
+from utils.config import config_manager
+
 @dataclass
 class Tool:
     name: str  # Filename without extension
@@ -39,24 +41,12 @@ class ToolService:
             try:
                 tree = ast.parse(code)
                 description = ast.get_docstring(tree) or ""
-                
-                # Check for __active__ variable
-                active = True
-                for node in tree.body:
-                    if isinstance(node, ast.Assign):
-                        for target in node.targets:
-                            if isinstance(target, ast.Name) and target.id == '__active__':
-                                if isinstance(node.value, ast.Constant): # python 3.8+
-                                    active = bool(node.value.value)
-                                elif isinstance(node.value, ast.NameConstant): # python < 3.8
-                                    active = bool(node.value.value)
-                                break
             except SyntaxError:
-                # If code is invalid, still return it but maybe mark it? 
-                # For now we just return what we can
                 description = "Syntax Error in file"
-                active = True
 
+            # Active status is now managed by config
+            active = config_manager.is_tool_active(name)
+            
             return Tool(name=name, description=description, code=code, active=active)
         except Exception as e:
             print(f"Error parsing tool {file_path}: {e}")
@@ -84,24 +74,15 @@ class ToolService:
         if os.path.exists(file_path):
             return False
         
-        return self._write_tool_file(file_path, tool.code, tool.active)
+        # Save code
+        if self._write_tool_file(file_path, tool.code):
+            # Save active status
+            config_manager.set_tool_active(tool.name, tool.active)
+            return True
+        return False
 
-    def _write_tool_file(self, file_path: str, code: str, active: bool) -> bool:
+    def _write_tool_file(self, file_path: str, code: str) -> bool:
         try:
-            # Check if we need to insert or update __active__
-            has_active = re.search(r'^__active__\s*=', code, re.MULTILINE)
-            
-            if has_active:
-                # Replace existing
-                new_line = f"__active__ = {active}"
-                code = re.sub(r'^__active__\s*=.*$', new_line, code, flags=re.MULTILINE)
-            else:
-                # Append if not True (since default is True)
-                if not active:
-                    if not code.endswith('\n'):
-                        code += '\n'
-                    code += f"\n__active__ = {active}\n"
-            
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(code)
             return True
@@ -122,21 +103,29 @@ class ToolService:
                 return False # Name collision
             os.rename(original_path, new_path)
             original_path = new_path
+            # Clean up old config active status (reset to default/active by removing from inactive list)
+            config_manager.set_tool_active(original_name, True)
             
-        return self._write_tool_file(original_path, updated_tool.code, updated_tool.active)
+        if self._write_tool_file(original_path, updated_tool.code):
+            config_manager.set_tool_active(updated_tool.name, updated_tool.active)
+            return True
+        return False
 
     def delete_tool(self, name: str) -> bool:
         file_path = os.path.join(TOOLS_DIR, f"{name}.py")
         if os.path.exists(file_path):
             os.remove(file_path)
+            # Cleanup config
+            config_manager.set_tool_active(name, True)
             return True
         return False
 
     def toggle_tool_active(self, name: str) -> bool:
         tool = self.get_tool(name)
         if tool:
-            tool.active = not tool.active
-            return self._write_tool_file(os.path.join(TOOLS_DIR, f"{name}.py"), tool.code, tool.active)
+            new_active = not tool.active
+            config_manager.set_tool_active(name, new_active)
+            return True
         return False
 
 tool_service = ToolService()

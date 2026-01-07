@@ -43,4 +43,23 @@ class ConfigManager:
     def is_logging_enabled(self, section: str) -> bool:
         return self.config.get("logging", {}).get(section, True)
 
+    def is_tool_active(self, tool_name: str) -> bool:
+        return tool_name not in self.config.get("inactive_tools", [])
+
+    def set_tool_active(self, tool_name: str, active: bool):
+        inactive_tools = self.config.get("inactive_tools", [])
+        # Ensure it's a list (in case of malformed config)
+        if not isinstance(inactive_tools, list):
+            inactive_tools = []
+
+        if active:
+            if tool_name in inactive_tools:
+                inactive_tools.remove(tool_name)
+        else:
+            if tool_name not in inactive_tools:
+                inactive_tools.append(tool_name)
+        
+        self.config["inactive_tools"] = inactive_tools
+        self._save_config(self.config)
+
 config_manager = ConfigManager()
