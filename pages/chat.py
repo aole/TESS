@@ -1,5 +1,6 @@
 from nicegui import ui, app
 from utils.ollama_client import client
+from utils.config import config_manager
 from services.tool_service import tool_service
 import asyncio
 import uuid
@@ -350,7 +351,8 @@ async def create_page(model_param: str = None):
                                         'top_p': top_p_slider.value,
                                         'repeat_penalty': repeat_penalty_slider.value
                                     },
-                                    tools=list_tools
+                                    tools=list_tools,
+                                    log_requests=config_manager.is_logging_enabled('chat')
                                 )
                                 
                                 spinner.delete()

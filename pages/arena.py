@@ -1,5 +1,6 @@
 from nicegui import ui
 from utils.ollama_client import client
+from utils.config import config_manager
 import asyncio
 
 async def create_page():
@@ -105,7 +106,7 @@ async def create_page():
                 output1 = ""
                 try:
                     # Async streaming
-                    stream1 = await client.chat(model=model1, messages=msgs, stream=True, log_requests=False)
+                    stream1 = await client.chat(model=model1, messages=msgs, stream=True, log_requests=config_manager.is_logging_enabled('arena'))
                     spinner1.delete()
                     async for chunk in stream1:
                         if state['stopping']:
@@ -132,7 +133,7 @@ async def create_page():
                     
                     output2 = ""
                     try:
-                        stream2 = await client.chat(model=model2, messages=msgs, stream=True, log_requests=False)
+                        stream2 = await client.chat(model=model2, messages=msgs, stream=True, log_requests=config_manager.is_logging_enabled('arena'))
                         spinner2.delete()
                         async for chunk in stream2:
                             if state['stopping']:

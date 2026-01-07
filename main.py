@@ -1,5 +1,5 @@
 from nicegui import ui, app
-from pages import models, chat, arena, batch, tools, create
+from pages import models, chat, arena, batch, tools, create, settings
 
 # Page styling and configuration
 # Page styling and configuration
@@ -72,6 +72,8 @@ def layout(page_path: str = ''):
             nav_link('Tools', '/tools')
             nav_link('Arena', '/arena')
             nav_link('Batch', '/batch')
+            ui.element('div').classes('h-4 w-px bg-white/20 mx-2')
+            nav_link('Settings', '/settings')
 
 @ui.page('/')
 def index():
@@ -102,6 +104,11 @@ def tools_page():
 def create_new_page(base_model: str = None):
     layout('/create')
     create.create_page(base_model)
+
+@ui.page('/settings')
+def settings_page():
+    layout('/settings')
+    settings.create_page()
 
 if __name__ in {"__main__", "__mp_main__"}:
     ui.run(title='Ollama Manager', dark=True, reload=True, port=8080, storage_secret='ollama_manager_secret')

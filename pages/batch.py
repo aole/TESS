@@ -1,5 +1,6 @@
 from nicegui import ui
 from utils.ollama_client import client
+from utils.config import config_manager
 import asyncio
 import time
 
@@ -150,7 +151,7 @@ async def create_page():
                         t0 = time.time()
                         
                         try:
-                            stream = await client.chat(model=model, messages=msgs, stream=True, log_requests=False)
+                            stream = await client.chat(model=model, messages=msgs, stream=True, log_requests=config_manager.is_logging_enabled('batch'))
                             async for chunk in stream:
                                 if state['stopping']:
                                     content_area.content += '\n\n**Stopped**'

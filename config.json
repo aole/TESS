@@ -1,0 +1,7 @@
+{
+    "logging": {
+        "chat": false,
+        "arena": false,
+        "batch": false
+    }
+}
