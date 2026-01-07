@@ -142,12 +142,22 @@ class OllamaClient:
                 return error_gen()
             return {'response': f"Error: {str(e)}"}
 
-    async def chat(self, model: str, messages: List[Dict[str, str]], stream: bool = True, options: Dict[str, Any] = None, tools: List[Any] = None, log_requests: bool = True):
+    async def chat(self, model: str, messages: List[Dict[str, str]], stream: bool = True, options: Dict[str, Any] = None, tools: List[Any] = None, keep_alive: Any = None, log_requests: bool = True):
         """Chat with a model."""
         if log_requests:
-            self._log('chat_request', {'messages': messages, 'options': options, 'tools': str(tools) if tools else None}, model)
+            self._log('chat_request', {'messages': messages, 'options': options, 'tools': str(tools) if tools else None, 'keep_alive': keep_alive}, model)
         try:
-            response = await self.client.chat(model=model, messages=messages, stream=stream, options=options, tools=tools)
+            chat_args = {
+                'model': model,
+                'messages': messages,
+                'stream': stream,
+                'options': options,
+                'tools': tools
+            }
+            if keep_alive is not None:
+                chat_args['keep_alive'] = keep_alive
+
+            response = await self.client.chat(**chat_args)
             if stream:
                 async def generator():
                     accumulated_content = ""

@@ -106,7 +106,7 @@ async def create_page():
                 output1 = ""
                 try:
                     # Async streaming
-                    stream1 = await client.chat(model=model1, messages=msgs, stream=True, log_requests=config_manager.is_logging_enabled('arena'))
+                    stream1 = await client.chat(model=model1, messages=msgs, stream=True, keep_alive=0, log_requests=config_manager.is_logging_enabled('arena'))
                     spinner1.delete()
                     async for chunk in stream1:
                         if state['stopping']:
@@ -127,13 +127,16 @@ async def create_page():
 
                 # Run Model 2 (Sequential) - only if not stopped
                 if not state['stopping']:
+                    # Give a breather for offloading
+                    await asyncio.sleep(1.0)
+                    
                     with chat2:
                         msg2 = ui.chat_message(name=model2, sent=False)
                         spinner2 = ui.spinner('dots')
                     
                     output2 = ""
                     try:
-                        stream2 = await client.chat(model=model2, messages=msgs, stream=True, log_requests=config_manager.is_logging_enabled('arena'))
+                        stream2 = await client.chat(model=model2, messages=msgs, stream=True, keep_alive=0, log_requests=config_manager.is_logging_enabled('arena'))
                         spinner2.delete()
                         async for chunk in stream2:
                             if state['stopping']:

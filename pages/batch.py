@@ -151,7 +151,7 @@ async def create_page():
                         t0 = time.time()
                         
                         try:
-                            stream = await client.chat(model=model, messages=msgs, stream=True, log_requests=config_manager.is_logging_enabled('batch'))
+                            stream = await client.chat(model=model, messages=msgs, stream=True, keep_alive=0, log_requests=config_manager.is_logging_enabled('batch'))
                             async for chunk in stream:
                                 if state['stopping']:
                                     content_area.content += '\n\n**Stopped**'
@@ -189,7 +189,7 @@ async def create_page():
                             metrics_label.set_text(f"Error")
                         
                         # Add a small delay/cleanup if needed between models
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(1.0)
                     
                     state['processing'] = False
                     state['stopping'] = False
