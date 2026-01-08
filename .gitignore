@@ -14,5 +14,5 @@ wheels/
 
 # Logs
 logs/
-AGENT_RULES.md
 inspect_model_output.py
+AGENT_RULES.md

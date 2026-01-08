@@ -39,6 +39,9 @@ async def pull_model_task(model_name: str, on_complete: Optional[Callable] = Non
             elif status == 'success':
                 pull_state.progress = 1.0
                 pull_state.progress_text = "100%"
+        
+        # Wait a moment to ensure Ollama registers the new model and user sees 100%
+        await asyncio.sleep(1.0)
                 
     except Exception as e:
         pull_state.status_text = f"Error: {e}"
@@ -212,17 +215,25 @@ def create_page():
 
         # Model Table
         columns = [
-            {'name': 'name', 'label': 'Name', 'field': 'model', 'align': 'left', 'sortable': True, 'classes': 'text-indigo-300 font-mono font-bold'},
+            {'name': 'name', 'label': 'Name (Click to Chat)', 'field': 'model', 'align': 'left', 'sortable': True, 'classes': 'text-indigo-300 font-mono font-bold'},
             {'name': 'size', 'label': 'Size', 'field': 'size_str', 'align': 'left', 'sortable': True},
             {'name': 'family', 'label': 'Family', 'field': 'family_str', 'align': 'left', 'sortable': True},
             {'name': 'actions', 'label': '', 'field': 'actions', 'align': 'right'},
         ]
         
         table = ui.table(columns=columns, rows=[], row_key='model').classes('w-full glass-panel remove-defaults')
+        table.add_slot('body-cell-name', r'''
+            <q-td key="name" :props="props">
+                <div class="cursor-pointer text-indigo-300 font-mono font-bold hover:text-indigo-100 flex items-center gap-2 group" @click="$parent.$emit('chat', props.row)">
+                     {{ props.row.model }}
+                     <q-icon name="chat" size="xs" class="opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+            </q-td>
+        ''')
+
         table.add_slot('body-cell-actions', r'''
             <q-td key="actions" :props="props" class="flex gap-2 justify-end">
                 <q-btn flat round color="white" icon="info" size="sm" @click="$parent.$emit('details', props.row)" />
-                <q-btn flat round color="accent" icon="chat_bubble" size="sm" @click="$parent.$emit('chat', props.row)" />
                 <q-btn flat round color="secondary" icon="content_copy" size="sm" @click="$parent.$emit('create', props.row)" />
                 <q-btn flat round color="warning" icon="edit" size="sm" @click="$parent.$emit('rename', props.row)" />
                 <q-btn flat round color="negative" icon="delete" size="sm" @click="$parent.$emit('delete', props.row)" />
