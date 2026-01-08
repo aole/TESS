@@ -130,8 +130,28 @@ async def create_page(model_param: str = None):
         with ui.column().classes('flex-grow h-full gap-2 relative min-w-0'):
             chat_container = ui.column().classes('w-full flex-grow overflow-y-auto p-4 gap-4 rounded-lg bg-black/20 border border-white/5').props('id=chat-scroll-area')
             
-            async def scroll_to_bottom():
-                await ui.run_javascript('var el = document.getElementById("chat-scroll-area"); if (el) el.scrollTop = el.scrollHeight;')
+            async def scroll_to_bottom(check_position=False):
+                js = """
+                var el = document.getElementById("chat-scroll-area");
+                if (el) {
+                    if (typeof window.isChatAtBottom === 'undefined') {
+                        window.isChatAtBottom = true;
+                    }
+                    if (!el.dataset.hasScrollListener) {
+                        el.dataset.hasScrollListener = "true";
+                        el.addEventListener('scroll', function() {
+                             window.isChatAtBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 50;
+                        });
+                    }
+                    if (!CHECK_POSITION) {
+                        el.scrollTop = el.scrollHeight;
+                        window.isChatAtBottom = true;
+                    } else if (window.isChatAtBottom) {
+                         el.scrollTop = el.scrollHeight;
+                    }
+                }
+                """.replace('CHECK_POSITION', 'true' if check_position else 'false')
+                await ui.run_javascript(js)
 
             # Forward declarations 
             async def generate_response(): pass
@@ -245,7 +265,7 @@ async def create_page(model_param: str = None):
 
             # Scroll init
             if messages:
-                ui.run_javascript('var el = document.getElementById("chat-scroll-area"); if (el) el.scrollTop = el.scrollHeight;')
+                await scroll_to_bottom()
 
             # Input Area
             with ui.row().classes('w-full items-end gap-2 p-2 glass-panel rounded-lg'):
@@ -384,7 +404,7 @@ async def create_page(model_param: str = None):
                                         response_markdown.content = response_content
                                         
                                     response_markdown.update()
-                                    await scroll_to_bottom()
+                                    await scroll_to_bottom(check_position=True)
                                     
                                 # Loop Finishes (chunk stream done)
                                 streaming_container.clear()
@@ -408,7 +428,7 @@ async def create_page(model_param: str = None):
 
                                 app.storage.user['messages'] = messages
                                 render_chat_messages.refresh()
-                                await scroll_to_bottom()
+                                await scroll_to_bottom(check_position=True)
 
                                 if state['stopping']:
                                     break
@@ -428,7 +448,7 @@ async def create_page(model_param: str = None):
                                     
                                     app.storage.user['messages'] = messages
                                     render_chat_messages.refresh()
-                                    await scroll_to_bottom()
+                                    await scroll_to_bottom(check_position=True)
                                     # Continue loop to send tool output back to model
                                 else:
                                     break # No tools, conversation turn ends

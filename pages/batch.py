@@ -3,8 +3,32 @@ from utils.ollama_client import client
 from utils.config import config_manager
 import asyncio
 import time
+import uuid
 
 async def create_page():
+    
+    async def scroll_to_bottom(area_id, check_position=False):
+        js = """
+        var el = document.getElementById("AREA_ID");
+        if (el) {
+            if (typeof window.isBatchAtBottom === 'undefined') {
+                window.isBatchAtBottom = {};
+            }
+            if (!el.dataset.hasScrollListener) {
+                el.dataset.hasScrollListener = "true";
+                el.addEventListener('scroll', function() {
+                        window.isBatchAtBottom["AREA_ID"] = (el.scrollHeight - el.scrollTop - el.clientHeight) < 50;
+                });
+            }
+            if (!CHECK_POSITION) {
+                el.scrollTop = el.scrollHeight;
+                window.isBatchAtBottom["AREA_ID"] = true;
+            } else if (window.isBatchAtBottom["AREA_ID"]) {
+                    el.scrollTop = el.scrollHeight;
+            }
+        }
+        """.replace('AREA_ID', area_id).replace('CHECK_POSITION', 'true' if check_position else 'false')
+        await ui.run_javascript(js)
     # Layout
     with ui.column().classes('w-full h-full pt-14 px-4 max-w-7xl mx-auto'):
         # Header with Toggle
@@ -114,6 +138,7 @@ async def create_page():
                         model_panels = {}
                         model_content = {}
                         model_metrics = {}
+                        model_scroll_ids = {}
                         
                         with tabs:
                             for model in targets:
@@ -122,13 +147,16 @@ async def create_page():
                         
                         with panels:
                             for model in targets:
-                                with ui.tab_panel(model):
-                                    # Metrics Row
-                                    with ui.row().classes('w-full items-center gap-4 mb-2 text-xs text-gray-400 font-mono border-b border-gray-700 pb-2'):
-                                        model_metrics[model] = ui.label('Waiting...')
-                                    
-                                    # Content
-                                    model_content[model] = ui.markdown('').classes('w-full')
+                                with ui.tab_panel(model).classes('h-[60vh] p-0'):
+                                    uid = f"batch-res-{uuid.uuid4()}"
+                                    model_scroll_ids[model] = uid
+                                    with ui.column().classes('w-full h-full overflow-y-auto p-4').props(f'id={uid}'):
+                                        # Metrics Row
+                                        with ui.row().classes('w-full items-center gap-4 mb-2 text-xs text-gray-400 font-mono border-b border-gray-700 pb-2'):
+                                            model_metrics[model] = ui.label('Waiting...')
+                                        
+                                        # Content
+                                        model_content[model] = ui.markdown('').classes('w-full')
 
                     # Sequential Execution
                     for model in targets:
@@ -155,6 +183,8 @@ async def create_page():
                             async for chunk in stream:
                                 if state['stopping']:
                                     content_area.content += '\n\n**Stopped**'
+                                    content_area.content += '\n\n**Stopped**'
+                                    await scroll_to_bottom(model_scroll_ids[model], check_position=True)
                                     await stream.aclose()
                                     break
                                 
@@ -178,6 +208,8 @@ async def create_page():
                                 md_text += output
                                 
                                 content_area.content = md_text
+                                content_area.content = md_text
+                                await scroll_to_bottom(model_scroll_ids[model], check_position=True)
                                 # yield to UI implicit
                             
                             duration = time.time() - t0

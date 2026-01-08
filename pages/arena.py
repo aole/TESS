@@ -4,6 +4,29 @@ from utils.config import config_manager
 import asyncio
 
 async def create_page():
+    
+    async def scroll_to_bottom(area_id, check_position=False):
+        js = """
+        var el = document.getElementById("AREA_ID");
+        if (el) {
+            if (typeof window.isArenaAtBottom === 'undefined') {
+                window.isArenaAtBottom = {};
+            }
+            if (!el.dataset.hasScrollListener) {
+                el.dataset.hasScrollListener = "true";
+                el.addEventListener('scroll', function() {
+                        window.isArenaAtBottom["AREA_ID"] = (el.scrollHeight - el.scrollTop - el.clientHeight) < 50;
+                });
+            }
+            if (!CHECK_POSITION) {
+                el.scrollTop = el.scrollHeight;
+                window.isArenaAtBottom["AREA_ID"] = true;
+            } else if (window.isArenaAtBottom["AREA_ID"]) {
+                    el.scrollTop = el.scrollHeight;
+            }
+        }
+        """.replace('AREA_ID', area_id).replace('CHECK_POSITION', 'true' if check_position else 'false')
+        await ui.run_javascript(js)
     # Layout
     with ui.column().classes('w-full h-[calc(100vh-3rem)] pt-14 px-4 gap-2'):
         
@@ -40,12 +63,12 @@ async def create_page():
         # Chat Areas (Side by Side)
         with ui.grid(columns=2).classes('w-full flex-grow gap-2'):
             # Area 1
-            chat1 = ui.column().classes('h-full glass-panel rounded p-2 overflow-y-auto border border-white/10')
+            chat1 = ui.column().classes('h-full glass-panel rounded p-2 overflow-y-auto border border-white/10').props('id=arena-scroll-1')
             with chat1:
                 ui.label('Model 1 Output').classes('text-xs text-muted mb-1')
             
             # Area 2
-            chat2 = ui.column().classes('h-full glass-panel rounded p-2 overflow-y-auto border border-white/10')
+            chat2 = ui.column().classes('h-full glass-panel rounded p-2 overflow-y-auto border border-white/10').props('id=arena-scroll-2')
             with chat2:
                 ui.label('Model 2 Output').classes('text-xs text-muted mb-1')
 
@@ -91,6 +114,9 @@ async def create_page():
                     ui.chat_message(content, name='User', sent=True)
                 with chat2:
                     ui.chat_message(content, name='User', sent=True)
+                
+                await scroll_to_bottom('arena-scroll-1')
+                await scroll_to_bottom('arena-scroll-2')
 
                 # Prepare Messages
                 msgs = []
@@ -113,12 +139,14 @@ async def create_page():
                             if not output1:
                                 msg1.clear()
                                 with msg1: ui.markdown('_Stopped_')
+                                await scroll_to_bottom('arena-scroll-1', check_position=True)
                             break
                         part = chunk.get('message', {}).get('content', '')
                         output1 += part
                         msg1.clear()
                         with msg1:
                             ui.markdown(output1)
+                        await scroll_to_bottom('arena-scroll-1', check_position=True)
                         # No sleep needed with async iterator usually, but good for UI responsiveness
                         # await asyncio.sleep(0) 
                 except Exception as e:
@@ -143,12 +171,14 @@ async def create_page():
                                 if not output2:
                                    msg2.clear()
                                    with msg2: ui.markdown('_Stopped_')
+                                   await scroll_to_bottom('arena-scroll-2', check_position=True)
                                 break
                             part = chunk.get('message', {}).get('content', '')
                             output2 += part
                             msg2.clear()
                             with msg2:
                                 ui.markdown(output2)
+                            await scroll_to_bottom('arena-scroll-2', check_position=True)
                     except Exception as e:
                         spinner2.delete()
                         ui.notify(f'Model 2 Error: {e}', type='negative')
