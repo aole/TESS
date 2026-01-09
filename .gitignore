@@ -16,3 +16,4 @@ wheels/
 logs/
 inspect_model_output.py
 AGENT_RULES.md
+data/ratings.json
