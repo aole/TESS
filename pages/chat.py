@@ -216,6 +216,13 @@ async def create_page(model_param: str = None):
                 await update_ratings_sidebar(msg.get('model', 'unknown'))
                 render_chat_messages.refresh()
 
+            async def delete_rating(msg, tag):
+                if not msg.get('id'): return
+                rating_service.remove_rating(msg['id'], tag)
+                ui.notify(f"Removed rating for {tag}", type='info')
+                await update_ratings_sidebar(msg.get('model', 'unknown'))
+                render_chat_messages.refresh()
+
             @ui.refreshable
             def render_chat_messages():
                 if not messages:
@@ -291,7 +298,9 @@ async def create_page(model_param: str = None):
                                             if existing_ratings:
                                                 with ui.row().classes('gap-2 mt-2'):
                                                     for r in existing_ratings:
-                                                        ui.label(f"{r.tag}: {r.rating}★").classes('text-xs font-bold text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded border border-yellow-400/20')
+                                                        with ui.row().classes('items-center gap-1 bg-yellow-400/10 px-2 py-1 rounded border border-yellow-400/20'):
+                                                            ui.label(f"{r.tag}: {r.rating}★").classes('text-xs font-bold text-yellow-400')
+                                                            ui.icon('close', size='xs').classes('text-yellow-400/50 cursor-pointer hover:text-red-400').on('click', lambda _, m=msg, t=r.tag: delete_rating(m, t))
                                             
                                             # Rating Input (Only show if not processing for cleaner UI? Or always?)
                                             # Always show for history

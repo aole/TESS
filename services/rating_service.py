@@ -59,6 +59,12 @@ class RatingService:
             
         self._save_ratings()
 
+    def remove_rating(self, message_id: str, tag: str):
+        original_count = len(self.ratings)
+        self.ratings = [r for r in self.ratings if not (r.message_id == message_id and r.tag == tag)]
+        if len(self.ratings) < original_count:
+            self._save_ratings()
+
     def get_ratings_for_message(self, message_id: str) -> List[Rating]:
         return [r for r in self.ratings if r.message_id == message_id]
 
