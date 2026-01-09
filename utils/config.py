@@ -62,4 +62,23 @@ class ConfigManager:
         self.config["inactive_tools"] = inactive_tools
         self._save_config(self.config)
 
+    def get_rating_tags(self) -> list:
+        return self.config.get("rating_tags", ["General", "Coding", "Tools", "Writing"])
+
+    def set_rating_tags(self, tags: list):
+        self.config["rating_tags"] = tags
+        self._save_config(self.config)
+
+    def add_rating_tag(self, tag: str):
+        tags = self.get_rating_tags()
+        if tag not in tags:
+            tags.append(tag)
+            self.set_rating_tags(tags)
+
+    def remove_rating_tag(self, tag: str):
+        tags = self.get_rating_tags()
+        if tag in tags:
+            tags.remove(tag)
+            self.set_rating_tags(tags)
+
 config_manager = ConfigManager()

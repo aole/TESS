@@ -2,6 +2,7 @@ from nicegui import ui, app
 from utils.ollama_client import client
 from utils.config import config_manager
 from services.tool_service import tool_service
+from services.rating_service import rating_service
 import asyncio
 import uuid
 
@@ -36,6 +37,25 @@ async def create_page(model_param: str = None):
         
         # --- Left Sidebar (Controls) ---
         with ui.column().classes('w-72 shrink-0 gap-4'):
+             # Model Ratings Stats
+            ratings_container = ui.card().classes('w-full p-3 gap-2 bg-black/20 border-white/5 hidden')
+            with ratings_container:
+                ui.label('Model Ratings').classes('text-sm font-bold text-gray-400 mb-1')
+                stats_content = ui.column().classes('w-full gap-1')
+
+            async def update_ratings_sidebar(model):
+                 stats = rating_service.get_model_stats(model)
+                 if stats:
+                     ratings_container.classes(remove='hidden')
+                     stats_content.clear()
+                     with stats_content:
+                         for tag, data in stats.items():
+                             with ui.row().classes('w-full justify-between items-center text-xs'):
+                                 ui.label(tag).classes('text-gray-300')
+                                 ui.label(f"{data['average']}★ ({data['count']})").classes('text-yellow-400')
+                 else:
+                     ratings_container.classes(add='hidden')
+
             # Model Selection
             try:
                 models_data = await client.list_models()
@@ -104,6 +124,9 @@ async def create_page(model_param: str = None):
             async def update_params():
                 if not model_select.value: return
                 
+                # Update ratings sidebar
+                await update_ratings_sidebar(model_select.value)
+
                 with model_select:
                     # Update URL without reload
                     from urllib.parse import quote
@@ -181,6 +204,18 @@ async def create_page(model_param: str = None):
                 app.storage.user['messages'] = messages
                 render_chat_messages.refresh()
 
+            async def rate_message(msg, rating, tag):
+                if not msg.get('id'): return
+                rating_service.add_rating(
+                    model=msg.get('model', 'unknown'),
+                    tag=tag,
+                    rating=rating,
+                    message_id=msg['id']
+                )
+                ui.notify(f"Rated {rating} stars for {tag}", type='positive')
+                await update_ratings_sidebar(msg.get('model', 'unknown'))
+                render_chat_messages.refresh()
+
             @ui.refreshable
             def render_chat_messages():
                 if not messages:
@@ -247,6 +282,36 @@ async def create_page(model_param: str = None):
                                             ui.markdown(msg.get('content', '')).classes('w-full prose dark:prose-invert text-gray-100')
                                         elif msg['role'] == 'assistant' and not msg.get('tool_calls') and not msg.get('thinking'):
                                             ui.label('...').classes('text-gray-500 italic')
+                                        
+                                        # Rating Controls
+                                        if msg.get('id'):
+                                            existing_ratings = rating_service.get_ratings_for_message(msg['id'])
+                                            
+                                            # Existing Ratings Display
+                                            if existing_ratings:
+                                                with ui.row().classes('gap-2 mt-2'):
+                                                    for r in existing_ratings:
+                                                        ui.label(f"{r.tag}: {r.rating}★").classes('text-xs font-bold text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded border border-yellow-400/20')
+                                            
+                                            # Rating Input (Only show if not processing for cleaner UI? Or always?)
+                                            # Always show for history
+                                            with ui.row().classes('items-center gap-2 mt-2 opacity-50 hover:opacity-100 transition-opacity'):
+                                                available_tags = config_manager.get_rating_tags()
+                                                default_tag = available_tags[0] if available_tags else "General"
+                                                
+                                                tag_select = ui.select(options=available_tags, value=default_tag).props('dense options-dense borderless').classes('w-24 text-xs')
+                                                
+                                                with ui.row().classes('gap-0'):
+                                                    for i in range(1, 6):
+                                                        ui.button(icon='star', 
+                                                                  on_click=lambda s=i, t=tag_select, m=msg: rate_message(m, s, t.value)
+                                                                 ).props(f'flat round dense size=sm color={"orange" if existing_ratings and existing_ratings[0].rating >= i else "grey"}').classes('text-xs') # logic for color is simple, mainly for interaction
+                                                
+                                                # Improved star UI: using toggle or just buttons. Buttons are easiest for immediate action.
+                                                # Let's make them always grey unless hovered or rated?
+                                                # For simplicity in this iteration: Just buttons. 
+                                                # To reflect "current" rating in buttons requires complexity. 
+                                                # Let's just have clickable stars.
                         
                         elif msg['role'] == 'tool':
                              with ui.row().classes('w-full justify-start gap-4 items-start mb-2'):

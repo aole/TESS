@@ -1,6 +1,7 @@
 from typing import Callable, Optional
 from nicegui import ui
 from utils.ollama_client import client
+from services.rating_service import rating_service
 import asyncio
 from dataclasses import dataclass
 
@@ -73,6 +74,13 @@ def create_page():
             # Truncate digest
             m['digest_short'] = m.get('digest', '')[:12] + '...'
             m['family_str'] = m.get('details', {}).get('family', 'N/A')
+            
+            # Rating Stats
+            best = rating_service.get_best_tag_for_model(m['model'])
+            if best:
+                m['rating_str'] = f"{best['tag']}: {best['average']}★"
+            else:
+                m['rating_str'] = "-"
             
         table.rows = models
         table.update()
@@ -218,6 +226,7 @@ def create_page():
             {'name': 'name', 'label': 'Name (Click to Chat)', 'field': 'model', 'align': 'left', 'sortable': True, 'classes': 'text-indigo-300 font-mono font-bold'},
             {'name': 'size', 'label': 'Size', 'field': 'size_str', 'align': 'left', 'sortable': True},
             {'name': 'family', 'label': 'Family', 'field': 'family_str', 'align': 'left', 'sortable': True},
+            {'name': 'rating', 'label': 'Best Rating', 'field': 'rating_str', 'align': 'left', 'sortable': True, 'classes': 'text-yellow-400 font-bold'},
             {'name': 'actions', 'label': '', 'field': 'actions', 'align': 'right'},
         ]
         

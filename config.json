@@ -4,5 +4,11 @@
         "arena": false,
         "batch": false
     },
-    "inactive_tools": []
+    "inactive_tools": [],
+    "rating_tags": [
+        "General",
+        "Coding",
+        "Tools",
+        "Writing"
+    ]
 }

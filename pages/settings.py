@@ -22,3 +22,36 @@ def create_page():
                             on_change=lambda e: config_manager.set_logging('batch', e.value)).classes('text-gray-300')
                 
             ui.markdown('> Logs are saved to `logs/llm_debug.log`').classes('mt-4 text-sm text-gray-500 italic')
+
+        with ui.card().classes('w-full p-6 bg-black/20 border-white/5'):
+            ui.label('Rating Tags').classes('text-xl font-bold mb-4 text-gray-200')
+            
+            # Container for tags
+            tags_container = ui.row().classes('gap-2 mb-4')
+            
+            def render_tags():
+                tags_container.clear()
+                with tags_container:
+                    for tag in config_manager.get_rating_tags():
+                        c = ui.chip(removable=True, icon='label', color='indigo-9')
+                        c.classes('text-indigo-200')
+                        c.on('remove', lambda _, t=tag: remove_tag(t))
+                        with c:
+                            ui.label(tag)
+
+            def add_tag():
+                new_tag = tag_input.value.strip()
+                if new_tag:
+                    config_manager.add_rating_tag(new_tag)
+                    tag_input.value = ''
+                    render_tags()
+
+            def remove_tag(tag):
+                config_manager.remove_rating_tag(tag)
+                render_tags()
+
+            with ui.row().classes('items-center gap-2'):
+                tag_input = ui.input(placeholder='New Tag Name').classes('w-64').on('keydown.enter', add_tag)
+                ui.button(icon='add', on_click=add_tag).props('flat round color=secondary')
+            
+            render_tags()
