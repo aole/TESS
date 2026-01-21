@@ -111,8 +111,7 @@ async def create_page(model_param: str = None):
         else:
             ui.notify("Could not load chat", type='negative')
 
-    def delete_chat_history(chat_id, e):
-        e.stop_propagation()
+    def delete_chat_history(chat_id):
         chat_service.delete_chat(chat_id)
         refresh_chat_list()
         if current_chat_id == chat_id:
@@ -136,7 +135,7 @@ async def create_page(model_param: str = None):
                              ui.label(c['title']).classes('font-medium text-gray-200 truncate w-full')
                              ui.label(c['updated_at'][:10]).classes('text-xs text-gray-500')
                          
-                         ui.button(icon='delete', on_click=lambda e, cid=c['id']: delete_chat_history(cid, e)).props('flat round dense size=xs color=grey').classes('opacity-0 group-hover:opacity-100 transition-opacity')
+                         ui.button(icon='delete').on('click.stop', lambda _, cid=c['id']: delete_chat_history(cid)).props('flat round dense size=xs color=grey').classes('opacity-0 group-hover:opacity-100 transition-opacity')
 
     # Initial Refresh
     refresh_chat_list()
