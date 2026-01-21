@@ -32,31 +32,14 @@ async def create_page(model_param: str = None):
             print(f"Error loading tool code: {e}")
         return None
     
-    # Layout using a row for sidebar + chat
-    with ui.row().classes('w-full max-w-[1200px] mx-auto h-[calc(100vh-3rem)] pt-14 px-4 gap-6 items-stretch flex-nowrap'):
-        
-        # --- Left Sidebar (Controls) ---
-        with ui.column().classes('w-72 shrink-0 gap-4'):
-             # Model Ratings Stats
-            ratings_container = ui.card().classes('w-full p-3 gap-2 bg-black/20 border-white/5 hidden')
-            with ratings_container:
-                ui.label('Model Ratings').classes('text-sm font-bold text-gray-400 mb-1')
-                stats_content = ui.column().classes('w-full gap-1')
+    # Settings Dialog
+    with ui.dialog() as settings_dialog, ui.card().classes('w-full max-w-lg p-6 bg-[#18181b] border border-white/10'):
+        with ui.row().classes('w-full justify-between items-center mb-4'):
+             ui.label('Settings').classes('text-xl font-bold text-gray-200')
+             ui.button(icon='close', on_click=settings_dialog.close).props('flat round dense color=grey')
 
-            async def update_ratings_sidebar(model):
-                 stats = rating_service.get_model_stats(model)
-                 if stats:
-                     ratings_container.classes(remove='hidden')
-                     stats_content.clear()
-                     with stats_content:
-                         for tag, data in stats.items():
-                             with ui.row().classes('w-full justify-between items-center text-xs'):
-                                 ui.label(tag).classes('text-gray-300')
-                                 ui.label(f"{data['average']}★ ({data['count']})").classes('text-yellow-400')
-                 else:
-                     ratings_container.classes(add='hidden')
-
-            # Model Selection
+        with ui.column().classes('w-full gap-4'):
+             # Model Selection
             try:
                 models_data = await client.list_models()
                 model_options = [m['model'] for m in models_data]
@@ -69,63 +52,80 @@ async def create_page(model_param: str = None):
             if query_model and query_model in model_options:
                 default_model = query_model
             
-            with ui.card().classes('w-full p-3 gap-2 bg-black/20 border-white/5'):
-                ui.label('Model Settings').classes('text-sm font-bold text-gray-400 mb-1')
-                model_select = ui.select(
-                    options=model_options,
-                    label='Model',
-                    value=default_model,
-                ).props('dense options-dense').classes('w-full')
+            model_select = ui.select(
+                options=model_options,
+                label='Model',
+                value=default_model,
+            ).props('dense options-dense filled').classes('w-full')
 
-                ui.separator().classes('bg-white/10 my-1')
-                
-                # Parameters
-                temp_slider = ui.slider(min=0, max=1, step=0.1, value=0.7).props('label-always thumb-path=""')
-                ui.label('Temperature').classes('text-xs text-muted mb-2')
-                
-                top_p_slider = ui.slider(min=0, max=1, step=0.1, value=0.9).props('label-always')
-                ui.label('Top P').classes('text-xs text-muted mb-2')
-                
-                repeat_penalty_slider = ui.slider(min=0, max=2, step=0.1, value=1.1).props('label-always')
-                ui.label('Repeat Penalty').classes('text-xs text-muted mb-2')
-                
-                system_prompt = ui.textarea(label='System Prompt', placeholder='You are a helpful assistant...').classes('w-full text-sm').props('rows=5')
-                
-                def clear_chat():
-                    messages.clear()
-                    app.storage.user['messages'] = []
-                    render_chat_messages.refresh()
-                
-                ui.button('Clear Chat', on_click=clear_chat).props('outline color=negative').classes('w-full mt-2')
+            # Parameters
+            with ui.expansion('Parameters', icon='tune').classes('w-full bg-white/5 rounded-lg').props('dense'):
+                with ui.column().classes('w-full p-2 gap-2'):
+                    temp_slider = ui.slider(min=0, max=1, step=0.1, value=0.7).props('label-always thumb-path=""')
+                    ui.label('Temperature').classes('text-xs text-muted')
+                    
+                    top_p_slider = ui.slider(min=0, max=1, step=0.1, value=0.9).props('label-always')
+                    ui.label('Top P').classes('text-xs text-muted')
+                    
+                    repeat_penalty_slider = ui.slider(min=0, max=2, step=0.1, value=1.1).props('label-always')
+                    ui.label('Repeat Penalty').classes('text-xs text-muted')
+                    
+                    system_prompt = ui.textarea(label='System Prompt', placeholder='You are a helpful assistant...').classes('w-full text-sm').props('rows=3 filled')
 
-            # --- Tools Selection ---
+            # Tools
             available_tools = [t for t in tool_service.get_all_tools() if t.active]
             tool_options = {t.name: t for t in available_tools}
             tool_checks = {}
             
             if available_tools:
-                with ui.card().classes('w-full p-3 gap-2 bg-black/20 border-white/5'):
-                    ui.label('Tools').classes('text-sm font-bold text-gray-400 mb-1')
-                    
-                    if 'selected_tools' not in app.storage.user:
-                        app.storage.user['selected_tools'] = []
-                    saved_tools = app.storage.user['selected_tools']
+                with ui.expansion('Tools', icon='construction').classes('w-full bg-white/5 rounded-lg').props('dense'):
+                    with ui.column().classes('w-full p-2'):
+                         if 'selected_tools' not in app.storage.user:
+                             app.storage.user['selected_tools'] = []
+                         saved_tools = app.storage.user['selected_tools']
 
-                    def update_tool_storage():
-                        selected = [name for name, box in tool_checks.items() if box.value]
-                        app.storage.user['selected_tools'] = selected
+                         def update_tool_storage():
+                             selected = [name for name, box in tool_checks.items() if box.value]
+                             app.storage.user['selected_tools'] = selected
 
-                    with ui.column().classes('gap-1'):
-                        for t_name in tool_options.keys():
-                            is_checked = t_name in saved_tools
-                            tool_checks[t_name] = ui.checkbox(t_name, value=is_checked, on_change=update_tool_storage).classes('text-sm text-gray-300')
+                         with ui.column().classes('gap-1'):
+                             for t_name in tool_options.keys():
+                                 is_checked = t_name in saved_tools
+                                 tool_checks[t_name] = ui.checkbox(t_name, value=is_checked, on_change=update_tool_storage).classes('text-sm text-gray-300')
+
+            # Ratings
+            ratings_section = ui.expansion('Model Ratings', icon='star').classes('w-full bg-white/5 rounded-lg hidden').props('dense')
+            stats_content = ui.column().classes('w-full p-2 gap-1')
+            with ratings_section:
+                stats_content.move(ratings_section) # Ensure content is inside
+
+            async def update_ratings_display(model):
+                 stats = rating_service.get_model_stats(model)
+                 if stats:
+                     ratings_section.classes(remove='hidden')
+                     stats_content.clear()
+                     with stats_content:
+                         for tag, data in stats.items():
+                             with ui.row().classes('w-full justify-between items-center text-xs'):
+                                 ui.label(tag).classes('text-gray-300')
+                                 ui.label(f"{data['average']}★ ({data['count']})").classes('text-yellow-400')
+                 else:
+                     ratings_section.classes(add='hidden')
+
+            def clear_chat():
+                messages.clear()
+                app.storage.user['messages'] = []
+                render_chat_messages.refresh()
+                settings_dialog.close()
+            
+            ui.button('Clear Chat', on_click=clear_chat).props('outline color=negative').classes('w-full mt-2')
 
             # Parameter update logic
             async def update_params():
                 if not model_select.value: return
                 
-                # Update ratings sidebar
-                await update_ratings_sidebar(model_select.value)
+                # Update ratings
+                await update_ratings_display(model_select.value)
 
                 with model_select:
                     # Update URL without reload
@@ -147,6 +147,11 @@ async def create_page(model_param: str = None):
             # Trigger initial update
             if model_select.value:
                 asyncio.create_task(update_params())
+
+
+    # Layout (just chat area now)
+    with ui.row().classes('w-full max-w-[1200px] mx-auto h-[calc(100vh-3rem)] pt-14 px-4 items-stretch flex-nowrap'):
+        # No sidebar here anymore
 
 
         # --- Right Area (Chat) ---
@@ -213,14 +218,14 @@ async def create_page(model_param: str = None):
                     message_id=msg['id']
                 )
                 ui.notify(f"Rated {rating} stars for {tag}", type='positive')
-                await update_ratings_sidebar(msg.get('model', 'unknown'))
+                await update_ratings_display(msg.get('model', 'unknown'))
                 render_chat_messages.refresh()
 
             async def delete_rating(msg, tag):
                 if not msg.get('id'): return
                 rating_service.remove_rating(msg['id'], tag)
                 ui.notify(f"Removed rating for {tag}", type='info')
-                await update_ratings_sidebar(msg.get('model', 'unknown'))
+                await update_ratings_display(msg.get('model', 'unknown'))
                 render_chat_messages.refresh()
 
             @ui.refreshable
@@ -579,9 +584,7 @@ async def create_page(model_param: str = None):
                     lambda e: send_message() if not e.args['shiftKey'] else None, 
                     args=['shiftKey']
                 )
-                send_btn = ui.button(icon='send', on_click=send_message).props('flat round color=primary')
-            
-        # Keyboard submit
-        # This is a bit tricky with textarea autogrow, usually shift+enter for new line
-        # but just enter for submit requires key handler. NiceGUI 2.0 has handy handlers.
-        # Simple version: Button only or key listener.
+                
+                with ui.row().classes('gap-1 items-center'):
+                    send_btn = ui.button(icon='send', on_click=send_message).props('flat round color=primary')
+                    ui.button(icon='settings', on_click=settings_dialog.open).props('flat round color=grey')
