@@ -3,6 +3,7 @@ from utils.ollama_client import client
 from utils.config import config_manager
 from services.tool_service import tool_service
 from services.rating_service import rating_service
+from services.chat_service import chat_service
 import asyncio
 import uuid
 
@@ -12,7 +13,15 @@ async def create_page(model_param: str = None):
     # State
     if 'messages' not in app.storage.user:
         app.storage.user['messages'] = []
+    if 'chat_id' not in app.storage.user:
+        app.storage.user['chat_id'] = None
+
+    # We use lists/dicts in storage, distinct from the local variables
+    # We reference them here, but we must be careful to update the storage when we change them.
+    # To simplify, we will update app.storage.user['messages'] explicitly.
+    
     messages = app.storage.user['messages']
+    current_chat_id = app.storage.user['chat_id'] 
 
     # Ensure all messages have IDs
     for msg in messages:
@@ -20,6 +29,117 @@ async def create_page(model_param: str = None):
             msg['id'] = str(uuid.uuid4())
     
     state = {'processing': False, 'stopping': False}
+
+    # --- Persistance Helper ---
+    async def save_current_chat():
+        nonlocal current_chat_id
+        if not messages: 
+            return # Don't save empty chats unless they already exist? 
+                   # Actually, if we just created a "New Chat" and haven't typed, we might not want to save it yet.
+        
+        try:
+            # Determine title if new
+            title = "New Chat"
+            if messages:
+                # Find first user message
+                for m in messages:
+                    if m['role'] == 'user':
+                        title = m['content'][:40] + "..." if len(m['content']) > 40 else m['content']
+                        break
+            
+            if current_chat_id:
+                # Update existing
+                chat = chat_service.load_chat(current_chat_id)
+                if chat:
+                    chat.messages = messages
+                    chat.title = title # Update title dynamically? Maybe only if it was "New Chat"? 
+                                      # For now, let's update it if it's the first message or so. 
+                                      # Simple approach: always update title based on first message if chat is short?
+                                      # Let's just update messages for now.
+                    # Actually, if title is "New Chat", update it.
+                    if chat.title == "New Chat" and title != "New Chat":
+                        chat.title = title
+                    
+                    chat_service.save_chat(chat)
+            else:
+                # Create new
+                chat = chat_service.create_chat(title=title)
+                chat.messages = messages
+                chat_service.save_chat(chat)
+                current_chat_id = chat.id
+                app.storage.user['chat_id'] = current_chat_id
+            
+            # Refresh list
+            refresh_chat_list()
+        except Exception as e:
+            ui.notify(f"Error saving chat: {e}", type='negative')
+
+    # --- Sidebar & Navigation ---
+    drawer = ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10 flex flex-col')
+    with drawer:
+        # Header
+        with ui.row().classes('w-full items-center justify-between p-4 border-b border-white/5'):
+             ui.label('History').classes('text-lg font-bold text-gray-200')
+             ui.button(icon='add', on_click=lambda: load_new_chat()).props('flat round dense color=primary').tooltip('New Chat')
+
+        # Chat List
+        chat_list_container = ui.column().classes('w-full flex-grow overflow-y-auto p-2 gap-1')
+
+    def load_new_chat():
+        nonlocal messages, current_chat_id
+        # Save current if needed? (It should happen on message send)
+        
+        messages = []
+        current_chat_id = None
+        app.storage.user['messages'] = messages
+        app.storage.user['chat_id'] = None
+        
+        render_chat_messages.refresh()
+        refresh_chat_list()
+        # Optionally close drawer on mobile?
+    
+    def load_chat_by_id(chat_id):
+        nonlocal messages, current_chat_id
+        chat = chat_service.load_chat(chat_id)
+        if chat:
+            messages = chat.messages
+            current_chat_id = chat.id
+            app.storage.user['messages'] = messages
+            app.storage.user['chat_id'] = current_chat_id
+            render_chat_messages.refresh()
+            refresh_chat_list()
+        else:
+            ui.notify("Could not load chat", type='negative')
+
+    def delete_chat_history(chat_id, e):
+        e.stop_propagation()
+        chat_service.delete_chat(chat_id)
+        refresh_chat_list()
+        if current_chat_id == chat_id:
+            load_new_chat()
+
+    def refresh_chat_list():
+        chat_list_container.clear()
+        chats = chat_service.list_chats()
+        with chat_list_container:
+            if not chats:
+                ui.label('No history').classes('text-sm text-gray-500 italic p-4')
+            
+            for c in chats:
+                # Styling for active chat
+                is_active = c['id'] == current_chat_id
+                bg_class = 'bg-white/10' if is_active else 'hover:bg-white/5'
+                
+                with ui.card().classes(f'w-full p-3 text-sm cursor-pointer transition-colors {bg_class} relative group border border-white/5').on('click', lambda _, cid=c['id']: load_chat_by_id(cid)):
+                    with ui.row().classes('w-full justify-between items-center gap-2'):
+                         with ui.column().classes('flex-grow min-w-0 gap-0'):
+                             ui.label(c['title']).classes('font-medium text-gray-200 truncate w-full')
+                             ui.label(c['updated_at'][:10]).classes('text-xs text-gray-500')
+                         
+                         ui.button(icon='delete', on_click=lambda e, cid=c['id']: delete_chat_history(cid, e)).props('flat round dense size=xs color=grey').classes('opacity-0 group-hover:opacity-100 transition-opacity')
+
+    # Initial Refresh
+    refresh_chat_list()
 
     # Helper to load tool code
     def load_tool_function(name: str, code: str):
@@ -191,6 +311,7 @@ async def create_page(model_param: str = None):
                     messages.remove(msg)
                     app.storage.user['messages'] = messages
                     render_chat_messages.refresh()
+                    asyncio.create_task(save_current_chat())
 
             def edit_mode(msg):
                 # Reset others editing state
@@ -208,6 +329,7 @@ async def create_page(model_param: str = None):
                 msg['editing'] = False
                 app.storage.user['messages'] = messages
                 render_chat_messages.refresh()
+                asyncio.create_task(save_current_chat())
 
             async def rate_message(msg, rating, tag):
                 if not msg.get('id'): return
@@ -508,6 +630,8 @@ async def create_page(model_param: str = None):
                                 app.storage.user['messages'] = messages
                                 render_chat_messages.refresh()
                                 await scroll_to_bottom(check_position=True)
+                                asyncio.create_task(save_current_chat())
+                                await scroll_to_bottom(check_position=True)
 
                                 if state['stopping']:
                                     break
@@ -527,6 +651,8 @@ async def create_page(model_param: str = None):
                                     
                                     app.storage.user['messages'] = messages
                                     render_chat_messages.refresh()
+                                    await scroll_to_bottom(check_position=True)
+                                    asyncio.create_task(save_current_chat())
                                     await scroll_to_bottom(check_position=True)
                                     # Continue loop to send tool output back to model
                                 else:
@@ -558,6 +684,7 @@ async def create_page(model_param: str = None):
                     
                     app.storage.user['messages'] = messages
                     render_chat_messages.refresh()
+                    asyncio.create_task(save_current_chat())
                     # Run generation in background to avoid context issues with deleted button
                     asyncio.create_task(generate_response())
 
@@ -577,6 +704,7 @@ async def create_page(model_param: str = None):
                     app.storage.user['messages'] = messages
                     render_chat_messages.refresh()
                     await scroll_to_bottom()
+                    asyncio.create_task(save_current_chat())
                     
                     await generate_response()
 
