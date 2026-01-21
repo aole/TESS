@@ -575,7 +575,10 @@ async def create_page(model_param: str = None):
                     
                     await generate_response()
 
-                user_input.on('keydown.enter.prevent.exact', lambda: send_message())
+                user_input.on('keydown.enter.exact',
+                    lambda e: send_message() if not e.args['shiftKey'] else None, 
+                    args=['shiftKey']
+                )
                 send_btn = ui.button(icon='send', on_click=send_message).props('flat round color=primary')
             
         # Keyboard submit

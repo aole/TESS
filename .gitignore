@@ -15,5 +15,8 @@ wheels/
 # Logs
 logs/
 inspect_model_output.py
-AGENT_RULES.md
+.agent/
+
+# User files
 data/ratings.json
+data/chats/
