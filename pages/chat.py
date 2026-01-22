@@ -176,16 +176,16 @@ async def create_page(model_param: str = None):
             # Parameters
             with ui.expansion('Parameters', icon='tune').classes('w-full bg-white/5 rounded-lg').props('dense'):
                 with ui.column().classes('w-full p-2 gap-2'):
-                    temp_slider = ui.slider(min=0, max=1, step=0.1, value=0.7).props('label-always thumb-path=""')
+                    temp_slider = ui.slider(min=0, max=1, step=0.1, value=app.storage.user.get('temperature', 0.7)).props('label-always thumb-path=""')
                     ui.label('Temperature').classes('text-xs text-muted')
                     
-                    top_p_slider = ui.slider(min=0, max=1, step=0.1, value=0.9).props('label-always')
+                    top_p_slider = ui.slider(min=0, max=1, step=0.1, value=app.storage.user.get('top_p', 0.9)).props('label-always')
                     ui.label('Top P').classes('text-xs text-muted')
                     
-                    repeat_penalty_slider = ui.slider(min=0, max=2, step=0.1, value=1.1).props('label-always')
+                    repeat_penalty_slider = ui.slider(min=0, max=2, step=0.1, value=app.storage.user.get('repeat_penalty', 1.1)).props('label-always')
                     ui.label('Repeat Penalty').classes('text-xs text-muted')
                     
-                    system_prompt = ui.textarea(label='System Prompt', placeholder='You are a helpful assistant...').classes('w-full text-sm').props('rows=3 filled')
+                    system_prompt = ui.textarea(label='System Prompt', placeholder='You are a helpful assistant...', value=app.storage.user.get('system_prompt', '')).classes('w-full text-sm').props('rows=3 filled')
 
             # Tools
             available_tools = [t for t in tool_service.get_all_tools() if t.active]
@@ -232,11 +232,20 @@ async def create_page(model_param: str = None):
                 app.storage.user['messages'] = []
                 render_chat_messages.refresh()
                 settings_dialog.close()
-            
+
+            async def save_settings():
+                app.storage.user['temperature'] = temp_slider.value
+                app.storage.user['top_p'] = top_p_slider.value
+                app.storage.user['repeat_penalty'] = repeat_penalty_slider.value
+                app.storage.user['system_prompt'] = system_prompt.value
+                ui.notify('Settings saved and persisted', type='positive')
+                settings_dialog.close()
+
+            ui.button('Save Changes', on_click=save_settings).props('flat color=primary').classes('w-full mt-4')
             ui.button('Clear Chat', on_click=clear_chat).props('outline color=negative').classes('w-full mt-2')
 
             # Parameter update logic
-            async def update_params():
+            async def update_params(initial=False):
                 if not model_select.value: return
                 
                 # Update ratings
@@ -248,15 +257,50 @@ async def create_page(model_param: str = None):
                     safe_model = quote(model_select.value)
                     await ui.run_javascript(f"window.history.replaceState(null, '', '/chat?model={safe_model}');")
 
-                    params = await client.get_model_parameters(model_select.value)
-                    if 'temperature' in params:
-                        temp_slider.value = params['temperature']
-                    if 'top_p' in params:
-                        top_p_slider.value = params['top_p']
-                    if 'repeat_penalty' in params:
-                        repeat_penalty_slider.value = params['repeat_penalty']
-                    if 'system' in params:
-                        system_prompt.value = params['system']
+                    # If this is the initial load and we have saved settings, don't overwrite them with model defaults
+                    has_saved = any(k in app.storage.user for k in ['temperature', 'top_p', 'repeat_penalty', 'system_prompt'])
+                    if initial and has_saved:
+                        return
+
+                    new_params = await client.get_model_parameters(model_select.value)
+                    
+                    # Check for differences
+                    diffs = []
+                    if 'temperature' in new_params and abs(new_params['temperature'] - temp_slider.value) > 0.01:
+                        diffs.append(f"Temperature: {temp_slider.value} → {new_params['temperature']}")
+                    if 'top_p' in new_params and abs(new_params['top_p'] - top_p_slider.value) > 0.01:
+                        diffs.append(f"Top P: {top_p_slider.value} → {new_params['top_p']}")
+                    if 'repeat_penalty' in new_params and abs(new_params['repeat_penalty'] - repeat_penalty_slider.value) > 0.01:
+                        diffs.append(f"Repeat Penalty: {repeat_penalty_slider.value} → {new_params['repeat_penalty']}")
+                    
+                    new_sys = new_params.get('system', '')
+                    if new_sys != system_prompt.value:
+                        diffs.append("System Prompt will change")
+
+                    if not initial and diffs:
+                        with ui.dialog() as confirm_dialog, ui.card().classes('p-6 bg-[#18181b] border border-white/10'):
+                            ui.label('Apply Model Defaults?').classes('text-xl font-bold text-gray-200 mb-2')
+                            ui.label('The new model has different default parameters:').classes('text-sm text-gray-400 mb-4')
+                            for d in diffs:
+                                ui.label(f"• {d}").classes('text-xs text-gray-500 ml-2')
+                            
+                            with ui.row().classes('w-full justify-end gap-2 mt-6'):
+                                ui.button('Keep Current', on_click=lambda: confirm_dialog.submit(False)).props('flat color=grey')
+                                ui.button('Apply New', on_click=lambda: confirm_dialog.submit(True)).props('flat color=primary')
+                        
+                        should_update = await confirm_dialog
+                        if not should_update:
+                            return
+
+                    # Apply updates
+                    if 'temperature' in new_params:
+                        temp_slider.value = new_params['temperature']
+                    if 'top_p' in new_params:
+                        top_p_slider.value = new_params['top_p']
+                    if 'repeat_penalty' in new_params:
+                        repeat_penalty_slider.value = new_params['repeat_penalty']
+                    if 'system' in new_params:
+                        system_prompt.value = new_params['system']
             
 
 
@@ -713,7 +757,7 @@ async def create_page(model_param: str = None):
                         value=default_model,
                     ).props('dense options-dense borderless').classes('w-48 text-sm text-gray-400')
                     
-                    model_select.on_value_change(update_params)
+                    model_select.on_value_change(lambda e: update_params())
                     # Trigger initial update
                     if model_select.value:
-                        asyncio.create_task(update_params())
+                        asyncio.create_task(update_params(initial=True))
