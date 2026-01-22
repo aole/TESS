@@ -30,6 +30,19 @@ async def create_page(model_param: str = None):
     
     state = {'processing': False, 'stopping': False}
 
+    # Model Selection Logic (Prep)
+    try:
+        models_data = await client.list_models()
+        model_options = [m['model'] for m in models_data]
+    except Exception as e:
+        model_options = []
+        ui.notify(f"Error loading models: {e}", type='negative')
+
+    # Use query param model if available and valid
+    default_model = model_options[0] if model_options else None
+    if query_model and query_model in model_options:
+        default_model = query_model
+
     # --- Persistance Helper ---
     async def save_current_chat():
         nonlocal current_chat_id
@@ -159,23 +172,6 @@ async def create_page(model_param: str = None):
 
         with ui.column().classes('w-full gap-4'):
              # Model Selection
-            try:
-                models_data = await client.list_models()
-                model_options = [m['model'] for m in models_data]
-            except Exception as e:
-                model_options = []
-                ui.notify(f"Error loading models: {e}", type='negative')
-
-            # Use query param model if available and valid
-            default_model = model_options[0] if model_options else None
-            if query_model and query_model in model_options:
-                default_model = query_model
-            
-            model_select = ui.select(
-                options=model_options,
-                label='Model',
-                value=default_model,
-            ).props('dense options-dense filled').classes('w-full')
 
             # Parameters
             with ui.expansion('Parameters', icon='tune').classes('w-full bg-white/5 rounded-lg').props('dense'):
@@ -262,10 +258,6 @@ async def create_page(model_param: str = None):
                     if 'system' in params:
                         system_prompt.value = params['system']
             
-            model_select.on_value_change(update_params)
-            # Trigger initial update
-            if model_select.value:
-                asyncio.create_task(update_params())
 
 
     # Layout (just chat area now)
@@ -715,3 +707,13 @@ async def create_page(model_param: str = None):
                 with ui.row().classes('gap-1 items-center'):
                     send_btn = ui.button(icon='send', on_click=send_message).props('flat round color=primary')
                     ui.button(icon='settings', on_click=settings_dialog.open).props('flat round color=grey')
+
+                    model_select = ui.select(
+                        options=model_options,
+                        value=default_model,
+                    ).props('dense options-dense borderless').classes('w-48 text-sm text-gray-400')
+                    
+                    model_select.on_value_change(update_params)
+                    # Trigger initial update
+                    if model_select.value:
+                        asyncio.create_task(update_params())
