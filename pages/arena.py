@@ -1,7 +1,9 @@
 from nicegui import ui
 from utils.ollama_client import client
 from utils.config import config_manager
+from utils.chat_renderer import ConversationRenderer
 import asyncio
+import uuid
 
 async def create_page():
     
@@ -27,6 +29,7 @@ async def create_page():
         }
         """.replace('AREA_ID', area_id).replace('CHECK_POSITION', 'true' if check_position else 'false')
         await ui.run_javascript(js)
+
     # Layout
     with ui.column().classes('w-full h-[calc(100vh-3rem)] pt-14 px-4 gap-2'):
         
@@ -72,6 +75,15 @@ async def create_page():
             with chat2:
                 ui.label('Model 2 Output').classes('text-xs text-muted mb-1')
 
+        # Initialize Renderers
+        # Arena doesn't currently support editing/ratings, so we don't pass callbacks.
+        renderer1 = ConversationRenderer(chat1, show_avatars=True)
+        renderer2 = ConversationRenderer(chat2, show_avatars=True)
+
+        # Message State (Ephemeral for now)
+        messages1 = []
+        messages2 = []
+
         # Input Area
         with ui.row().classes('w-full items-end gap-2 p-2 glass-panel rounded-lg'):
             user_input = ui.textarea(placeholder='Type a message for both models...').classes('w-full flex-grow').props('autogrow bg-color=transparent borderless dense rows=1')
@@ -110,78 +122,130 @@ async def create_page():
 
                 user_input.value = ''
                 
-                with chat1:
-                    ui.chat_message(content, name='User', sent=True)
-                with chat2:
-                    ui.chat_message(content, name='User', sent=True)
+                # Render User Message
+                user_msg_id = str(uuid.uuid4())
+                user_msg = {'id': user_msg_id, 'role': 'user', 'content': content}
+                
+                # Append to both histories
+                messages1.append(user_msg.copy()) # Copy to ensure distinct identity if we ever modify in place
+                messages2.append(user_msg.copy())
+
+                renderer1.render_message(user_msg)
+                renderer2.render_message(user_msg)
                 
                 await scroll_to_bottom('arena-scroll-1')
                 await scroll_to_bottom('arena-scroll-2')
 
-                # Prepare Messages
-                msgs = []
-                if system_prompt.value:
-                    msgs.append({'role': 'system', 'content': system_prompt.value})
-                msgs.append({'role': 'user', 'content': content})
+                # Prepare context for API
+                # Common system prompt
+                sys_msg = {'role': 'system', 'content': system_prompt.value} if system_prompt.value else None
 
-                # Run Model 1
-                with chat1:
-                    msg1 = ui.chat_message(name=model1, sent=False)
-                    spinner1 = ui.spinner('dots')
+                api_msgs1 = []
+                if sys_msg: api_msgs1.append(sys_msg)
+                api_msgs1.extend([{'role': m['role'], 'content': m['content']} for m in messages1])
+
+                api_msgs2 = []
+                if sys_msg: api_msgs2.append(sys_msg)
+                api_msgs2.extend([{'role': m['role'], 'content': m['content']} for m in messages2])
+
+
+                # --- Run Model 1 ---
+                msg1_id = str(uuid.uuid4())
+                msg1 = {
+                    'id': msg1_id, 
+                    'role': 'assistant', 
+                    'model': model1, 
+                    'content': '', 
+                    'thinking': '',
+                    'tool_calls': [] 
+                }
+                messages1.append(msg1)
+                renderer1.render_message(msg1)
+                await scroll_to_bottom('arena-scroll-1')
                 
-                output1 = ""
+                full_content1 = ""
+                full_thinking1 = ""
+                
                 try:
-                    # Async streaming
-                    stream1 = await client.chat(model=model1, messages=msgs, stream=True, keep_alive=0, log_requests=config_manager.is_logging_enabled('arena'))
-                    spinner1.delete()
+                    stream1 = await client.chat(model=model1, messages=api_msgs1, stream=True, keep_alive=0, log_requests=config_manager.is_logging_enabled('arena'))
+                    
                     async for chunk in stream1:
                         if state['stopping']:
-                            if not output1:
-                                msg1.clear()
-                                with msg1: ui.markdown('_Stopped_')
-                                await scroll_to_bottom('arena-scroll-1', check_position=True)
+                            if not full_content1 and not full_thinking1:
+                                full_content1 = '_Stopped_'
+                                await renderer1.update_message(msg1_id, full_content1, full_thinking1, [])
                             break
-                        part = chunk.get('message', {}).get('content', '')
-                        output1 += part
-                        msg1.clear()
-                        with msg1:
-                            ui.markdown(output1)
-                        await scroll_to_bottom('arena-scroll-1', check_position=True)
-                        # No sleep needed with async iterator usually, but good for UI responsiveness
-                        # await asyncio.sleep(0) 
-                except Exception as e:
-                    spinner1.delete()
-                    ui.notify(f'Model 1 Error: {e}', type='negative')
 
-                # Run Model 2 (Sequential) - only if not stopped
+                        msg_chunk = chunk.get('message', {})
+                        part = msg_chunk.get('content') or ''
+                        thinking_part = msg_chunk.get('thinking', '')
+                        
+                        if thinking_part:
+                            full_thinking1 += thinking_part
+                        if part:
+                            full_content1 += part
+                        
+                        await renderer1.update_message(msg1_id, full_content1, full_thinking1, [])
+                        await scroll_to_bottom('arena-scroll-1', check_position=True)
+
+                    # Finalize Msg 1
+                    msg1['content'] = full_content1
+                    msg1['thinking'] = full_thinking1
+
+                except Exception as e:
+                    ui.notify(f'Model 1 Error: {e}', type='negative')
+                    # Could update message to show error
+                    await renderer1.update_message(msg1_id, full_content1 + f"\n\n*Error: {e}*", full_thinking1, [])
+
+                # --- Run Model 2 ---
                 if not state['stopping']:
-                    # Give a breather for offloading
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(1.0) # Breather
                     
-                    with chat2:
-                        msg2 = ui.chat_message(name=model2, sent=False)
-                        spinner2 = ui.spinner('dots')
-                    
-                    output2 = ""
+                    msg2_id = str(uuid.uuid4())
+                    msg2 = {
+                        'id': msg2_id, 
+                        'role': 'assistant', 
+                        'model': model2, 
+                        'content': '', 
+                        'thinking': '',
+                        'tool_calls': []
+                    }
+                    messages2.append(msg2)
+                    renderer2.render_message(msg2)
+                    await scroll_to_bottom('arena-scroll-2')
+
+                    full_content2 = ""
+                    full_thinking2 = ""
+
                     try:
-                        stream2 = await client.chat(model=model2, messages=msgs, stream=True, keep_alive=0, log_requests=config_manager.is_logging_enabled('arena'))
-                        spinner2.delete()
+                        stream2 = await client.chat(model=model2, messages=api_msgs2, stream=True, keep_alive=0, log_requests=config_manager.is_logging_enabled('arena'))
+                        
                         async for chunk in stream2:
                             if state['stopping']:
-                                if not output2:
-                                   msg2.clear()
-                                   with msg2: ui.markdown('_Stopped_')
-                                   await scroll_to_bottom('arena-scroll-2', check_position=True)
+                                if not full_content2 and not full_thinking2:
+                                    full_content2 = '_Stopped_'
+                                    await renderer2.update_message(msg2_id, full_content2, full_thinking2, [])
                                 break
-                            part = chunk.get('message', {}).get('content', '')
-                            output2 += part
-                            msg2.clear()
-                            with msg2:
-                                ui.markdown(output2)
+
+                            msg_chunk = chunk.get('message', {})
+                            part = msg_chunk.get('content') or ''
+                            thinking_part = msg_chunk.get('thinking', '')
+                            
+                            if thinking_part:
+                                full_thinking2 += thinking_part
+                            if part:
+                                full_content2 += part
+                            
+                            await renderer2.update_message(msg2_id, full_content2, full_thinking2, [])
                             await scroll_to_bottom('arena-scroll-2', check_position=True)
+                        
+                        # Finalize Msg 2
+                        msg2['content'] = full_content2
+                        msg2['thinking'] = full_thinking2
+
                     except Exception as e:
-                        spinner2.delete()
                         ui.notify(f'Model 2 Error: {e}', type='negative')
+                        await renderer2.update_message(msg2_id, full_content2 + f"\n\n*Error: {e}*", full_thinking2, [])
                 
                 state['processing'] = False
                 state['stopping'] = False

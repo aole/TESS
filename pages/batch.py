@@ -1,6 +1,7 @@
 from nicegui import ui
 from utils.ollama_client import client
 from utils.config import config_manager
+from utils.chat_renderer import ConversationRenderer
 import asyncio
 import time
 import uuid
@@ -29,6 +30,7 @@ async def create_page():
         }
         """.replace('AREA_ID', area_id).replace('CHECK_POSITION', 'true' if check_position else 'false')
         await ui.run_javascript(js)
+
     # Layout
     with ui.column().classes('w-full h-full pt-14 px-4 max-w-7xl mx-auto'):
         # Header with Toggle
@@ -79,9 +81,6 @@ async def create_page():
                 user_prompt = ui.textarea(label='User Prompt', placeholder='Tell me a joke...').props('dense rows=2').classes('w-full glass-panel px-4 rounded')
                 
                 start_time = time.time()
-                
-                # Import here if not top-level, or assume standard lib is available. 
-                # Better to add import at top, but for now inside content works if globally imported.
                 
                 # State
                 state = {'processing': False, 'stopping': False}
@@ -136,7 +135,7 @@ async def create_page():
                         # Create tab header and panels
                         model_tabs = {}
                         model_panels = {}
-                        model_content = {}
+                        model_renderers = {} # Map model -> renderer
                         model_metrics = {}
                         model_scroll_ids = {}
                         
@@ -155,23 +154,40 @@ async def create_page():
                                         with ui.row().classes('w-full items-center gap-4 mb-2 text-xs text-gray-400 font-mono border-b border-gray-700 pb-2'):
                                             model_metrics[model] = ui.label('Waiting...')
                                         
-                                        # Content
-                                        model_content[model] = ui.markdown('').classes('w-full')
+                                        # Renderer Container
+                                        renderer_container = ui.column().classes('w-full flex-grow')
+                                        model_renderers[model] = ConversationRenderer(renderer_container)
+                                        
+                                        # Render User Message immediately to show what's being processed
+                                        user_msg = {'role': 'user', 'content': user_prompt.value}
+                                        model_renderers[model].render_message(user_msg)
+
 
                     # Sequential Execution
                     for model in targets:
                         if state['stopping']:
-                            model_content[model].content = '**Batch processing stopped**'
+                            model_metrics[model].set_text('Cancelled')
                             break
                         
                         # Switch tab to current model
                         tabs.set_value(model)
                         
-                        # Thinking visuals?
-                        content_area = model_content[model]
+                        renderer = model_renderers[model]
                         metrics_label = model_metrics[model]
                         
                         metrics_label.set_text('Generating...')
+                        
+                        # Create Assistant Message Placeholder
+                        msg_id = str(uuid.uuid4())
+                        assistant_msg = {
+                            'id': msg_id,
+                            'role': 'assistant',
+                            'model': model,
+                            'content': '',
+                            'thinking': '',
+                            'tool_calls': []
+                        }
+                        renderer.render_message(assistant_msg)
                         
                         output = ""
                         thinking = ""
@@ -182,15 +198,16 @@ async def create_page():
                             stream = await client.chat(model=model, messages=msgs, stream=True, keep_alive=0, log_requests=config_manager.is_logging_enabled('batch'))
                             async for chunk in stream:
                                 if state['stopping']:
-                                    content_area.content += '\n\n**Stopped**'
-                                    content_area.content += '\n\n**Stopped**'
+                                    output += '\n\n_Stopped_'
+                                    await renderer.update_message(msg_id, output, thinking, [])
                                     await scroll_to_bottom(model_scroll_ids[model], check_position=True)
                                     await stream.aclose()
                                     break
                                 
-                                msg = chunk.get('message', {})
-                                val = msg.get('content', '')
-                                thk = msg.get('thinking', '')
+                                msg_chunk = chunk.get('message', {})
+                                val = msg_chunk.get('content', '')
+                                thk = msg_chunk.get('thinking', '')
+                                tool_calls_part = msg_chunk.get('tool_calls', []) # batch usually ignores tools but good to have
                                 
                                 # Update Stats if available in chunk
                                 if 'eval_count' in chunk:
@@ -199,25 +216,18 @@ async def create_page():
                                 if thk:
                                     thinking += thk
                                 
-                                output += val
+                                if val:
+                                    output += val
                                 
-                                # Construct markdown
-                                md_text = ""
-                                if thinking:
-                                    md_text += f"<details open><summary>Thinking process</summary>\n\n{thinking}\n\n</details>\n\n***\n***\n\n"
-                                md_text += output
-                                
-                                content_area.content = md_text
-                                content_area.content = md_text
+                                await renderer.update_message(msg_id, output, thinking, []) # ignoring tools for batch unless needed
                                 await scroll_to_bottom(model_scroll_ids[model], check_position=True)
-                                # yield to UI implicit
                             
                             duration = time.time() - t0
                             # Final metrics update
                             metrics_label.set_text(f"Time: {duration:.2f}s | Output Tokens: {token_count}")
                             
                         except Exception as e:
-                            content_area.content = f'**Error**: {e}'
+                            await renderer.update_message(msg_id, output + f"\n\n**Error**: {e}", thinking, [])
                             metrics_label.set_text(f"Error")
                         
                         # Add a small delay/cleanup if needed between models
@@ -233,5 +243,3 @@ async def create_page():
         # Results Area (Container for dynamically created tabs)
         ui.label('Results').classes('text-lg font-bold mt-4 mb-2')
         results_container = ui.column().classes('w-full')
-
-
