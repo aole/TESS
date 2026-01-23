@@ -66,12 +66,12 @@ async def create_page():
         # Chat Areas (Side by Side)
         with ui.grid(columns=2).classes('w-full flex-grow gap-2'):
             # Area 1
-            chat1 = ui.column().classes('h-full glass-panel rounded p-2 overflow-y-auto border border-white/10').props('id=arena-scroll-1')
+            chat1 = ui.column().classes('h-full w-full overflow-y-auto p-4 gap-4 rounded-lg bg-black/20 border border-white/5').props('id=arena-scroll-1')
             with chat1:
                 ui.label('Model 1 Output').classes('text-xs text-muted mb-1')
             
             # Area 2
-            chat2 = ui.column().classes('h-full glass-panel rounded p-2 overflow-y-auto border border-white/10').props('id=arena-scroll-2')
+            chat2 = ui.column().classes('h-full w-full overflow-y-auto p-4 gap-4 rounded-lg bg-black/20 border border-white/5').props('id=arena-scroll-2')
             with chat2:
                 ui.label('Model 2 Output').classes('text-xs text-muted mb-1')
 

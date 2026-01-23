@@ -130,7 +130,7 @@ async def create_page():
                     # Create Tabs structure
                     with results_container:
                         tabs = ui.tabs().classes('w-full text-teal-400')
-                        panels = ui.tab_panels(tabs, value=targets[0]).classes('w-full rounded-b-lg glass-panel min-h-[300px]')
+                        panels = ui.tab_panels(tabs, value=targets[0]).classes('w-full rounded-b-lg bg-black/20 border border-white/5 min-h-[300px]')
                         
                         # Create tab header and panels
                         model_tabs = {}
@@ -149,7 +149,7 @@ async def create_page():
                                 with ui.tab_panel(model).classes('h-[60vh] p-0'):
                                     uid = f"batch-res-{uuid.uuid4()}"
                                     model_scroll_ids[model] = uid
-                                    with ui.column().classes('w-full h-full overflow-y-auto p-4').props(f'id={uid}'):
+                                    with ui.column().classes('w-full h-full overflow-y-auto p-4 gap-4').props(f'id={uid}'):
                                         # Metrics Row
                                         with ui.row().classes('w-full items-center gap-4 mb-2 text-xs text-gray-400 font-mono border-b border-gray-700 pb-2'):
                                             model_metrics[model] = ui.label('Waiting...')

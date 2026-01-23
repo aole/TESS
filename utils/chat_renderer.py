@@ -131,6 +131,9 @@ class ConversationRenderer:
         if role == 'tool':
             ui.label(f"Tool Output: {msg.get('name', 'unknown')}").classes('text-xs text-gray-500 font-bold')
             ui.label(content).classes('text-xs font-mono bg-white/5 p-2 rounded text-gray-300 whitespace-pre-wrap')
+        elif role == 'assistant':
+            # Always use markdown for assistant to ensure streaming updates work correctly with correct styling
+            content_markdown = ui.markdown(content).classes('w-full prose dark:prose-invert text-gray-100')
         else:
             if not content and not thinking and not tool_calls:
                  # Init placeholder
@@ -140,7 +143,7 @@ class ConversationRenderer:
                 if role == 'user':
                     ui.label(content).classes('text-base px-5 py-3 rounded-2xl bg-[#27272a] text-white max-w-full break-words whitespace-pre-wrap')
                 else:
-                    # Assistant markdown
+                    # Assistant markdown (fallback, though handled above) or other roles
                     content_markdown = ui.markdown(content).classes('w-full prose dark:prose-invert text-gray-100')
 
         # 4. Ratings (Assistant only)
