@@ -11,7 +11,9 @@ class ConversationRenderer:
                  on_delete: Optional[Callable[[Dict], Any]] = None,
                  on_rate: Optional[Callable[[Dict, int, str], Any]] = None,
                  on_delete_rating: Optional[Callable[[Dict, str], Any]] = None,
+                 on_save_and_respond: Optional[Callable[[Dict, str], Any]] = None,
                  get_ratings: Optional[Callable[[str], List[Any]]] = None,
+                 available_tags: List[str] = ["General", "Coding", "Tools", "Writing"],
                  show_avatars: bool = True):
         
         self.container = container
@@ -21,7 +23,9 @@ class ConversationRenderer:
         self.on_delete = on_delete
         self.on_rate = on_rate
         self.on_delete_rating = on_delete_rating
+        self.on_save_and_respond = on_save_and_respond
         self.get_ratings = get_ratings
+        self.available_tags = available_tags
         self.show_avatars = show_avatars
         
         # Track components for streaming updates
@@ -101,6 +105,9 @@ class ConversationRenderer:
                 
                 if self.on_save_edit:
                     ui.button('Save', on_click=lambda m=msg, inp=edit_input: self.on_save_edit(m, inp.value)).props('flat dense color=primary')
+                
+                if self.on_save_and_respond:
+                    ui.button('Respond', on_click=lambda m=msg, inp=edit_input: self.on_save_and_respond(m, inp.value)).props('flat dense color=secondary')
  
     def _render_view_mode(self, msg: Dict):
         msg_id = msg.get('id')
@@ -133,7 +140,8 @@ class ConversationRenderer:
             ui.label(content).classes('text-xs font-mono bg-white/5 p-2 rounded text-gray-300 whitespace-pre-wrap')
         elif role == 'assistant':
             # Always use markdown for assistant to ensure streaming updates work correctly with correct styling
-            content_markdown = ui.markdown(content).classes('w-full prose dark:prose-invert text-gray-100')
+            # Add min-h to ensure single lines are visible
+            content_markdown = ui.markdown(content).classes('w-full prose dark:prose-invert text-gray-100 min-h-[1.5em] break-words')
         else:
             if not content and not thinking and not tool_calls:
                  # Init placeholder
@@ -143,7 +151,7 @@ class ConversationRenderer:
                 if role == 'user':
                     ui.label(content).classes('text-base px-5 py-3 rounded-2xl bg-[#27272a] text-white max-w-full break-words whitespace-pre-wrap')
                 else:
-                    # Assistant markdown (fallback, though handled above) or other roles
+                    # Fallback
                     content_markdown = ui.markdown(content).classes('w-full prose dark:prose-invert text-gray-100')
 
         # 4. Ratings (Assistant only)
@@ -178,10 +186,12 @@ class ConversationRenderer:
         
         if self.on_rate:
              with ui.row().classes('items-center gap-2 mt-2 opacity-50 hover:opacity-100 transition-opacity'):
-                 # Simple stars for now (general rating)
-                 # In future, expand to tag selection
+                 # Tag Selector
+                 tag_select = ui.select(self.available_tags, value=self.available_tags[0], label='Tag').props('dense options-dense borderless behavior=menu').classes('w-24 text-xs')
+                 
+                 # Stars
                  for i in range(1, 6):
-                     ui.icon('star_border').classes('cursor-pointer hover:text-yellow-400').on('click', lambda _, r=i, m=msg: self.on_rate(m, r, "General"))
+                     ui.icon('star_border').classes('cursor-pointer hover:text-yellow-400').on('click', lambda _, r=i, m=msg, t=tag_select: self.on_rate(m, r, t.value))
 
     async def update_message(self, msg_id: str, content: str, thinking: str, tool_calls: List[Dict]):
         """

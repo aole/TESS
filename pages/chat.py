@@ -211,6 +211,23 @@ async def create_page(model_param: str = None):
                                  is_checked = t_name in saved_tools
                                  tool_checks[t_name] = ui.checkbox(t_name, value=is_checked, on_change=update_tool_storage).classes('text-sm text-gray-300')
 
+            # Tags
+            with ui.expansion('Rating Tags', icon='label').classes('w-full bg-white/5 rounded-lg').props('dense'):
+                with ui.column().classes('w-full p-2'):
+                    current_tags = app.storage.user.get('tags', ["General", "Coding", "Tools", "Writing"])
+                    
+                    def update_tags(e):
+                        tags = [t.strip() for t in e.value.split(',') if t.strip()]
+                        if not tags: tags = ["General"]
+                        app.storage.user['tags'] = tags
+                        # Update renderer if it exists
+                        try:
+                           chat_renderer.available_tags = tags
+                        except:
+                           pass
+
+                    ui.input('Tags (comma separated)', value=", ".join(current_tags), on_change=update_tags).classes('w-full').props('dense debounce=500')
+
             # Ratings
             ratings_section = ui.expansion('Model Ratings', icon='star').classes('w-full bg-white/5 rounded-lg hidden').props('dense')
             stats_content = ui.column().classes('w-full p-2 gap-1')
@@ -314,27 +331,28 @@ async def create_page(model_param: str = None):
             chat_container = ui.column().classes('w-full flex-grow overflow-y-auto p-4 gap-4 rounded-lg bg-black/20 border border-white/5').props('id=chat-scroll-area')
             
             async def scroll_to_bottom(check_position=False):
-                js = """
-                var el = document.getElementById("chat-scroll-area");
-                if (el) {
-                    if (typeof window.isChatAtBottom === 'undefined') {
-                        window.isChatAtBottom = true;
-                    }
-                    if (!el.dataset.hasScrollListener) {
-                        el.dataset.hasScrollListener = "true";
-                        el.addEventListener('scroll', function() {
-                                window.isChatAtBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 50;
-                        });
-                    }
-                    if (!CHECK_POSITION) {
-                        el.scrollTop = el.scrollHeight;
-                        window.isChatAtBottom = true;
-                    } else if (window.isChatAtBottom) {
+                with chat_container:
+                    js = """
+                    var el = document.getElementById("chat-scroll-area");
+                    if (el) {
+                        if (typeof window.isChatAtBottom === 'undefined') {
+                            window.isChatAtBottom = true;
+                        }
+                        if (!el.dataset.hasScrollListener) {
+                            el.dataset.hasScrollListener = "true";
+                            el.addEventListener('scroll', function() {
+                                    window.isChatAtBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 50;
+                            });
+                        }
+                        if (!CHECK_POSITION) {
                             el.scrollTop = el.scrollHeight;
+                            window.isChatAtBottom = true;
+                        } else if (window.isChatAtBottom) {
+                                el.scrollTop = el.scrollHeight;
+                        }
                     }
-                }
-                """.replace('CHECK_POSITION', 'true' if check_position else 'false')
-                await ui.run_javascript(js)
+                    """.replace('CHECK_POSITION', 'true' if check_position else 'false')
+                    await ui.run_javascript(js)
 
             # Logic Handlers (Wrappers for Renderer)
             def handle_delete(msg):
@@ -393,7 +411,9 @@ async def create_page(model_param: str = None):
                 on_delete=handle_delete,
                 on_rate=handle_rate,
                 on_delete_rating=handle_delete_rating,
-                get_ratings=get_msg_ratings
+                get_ratings=get_msg_ratings,
+                available_tags=app.storage.user.get('tags', ["General", "Coding", "Tools", "Writing"]),
+                on_save_and_respond=None # Will be set later
             )
             
             def refresh_chat_ui():
@@ -534,6 +554,12 @@ async def create_page(model_param: str = None):
                                 if part:
                                     response_content += part
                                     
+                                # Update assistant_msg immediately after local variables
+                                assistant_msg['content'] = response_content
+                                assistant_msg['thinking'] = full_thinking
+                                if tool_calls:
+                                    assistant_msg['tool_calls'] = tool_calls
+
                                 # Streaming Update
                                 await chat_renderer.update_message(msg_id, response_content, full_thinking, tool_calls)
                                 await scroll_to_bottom(check_position=True)
@@ -583,7 +609,7 @@ async def create_page(model_param: str = None):
                     state['processing'] = False
                     state['stopping'] = False
                     update_button_state()
-                    refresh_chat_ui() # Ensure clean state
+                    # refresh_chat_ui() # Redundant and potentially causing wipe issues?
 
                 # --- User Action Handlers ---
                 async def save_and_respond(msg, new_content):
@@ -599,7 +625,9 @@ async def create_page(model_param: str = None):
                     app.storage.user['messages'] = messages
                     refresh_chat_ui()
                     asyncio.create_task(save_current_chat())
-                    asyncio.create_task(generate_response())
+                    await generate_response()
+
+                chat_renderer.on_save_and_respond = save_and_respond
 
                 async def send_message():
                     if state['processing']:
