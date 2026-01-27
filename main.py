@@ -51,7 +51,7 @@ def layout(page_path: str = ''):
 
     with ui.header().classes('bg-transparent border-b border-white/10 h-12 flex items-center px-4 glass-panel fixed top-0 w-full z-50'):
         ui.icon('smart_toy', size='32px').classes('text-indigo-400 mr-2')
-        ui.label('Ollama Manager').classes('text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400')
+        ui.label('TESS').classes('text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400').tooltip('Text Evaluation & Synthesis System')
         
         ui.space()
         
@@ -117,4 +117,4 @@ def settings_page():
     settings.create_page()
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(title='Ollama Manager', dark=True, reload=True, port=8080, storage_secret='ollama_manager_secret')
+    ui.run(title='TESS', dark=True, reload=True, port=8080, storage_secret='ollama_manager_secret')
