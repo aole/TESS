@@ -63,7 +63,13 @@ def create_page():
                         
                         # Escape content to prevent HTML injection
                         import html
+                        import re
                         safe_content = html.escape(content)
+                        
+                        # Linkify URLs (simple regex)
+                        # Matches http/https urls
+                        url_pattern = re.compile(r'(https?://\S+)')
+                        safe_content = url_pattern.sub(r'<a href="\1" target="_blank" class="text-secondary hover:underline">\1</a>', safe_content)
                         
                         ui.html(f'''
                             <div class="text-sm text-gray-200 font-sans break-words overflow-hidden">
