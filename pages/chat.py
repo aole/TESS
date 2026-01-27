@@ -5,6 +5,8 @@ from services.tool_service import tool_service
 from services.rating_service import rating_service
 from services.chat_service import chat_service
 from utils.chat_renderer import ConversationRenderer
+from services.stream_service import stream_service
+from services.batch_service import batch_service
 import asyncio
 import uuid
 
@@ -430,6 +432,33 @@ async def create_page(model_param: str = None):
                 on_save_and_respond=None # Will be set later
             )
             
+            async def on_stream_event(event_type, *args):
+                if event_type == 'new_message':
+                    msg = args[0]
+                    # Update local messages list if not present
+                    if not any(m.get('id') == msg['id'] for m in messages):
+                        messages.append(msg)
+                        app.storage.user['messages'] = messages
+                        with chat_container:
+                            chat_renderer.render_message(msg)
+                        await scroll_to_bottom()
+                elif event_type == 'update_message':
+                    msg_id, content, thinking, tool_calls = args
+                    await chat_renderer.update_message(msg_id, content, thinking, tool_calls)
+                    await scroll_to_bottom(check_position=True)
+                elif event_type == 'done':
+                    state['processing'] = False
+                    state['stopping'] = False
+                    update_button_state()
+                    # Refresh to ensure consistency
+                    app.storage.user['messages'] = messages
+                elif event_type == 'error':
+                    ui.notify(f"Stream error: {args[0]}", type='negative')
+                    state['processing'] = False
+                    update_button_state()
+
+
+            
             def refresh_chat_ui():
                 chat_renderer.render_messages(messages)
 
@@ -447,17 +476,23 @@ async def create_page(model_param: str = None):
 
                 def update_button_state():
                     if not send_btn: return
-                    if state['processing']:
+                    
+                    is_streaming = stream_service.any_active() or batch_service.any_active()
+                    
+                    if state['processing'] or is_streaming:
                         if state['stopping']:
                             send_btn.props('icon=hourglass_empty color=warning')
                         else:
                             send_btn.props('icon=stop color=negative')
                     else:
                         send_btn.props('icon=send color=primary')
+                
+                # Poll for global updates
+                ui.timer(1.0, update_button_state)
 
                 # --- Core Generation Logic ---
                 async def generate_response():
-                    if state['processing']:
+                    if state['processing'] and not state['stopping']:
                          return
 
                     state['processing'] = True
@@ -473,157 +508,39 @@ async def create_page(model_param: str = None):
                                 if func:
                                     tool_funcs_map[func.__name__] = func
                     
-                    # Helper to execute tool
-                    async def execute_tool_call(tool_call):
-                        try:
-                            fname = tool_call.get('function', {}).get('name')
-                            args = tool_call.get('function', {}).get('arguments', {})
-                            if fname in tool_funcs_map:
-                                func = tool_funcs_map[fname]
-                                import inspect
-                                if asyncio.iscoroutinefunction(func):
-                                    res = await func(**args)
-                                else:
-                                    res = func(**args)
-                                return str(res)
-                            else:
-                                return f"Error: Tool {fname} not found"
-                        except Exception as e:
-                            return f"Error executing tool: {e}"
+                    if not current_chat_id:
+                         # Should have been created by send_message or save_current_chat
+                         await save_current_chat()
                     
-                    # Prepare initial messages
-                    api_messages = []
-                    sys_content = system_prompt.value or ""
-                    if tool_funcs_map: # If tools are active
-                        sys_content += "\n\nIMPORTANT: When generating tool calls, ensure strictly valid JSON. Do not use invalid escape sequences like '\\?' inside strings. Only escape backslashes and double quotes."
-                        if not system_prompt.value: # If user didn't provide one, start with a generic helpful one
-                            sys_content = "You are a helpful assistant.\n" + sys_content
-                    
-                    if sys_content:
-                        api_messages.append({'role': 'system', 'content': sys_content})
-                    
-                    for msg in messages:
-                        if msg['role'] in ['user', 'assistant', 'tool']:
-                            clean_msg = {k:v for k,v in msg.items() if k in ['role', 'content', 'images', 'tool_calls']}
-                            api_messages.append(clean_msg)
-                    
-                    # Conversation Loop
-                    while True:
-                        response_content = ""
-                        full_thinking = ""
-                        tool_calls = []
+                    if current_chat_id:
+                        # Register listener if not already (safeguard)
+                        stream_service.register_listener(current_chat_id, on_stream_event)
                         
-                        # Create Placeholder Message
-                        msg_id = str(uuid.uuid4())
-                        assistant_msg = {
-                            'role': 'assistant', 
-                            'content': '', 
-                            'thinking': '', 
-                            'model': model_select.value,
-                            'id': msg_id
-                        }
-                        
-                        messages.append(assistant_msg)
-                        
-                        # Render new message to UI
-                        with chat_container:
-                            chat_renderer.render_message(assistant_msg)
-                            
-                        await scroll_to_bottom()
-                        
-                        try:
-                            list_tools = list(tool_funcs_map.values()) if tool_funcs_map else None
-                            stream = await client.chat(
-                                model=model_select.value,
-                                messages=api_messages,
-                                stream=True,
-                                options={
-                                    'temperature': temp_slider.value,
-                                    'top_p': top_p_slider.value,
-                                    'repeat_penalty': repeat_penalty_slider.value
-                                },
-                                tools=list_tools,
-                                log_requests=config_manager.is_logging_enabled('chat')
-                            )
-                            
-                            async for chunk in stream:
-                                if state['stopping']:
-                                    if not response_content and not full_thinking:
-                                        response_content = '_Stopped by user_'
-                                        assistant_msg['content'] = response_content
-                                        await chat_renderer.update_message(msg_id, response_content, full_thinking, tool_calls)
-                                    break
+                        # Define persistence callback
+                        async def persist_chat(updated_messages):
+                            # The messages list is updated in place, but we need to ensure the chat object is saved
+                            if current_chat_id:
+                                chat = chat_service.load_chat(current_chat_id)
+                                if chat:
+                                    chat.messages = updated_messages
+                                    chat_service.save_chat(chat)
 
-                                msg_chunk = chunk.get('message', {})
-                                part = msg_chunk.get('content') or ''
-                                thinking_part = msg_chunk.get('thinking', '')
-                                tool_calls_part = msg_chunk.get('tool_calls', [])
-                                
-                                if thinking_part:
-                                    full_thinking += thinking_part
-                                
-                                if tool_calls_part:
-                                    tool_calls.extend(tool_calls_part)
-                                
-                                if part:
-                                    response_content += part
-                                    
-                                # Update assistant_msg immediately after local variables
-                                assistant_msg['content'] = response_content
-                                assistant_msg['thinking'] = full_thinking
-                                if tool_calls:
-                                    assistant_msg['tool_calls'] = tool_calls
-
-                                # Streaming Update
-                                await chat_renderer.update_message(msg_id, response_content, full_thinking, tool_calls)
-                                await scroll_to_bottom(check_position=True)
-                                
-                            # Finalize Message Data
-                            assistant_msg['content'] = response_content
-                            assistant_msg['thinking'] = full_thinking
-                            if tool_calls:
-                                assistant_msg['tool_calls'] = tool_calls
-                            
-                            # Clean for API
-                            clean_assist = {k:v for k,v in assistant_msg.items() if k in ['role', 'content', 'tool_calls']}
-                            api_messages.append(clean_assist) 
-
-                            # Persist
-                            app.storage.user['messages'] = list(messages) # Force update by creating shallow copy
-                            asyncio.create_task(save_current_chat())
-                            
-                            if state['stopping']:
-                                break
-
-                            # Handle Tools
-                            if tool_calls:
-                                for tc in tool_calls:
-                                    res = await execute_tool_call(tc)
-                                    tool_msg = {
-                                        'role': 'tool',
-                                        'content': res,
-                                        'name': tc.get('function', {}).get('name'),
-                                        'id': str(uuid.uuid4())
-                                    }
-                                    messages.append(tool_msg)
-                                    api_messages.append({'role': 'tool', 'content': res}) 
-                                    
-                                    with chat_container:
-                                        chat_renderer.render_message(tool_msg)
-                                    await scroll_to_bottom(check_position=True)
-                                
-                                asyncio.create_task(save_current_chat())
-                            else:
-                                break # Turn ends
-
-                        except Exception as e:
-                            ui.notify(f'Error: {e}', type='negative')
-                            break
-                    
-                    state['processing'] = False
-                    state['stopping'] = False
-                    update_button_state()
-                    # refresh_chat_ui() # Redundant and potentially causing wipe issues?
+                        await stream_service.start_generation(
+                            stream_id=current_chat_id,
+                            messages=messages,
+                            model=model_select.value,
+                            temperature=temp_slider.value,
+                            top_p=top_p_slider.value,
+                            repeat_penalty=repeat_penalty_slider.value,
+                            system_prompt=system_prompt.value,
+                            tool_funcs_map=tool_funcs_map,
+                            log_requests=config_manager.is_logging_enabled('chat'),
+                            persist_callback=persist_chat
+                        )
+                    else:
+                        ui.notify("Error: No chat ID", type='negative')
+                        state['processing'] = False
+                        update_button_state()
 
                 # --- User Action Handlers ---
                 async def save_and_respond(msg, new_content):
@@ -644,7 +561,10 @@ async def create_page(model_param: str = None):
                 chat_renderer.on_save_and_respond = save_and_respond
 
                 async def send_message():
-                    if state['processing']:
+                    # Global Stop Check
+                    if state['processing'] or stream_service.any_active() or batch_service.any_active():
+                        stream_service.stop_all()
+                        batch_service.stop_all()
                         state['stopping'] = True
                         update_button_state()
                         return
@@ -684,3 +604,25 @@ async def create_page(model_param: str = None):
                     # Trigger initial update
                     if model_select.value:
                         asyncio.create_task(update_params(initial=True))
+            
+            # Register listener at the end so update_button_state is available
+            if current_chat_id:
+                stream_service.register_listener(current_chat_id, on_stream_event)
+                ui.context.client.on_disconnect(lambda: stream_service.unregister_listener(current_chat_id))
+                
+                if stream_service.is_streaming(current_chat_id):
+                    # If streaming, check if we missed any messages
+                    ctx_msgs = stream_service.get_context(current_chat_id)
+                    if ctx_msgs:
+                        # Sync: if there are messages in ctx that are not in local 'messages', add them
+                        # This happens if user navigated away and back
+                        local_ids = set(m['id'] for m in messages)
+                        for m in ctx_msgs:
+                            if m['id'] not in local_ids:
+                                messages.append(m) 
+                        app.storage.user['messages'] = messages
+                        refresh_chat_ui()
+                        await scroll_to_bottom()
+                        
+                    state['processing'] = True
+                    update_button_state()

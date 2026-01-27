@@ -1,10 +1,12 @@
-from nicegui import ui
+from nicegui import ui, app
 from utils.ollama_client import client
 from utils.config import config_manager
 from utils.chat_renderer import ConversationRenderer
+from services.batch_service import batch_service
+from services.stream_service import stream_service
 import asyncio
-import time
 import uuid
+import time
 
 async def create_page():
     
@@ -31,8 +33,6 @@ async def create_page():
         """.replace('AREA_ID', area_id).replace('CHECK_POSITION', 'true' if check_position else 'false')
         await ui.run_javascript(js)
 
-    # Layout
-    
     # -- Data Loading --
     try:
          models_data = await client.list_models()
@@ -41,11 +41,23 @@ async def create_page():
          ui.notify(f"Error loading models: {e}", type='negative')
          all_models = []
 
-    # -- State & Config --
+    # -- State --
+    current_batch_id = app.storage.user.get('batch_id')
+    batch_state = None
+    if current_batch_id:
+        batch_state = batch_service.get_batch(current_batch_id)
+        if not batch_state:
+            current_batch_id = None
+            app.storage.user['batch_id'] = None
+
     model_toggles = {}
-    state = {'processing': False, 'stopping': False}
+    # If recovering state, we might want to set toggles based on batch_state['models']? 
+    # But user might want to run a new batch. 
+    # Let's simple init toggles to unchecked or based on recovering if we are strictly in "view mode".
+    # For now, standard init.
+    
     run_btn = None 
-    results_container = None # Forward definition
+    results_container = None 
 
     # -- Left Drawer (Configuration) --
     with ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10 flex flex-col p-4'):
@@ -53,7 +65,8 @@ async def create_page():
         
         # System Prompt
         ui.label('System Prompt').classes('text-sm font-medium text-gray-400 mb-1')
-        system_prompt = ui.textarea(placeholder='You are a helpful assistant...', value='').props('dense rows=4 filled flat').classes('w-full text-sm mb-6 bg-white/5 rounded-md')
+        default_sys = batch_state['system_prompt'] if batch_state else ''
+        system_prompt = ui.textarea(placeholder='You are a helpful assistant...', value=default_sys).props('dense rows=4 filled flat').classes('w-full text-sm mb-6 bg-white/5 rounded-md')
 
         # Model Selection
         with ui.row().classes('w-full justify-between items-center mb-2'):
@@ -68,8 +81,12 @@ async def create_page():
         
         with ui.scroll_area().classes('flex-grow -mr-2 pr-2'):
             with ui.column().classes('gap-1'):
+                # Pre-select if recovering?
+                rec_models = set(batch_state['models']) if batch_state else set()
+                
                 for m in all_models:
-                    t = ui.checkbox(m).props('dense color=secondary size=sm').classes('text-sm text-gray-400')
+                    is_checked = m in rec_models if batch_state else False
+                    t = ui.checkbox(m, value=is_checked).props('dense color=secondary size=sm').classes('text-sm text-gray-400')
                     model_toggles[m] = t
 
     # -- Main Content --
@@ -79,28 +96,37 @@ async def create_page():
         
         # User Prompt Section
         with ui.card().classes('w-full glass-panel p-4 mb-6'):
-            user_prompt = ui.textarea(label='User Prompt', placeholder='Tell me a joke...').props('dense rows=2 autogrow').classes('w-full mb-4')
+            default_prompt = batch_state['user_prompt'] if batch_state else ''
+            user_prompt = ui.textarea(label='User Prompt', placeholder='Tell me a joke...', value=default_prompt).props('dense rows=2 autogrow').classes('w-full mb-4')
             
             def update_btn():
                 if not run_btn: return
-                if state['processing']:
-                    if state['stopping']:
-                        run_btn.props('color=warning icon=hourglass_empty')
-                        run_btn.set_text('Stopping...')
-                    else:
-                        run_btn.props('color=negative icon=stop')
-                        run_btn.set_text('Stop Batch')
-                else:
-                    run_btn.props('color=primary icon=play_arrow')
-                    run_btn.set_text('Run Batch')
+                
+                # Check Global or Local
+                is_busy = stream_service.any_active() or batch_service.any_active()
+                
+                if is_busy:
+                    run_btn.props('color=negative icon=stop')
+                    run_btn.set_text('Stop All')
+                    return
+                
+                run_btn.props('color=primary icon=play_arrow')
+                run_btn.set_text('Run Batch')
+            
+            ui.timer(1.0, update_btn)
 
             async def run_batch():
-                if state['processing']:
-                    state['stopping'] = True
+                nonlocal current_batch_id, batch_state
+                
+                # Check if running
+                # Check if Global Busy
+                if stream_service.any_active() or batch_service.any_active():
+                    batch_service.stop_all()
+                    stream_service.stop_all()
                     update_btn()
                     return
 
-                # Get selected models
+                # Start New
                 targets = [name for name, toggle in model_toggles.items() if toggle.value]
                 if not targets:
                     ui.notify('Select at least one model', type='warning')
@@ -109,127 +135,15 @@ async def create_page():
                     ui.notify('Enter a prompt', type='warning')
                     return
                 
-                state['processing'] = True
-                state['stopping'] = False
-                update_btn()
-
-                # Clear previous results
-                if results_container:
-                    results_container.clear()
+                current_batch_id = batch_service.start_batch(user_prompt.value, system_prompt.value, targets)
+                app.storage.user['batch_id'] = current_batch_id
+                batch_state = batch_service.get_batch(current_batch_id)
                 
-                # Prepare messages
-                msgs = []
-                if system_prompt.value:
-                    msgs.append({'role': 'system', 'content': system_prompt.value})
-                msgs.append({'role': 'user', 'content': user_prompt.value})
-
-                # Create Tabs structure
-                with results_container:
-                    tabs = ui.tabs().classes('w-full text-teal-400')
-                    panels = ui.tab_panels(tabs, value=targets[0]).classes('w-full rounded-b-lg bg-black/20 border border-white/5 min-h-[300px]')
-                    
-                    # Create tab header and panels
-                    model_tabs = {}
-                    model_renderers = {} # Map model -> renderer
-                    model_metrics = {}
-                    model_scroll_ids = {}
-                    
-                    with tabs:
-                        for model in targets:
-                            model_tabs[model] = ui.tab(model)
-                    
-                    with panels:
-                        for model in targets:
-                            with ui.tab_panel(model).classes('h-[60vh] p-0'):
-                                uid = f"batch-res-{uuid.uuid4()}"
-                                model_scroll_ids[model] = uid
-                                with ui.column().classes('w-full h-full overflow-y-auto p-4 gap-4').props(f'id={uid}'):
-                                    # Metrics Row
-                                    with ui.row().classes('w-full items-center gap-4 mb-2 text-xs text-gray-400 font-mono border-b border-gray-700 pb-2'):
-                                        model_metrics[model] = ui.label('Waiting...')
-                                    
-                                    # Renderer Container
-                                    renderer_container = ui.column().classes('w-full flex-grow')
-                                    model_renderers[model] = ConversationRenderer(renderer_container)
-                                    
-                                    # Render User Message immediately to show what's being processed
-                                    user_msg = {'role': 'user', 'content': user_prompt.value}
-                                    model_renderers[model].render_message(user_msg)
-
-
-                # Sequential Execution
-                for model in targets:
-                    if state['stopping']:
-                        model_metrics[model].set_text('Cancelled')
-                        break
-                    
-                    # Switch tab to current model
-                    if model in model_tabs:
-                        tabs.set_value(model)
-                    
-                    renderer = model_renderers[model]
-                    metrics_label = model_metrics[model]
-                    
-                    metrics_label.set_text('Generating...')
-                    
-                    # Create Assistant Message Placeholder
-                    msg_id = str(uuid.uuid4())
-                    assistant_msg = {
-                        'id': msg_id,
-                        'role': 'assistant',
-                        'model': model,
-                        'content': '',
-                        'thinking': '',
-                        'tool_calls': []
-                    }
-                    renderer.render_message(assistant_msg)
-                    
-                    output = ""
-                    thinking = ""
-                    token_count = 0
-                    t0 = time.time()
-                    
-                    try:
-                        stream = await client.chat(model=model, messages=msgs, stream=True, keep_alive=0, log_requests=config_manager.is_logging_enabled('batch'))
-                        async for chunk in stream:
-                            if state['stopping']:
-                                output += '\n\n_Stopped_'
-                                await renderer.update_message(msg_id, output, thinking, [])
-                                await scroll_to_bottom(model_scroll_ids[model], check_position=True)
-                                await stream.aclose()
-                                break
-                            
-                            msg_chunk = chunk.get('message', {})
-                            val = msg_chunk.get('content', '')
-                            thk = msg_chunk.get('thinking', '')
-                            
-                            # Update Stats if available in chunk
-                            if 'eval_count' in chunk:
-                                token_count = chunk['eval_count']
-                            
-                            if thk:
-                                thinking += thk
-                            
-                            if val:
-                                output += val
-                            
-                            await renderer.update_message(msg_id, output, thinking, [])
-                            await scroll_to_bottom(model_scroll_ids[model], check_position=True)
-                        
-                        duration = time.time() - t0
-                        # Final metrics update
-                        metrics_label.set_text(f"Time: {duration:.2f}s | Output Tokens: {token_count}")
-                        
-                    except Exception as e:
-                        await renderer.update_message(msg_id, output + f"\n\n**Error**: {e}", thinking, [])
-                        metrics_label.set_text(f"Error")
-                    
-                    # Add a small delay/cleanup if needed between models
-                    await asyncio.sleep(1.0)
-                
-                state['processing'] = False
-                state['stopping'] = False
+                render_results_ui() # Re-render tabs
                 update_btn()
+                
+                # Start poll for UI updates
+                asyncio.create_task(poll_batch_updates())
 
             user_prompt.on('keydown.enter.prevent.exact', run_batch)
             run_btn = ui.button('Run Batch', on_click=run_batch).props('color=primary icon=play_arrow').classes('w-full h-10 text-md')
@@ -237,3 +151,123 @@ async def create_page():
         # Results Area
         ui.label('Results').classes('text-lg font-bold mb-2')
         results_container = ui.column().classes('w-full flex-grow')
+        
+        # UI References for updates
+        model_renderers = {}
+        model_metrics = {}
+        model_scroll_ids = {}
+        
+        def render_results_ui():
+            results_container.clear()
+            model_renderers.clear()
+            model_metrics.clear()
+            model_scroll_ids.clear()
+            
+            if not batch_state: return
+            
+            targets = batch_state['models']
+            
+            with results_container:
+                tabs = ui.tabs().classes('w-full text-teal-400')
+                panels = ui.tab_panels(tabs, value=targets[0]).classes('w-full rounded-b-lg bg-black/20 border border-white/5 min-h-[300px]')
+                
+                with tabs:
+                    for model in targets:
+                        ui.tab(model)
+                
+                with panels:
+                    for model in targets:
+                        with ui.tab_panel(model).classes('h-[60vh] p-0'):
+                            uid = f"batch-res-{model}-{uuid.uuid4()}" # Unique ID
+                            model_scroll_ids[model] = uid
+                            
+                            with ui.column().classes('w-full h-full overflow-y-auto p-4 gap-4').props(f'id={uid}'):
+                                # Metrics
+                                with ui.row().classes('w-full items-center gap-4 mb-2 text-xs text-gray-400 font-mono border-b border-gray-700 pb-2'):
+                                    model_metrics[model] = ui.label('Waiting...')
+                                
+                                # Renderer
+                                r_container = ui.column().classes('w-full flex-grow')
+                                renderer = ConversationRenderer(r_container)
+                                model_renderers[model] = renderer
+                                
+                                # Initial render of messages
+                                msgs = batch_state['model_states'][model]['messages']
+                                renderer.render_messages(msgs)
+
+        async def poll_batch_updates():
+            while current_batch_id:
+                b = batch_service.get_batch(current_batch_id)
+                if not b: break
+                
+                # Update loop
+                all_done = True
+                
+                for model in b['models']:
+                    m_state = b['model_states'][model]
+                    status = m_state['status']
+                    
+                    if status in ['generating', 'waiting']: 
+                        all_done = False
+                    
+                    # Update Metrics
+                    label = model_metrics.get(model)
+                    if label:
+                        if status == 'waiting': label.set_text('Waiting...')
+                        elif status == 'generating': label.set_text(f"Generating... ({m_state['time']:.1f}s)")
+                        elif status == 'done': label.set_text(f"Done in {m_state['time']:.2f}s")
+                        elif status == 'cancelled': label.set_text('Cancelled')
+                        elif status == 'error': label.set_text('Error')
+
+                    # Update Content (Renderer)
+                    # We can minimize re-rendering by checking length or specialized stream events,
+                    # but simple polling works for now. 
+                    # Optimization: Only render last message if it's changing?
+                    # ConversationRenderer.render_messages clears and redraws which is expensive.
+                    # Ideally we access the specific renderer method 'update_message'.
+                    # We can check if last message is 'assistant' and partial.
+                    
+                    renderer = model_renderers.get(model)
+                    if renderer:
+                        msgs = m_state['messages']
+                        if msgs:
+                            last_msg = msgs[-1]
+                            # Simple logic: just update the last message in the renderer if it exists
+                            # But renderer logic usually requires ID.
+                            if 'id' in last_msg:
+                                # This assumes the message is already rendered once? 
+                                # Start_batch creates the messages initially.
+                                # But `render_results_ui` renders everything initially.
+                                # So we just need to update content of the last one.
+                                
+                                # We assume 'assistant' is last.
+                                if last_msg['role'] == 'assistant':
+                                    await renderer.update_message(
+                                        last_msg['id'], 
+                                        last_msg.get('content',''), 
+                                        last_msg.get('thinking',''), 
+                                        last_msg.get('tool_calls', [])
+                                    )
+                                    # Auto-scroll ONLY if this is the active tab or visible? 
+                                    # Actually we can scroll always.
+                                    await scroll_to_bottom(model_scroll_ids[model], check_position=True)
+                
+                if all_done:
+                    update_btn()
+                    break
+                
+                if b['status'] == 'stopped':
+                    update_btn()
+                    break
+
+                await asyncio.sleep(0.5)
+
+        # Init (Recover)
+        if current_batch_id:
+            render_results_ui()
+            update_btn()
+            # If still running, attach poller
+            if batch_state and batch_state['status'] == 'running':
+                 asyncio.create_task(poll_batch_updates())
+
+
