@@ -24,6 +24,20 @@ async def create_page(model_param: str = None):
     messages = app.storage.user['messages']
     current_chat_id = app.storage.user['chat_id'] 
 
+    # Re-sync from disk to ensure storage is consistent with persistent file
+    if current_chat_id:
+        chat = chat_service.load_chat(current_chat_id)
+        if chat:
+            messages = chat.messages
+            # Update storage with fresh data from disk
+            app.storage.user['messages'] = messages
+        else:
+            # Chat ID exists in session but file missing? Reset.
+            current_chat_id = None
+            app.storage.user['chat_id'] = None
+            messages = []
+            app.storage.user['messages'] = messages 
+
     # Ensure all messages have IDs
     for msg in messages:
         if 'id' not in msg:
@@ -575,7 +589,7 @@ async def create_page(model_param: str = None):
                             api_messages.append(clean_assist) 
 
                             # Persist
-                            app.storage.user['messages'] = messages
+                            app.storage.user['messages'] = list(messages) # Force update by creating shallow copy
                             asyncio.create_task(save_current_chat())
                             
                             if state['stopping']:
@@ -622,7 +636,7 @@ async def create_page(model_param: str = None):
                     except ValueError:
                         pass
                     
-                    app.storage.user['messages'] = messages
+                    app.storage.user['messages'] = list(messages)
                     refresh_chat_ui()
                     asyncio.create_task(save_current_chat())
                     await generate_response()
