@@ -47,6 +47,7 @@ def layout(page_path: str = ''):
             }
         </style>
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     """)
 
     with ui.header().classes('bg-transparent border-b border-white/10 h-12 flex items-center px-4 glass-panel fixed top-0 w-full z-50'):

@@ -49,22 +49,26 @@ def create_page():
         content_area.clear()
         with content_area:
             if details:
-                 with ui.row().classes('w-full justify-between items-start mb-4'):
-                     with ui.column().classes('gap-1'):
-                         ui.label(details['subject']).classes('text-xl font-bold text-gray-200 list-disc')
+                 with ui.row().classes('w-full flex-nowrap justify-between items-start mb-4 gap-4'):
+                     with ui.column().classes('gap-1 flex-1 min-w-0'):
+                         ui.label(details['subject']).classes('text-xl font-bold text-gray-200 leading-tight break-words')
                          ui.label(f"From: {details['sender']}").classes('text-sm text-gray-400')
                          ui.label(details['date']).classes('text-xs text-gray-500')
-                     ui.button(icon='close', on_click=dialog.close).props('flat round dense color=grey')
+                     # Use ui.button with icon parameter explicitly for 'X' icon appearance
+                     ui.button(on_click=dialog.close, icon='close').props('flat round dense color=grey').classes('flex-shrink-0')
                  
                  ui.separator().classes('bg-white/10 mb-4')
                  
-                 with ui.scroll_area().classes('flex-1 w-full'):
-                     if details.get('is_html'):
-                         # Wrap in a white container because most emails assume a white background
-                         # and add padding for readability.
-                         with ui.element('div').classes('w-full bg-white text-black p-4 rounded'):
-                             ui.html(details['body'], sanitize=False)
-                     else:
+                 if details.get('is_html'):
+                     # Use an iframe to isolate email styles from the rest of the app
+                     # data:text/html base64 encoded source is robust
+                     import base64
+                     html_b64 = base64.b64encode(details['body'].encode('utf-8')).decode('utf-8')
+                     src = f"data:text/html;base64,{html_b64}"
+                     # Direct iframe in the column (which is flex-col), bypassing scroll_area
+                     ui.element('iframe').props(f'src="{src}" frameborder="0"').classes('w-full flex-1 bg-white rounded min-h-0')
+                 else:
+                     with ui.scroll_area().classes('flex-1 w-full'):
                          ui.label(details['body']).classes('text-gray-300 whitespace-pre-wrap font-sans')
             else:
                  with ui.column().classes('w-full h-full items-center justify-center'):
@@ -105,7 +109,7 @@ def create_page():
                         ui.separator()
                         ui.menu_item('Add another account', on_click=add_new_account).props('icon=add')
 
-    # Main Layout
+     # Main Layout
     with ui.column().classes('w-full h-[calc(100vh-4rem)] p-6 gap-6'):
         
         # Header Row
