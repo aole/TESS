@@ -26,10 +26,14 @@ class StreamService:
 
     def stop_generation(self, stream_id: str):
         self.stop_flags[stream_id] = True
+        if stream_id in self.active_tasks:
+            self.active_tasks[stream_id].cancel()
 
     def stop_all(self):
-        for sid in self.active_tasks:
+        for sid in list(self.active_tasks.keys()):
             self.stop_flags[sid] = True
+            if sid in self.active_tasks:
+                self.active_tasks[sid].cancel()
 
     def register_listener(self, stream_id: str, callback: Callable):
         self.listeners[stream_id] = callback
@@ -66,16 +70,6 @@ class StreamService:
         def cleanup(t):
             self.active_tasks.pop(stream_id, None)
             self.stop_flags.pop(stream_id, None)
-            # We keep stream_contexts[stream_id] for a bit? 
-            # Or assume the caller manages it. 
-            # For navigation-away, we need it to stay if we are to recover state.
-            # But usually persist_callback saves it anyway.
-            # We will clean it up if explicitly asked, or let it linger until next run?
-            # Ideally, we remove it to prevent memory leaks if ID is unique every time.
-            # But if ID is persistent (chat ID), it's fine.
-            # For Arena (ephemeral), IDs change.
-            # Let's clean up context after a delay or immediately?
-            # If we clean immediately, `get_context` returns None.
             pass
             
         task.add_done_callback(cleanup)
@@ -242,6 +236,27 @@ class StreamService:
                 else:
                     break 
         
+        except asyncio.CancelledError:
+             # Handle cancellation by saving partial state if possible
+            if 'assistant_msg' in locals():
+                if not assistant_msg['content'] and not assistant_msg['thinking']:
+                     assistant_msg['content'] = "_Stopped_"
+                
+                # Notify listener
+                if stream_id in self.listeners:
+                    try:
+                        await self.listeners[stream_id]('update_message', assistant_msg['id'], assistant_msg['content'], assistant_msg['thinking'], assistant_msg.get('tool_calls', []))
+                    except: pass
+                
+                # Save
+                if persist_callback:
+                    if asyncio.iscoroutinefunction(persist_callback):
+                        await persist_callback(messages)
+                    else:
+                        persist_callback(messages)
+            # We treat cancellation as a stop
+            pass
+
         except Exception as e:
             print(f"Outer Streaming process error: {e}")
         finally:

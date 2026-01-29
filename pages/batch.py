@@ -145,7 +145,7 @@ async def create_page():
                 # Start poll for UI updates
                 asyncio.create_task(poll_batch_updates())
 
-            user_prompt.on('keydown.enter.prevent.exact', run_batch)
+            user_prompt.on('keydown.enter.exact', lambda e: run_batch() if not e.args['shiftKey'] else None, args=['shiftKey'])
             run_btn = ui.button('Run Batch', on_click=run_batch).props('color=primary icon=play_arrow').classes('w-full h-10 text-md')
 
         # Results Area
