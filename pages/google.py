@@ -35,6 +35,43 @@ def create_page():
             n.dismiss()
             ui.notify(f"Error: {e}", type='negative')
 
+    # Email Dialog
+    async def open_email_dialog(message_id):
+        with ui.dialog() as dialog, ui.card().classes('w-full max-w-3xl h-[80vh] p-0 bg-[#1e1f20] border border-white/10 flex flex-col'):
+            content_area = ui.column().classes('w-full h-full p-6 flex flex-col')
+            with content_area:
+                 ui.spinner('dots', size='lg').classes('self-center my-auto text-primary')
+        dialog.open()
+
+        # Fetch details in background
+        details = await run.io_bound(google_service.get_email_details, message_id)
+        
+        content_area.clear()
+        with content_area:
+            if details:
+                 with ui.row().classes('w-full justify-between items-start mb-4'):
+                     with ui.column().classes('gap-1'):
+                         ui.label(details['subject']).classes('text-xl font-bold text-gray-200 list-disc')
+                         ui.label(f"From: {details['sender']}").classes('text-sm text-gray-400')
+                         ui.label(details['date']).classes('text-xs text-gray-500')
+                     ui.button(icon='close', on_click=dialog.close).props('flat round dense color=grey')
+                 
+                 ui.separator().classes('bg-white/10 mb-4')
+                 
+                 with ui.scroll_area().classes('flex-1 w-full'):
+                     if details.get('is_html'):
+                         # Wrap in a white container because most emails assume a white background
+                         # and add padding for readability.
+                         with ui.element('div').classes('w-full bg-white text-black p-4 rounded'):
+                             ui.html(details['body'], sanitize=False)
+                     else:
+                         ui.label(details['body']).classes('text-gray-300 whitespace-pre-wrap font-sans')
+            else:
+                 with ui.column().classes('w-full h-full items-center justify-center'):
+                    ui.icon('error', size='lg').classes('text-red-400 mb-2')
+                    ui.label('Failed to load email details.').classes('text-red-400')
+                    ui.button('Close', on_click=dialog.close).classes('mt-4')
+
     # Account Selector Component
     def update_account_selector():
         account_row.clear()
@@ -105,7 +142,7 @@ def create_page():
                          ui.label('No emails found').classes('text-gray-500 p-4 w-full text-center')
 
                     for email in emails:
-                        with ui.column().classes('w-full p-3 hover:bg-white/5 rounded-lg transition-colors gap-1 cursor-pointer mb-1'):
+                        with ui.column().classes('w-full p-3 hover:bg-white/5 rounded-lg transition-colors gap-1 cursor-pointer mb-1').on('click', lambda _, i=email['id']: open_email_dialog(i)):
                             with ui.row().classes('w-full justify-between'):
                                 ui.label(email['sender']).classes('font-bold text-sm text-gray-200 truncate pr-2')
                                 ui.label(email['time']).classes('text-xs text-gray-500 flex-shrink-0')

@@ -174,6 +174,78 @@ class GoogleService:
             logging.error(f"Gmail API error: {e}")
             return []
 
+    def get_email_details(self, message_id: str) -> Optional[Dict]:
+        if not self.current_account_id:
+            return None
+        
+        creds = self._get_credentials(self.current_account_id)
+        if not creds:
+            return None
+
+        try:
+            service = build('gmail', 'v1', credentials=creds)
+            msg = service.users().messages().get(userId='me', id=message_id, format='full').execute()
+            
+            payload = msg.get('payload', {})
+            headers_list = payload.get('headers', [])
+            headers = {h['name']: h['value'] for h in headers_list}
+            
+            body = "No text content found."
+            is_html = False
+            
+            def get_body(parts):
+                html_body = None
+                text_body = None
+                
+                for part in parts:
+                    mime = part.get('mimeType')
+                    data = part.get('body', {}).get('data', '')
+                    
+                    if mime == 'text/html' and data:
+                         import base64
+                         html_body = base64.urlsafe_b64decode(data).decode()
+                    elif mime == 'text/plain' and data:
+                         import base64
+                         text_body = base64.urlsafe_b64decode(data).decode()
+                    
+                    if 'parts' in part:
+                         # Recursive search
+                         found_body, found_is_html = get_body(part['parts'])
+                         if found_body:
+                             if found_is_html: return found_body, True
+                             # If we found text deep down, keep it but keep looking for html at this level or others
+                             if text_body is None: text_body = found_body
+
+                if html_body: return html_body, True
+                if text_body: return text_body, False
+                return None, False
+
+            if 'parts' in payload:
+                found_body, found_is_html = get_body(payload['parts'])
+                if found_body:
+                    body = found_body
+                    is_html = found_is_html
+            else:
+                # Single part message
+                data = payload.get('body', {}).get('data', '')
+                if data:
+                    import base64
+                    body = base64.urlsafe_b64decode(data).decode()
+                    if payload.get('mimeType') == 'text/html':
+                        is_html = True
+
+            return {
+                "id": msg['id'],
+                "sender": headers.get('From', 'Unknown'),
+                "subject": headers.get('Subject', '(No Subject)'),
+                "body": body,
+                "is_html": is_html,
+                "date": headers.get('Date', '')
+            }
+        except Exception as e:
+            logging.error(f"Gmail detail error: {e}")
+            return None
+
     def get_youtube_data(self) -> List[Dict]:
         if not self.current_account_id:
             return []
