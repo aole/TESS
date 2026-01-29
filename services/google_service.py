@@ -162,12 +162,35 @@ class GoogleService:
                     headers_list = meta.get('payload', {}).get('headers', [])
                     headers = {h['name']: h['value'] for h in headers_list}
                     
+                    labelIds = meta.get('labelIds', [])
+                    is_read = 'UNREAD' not in labelIds
+
+                    import email.utils
+                    from datetime import datetime, date
+                    
+                    date_str = headers.get('Date', '')
+                    formatted_time = ''
+                    if date_str:
+                        try:
+                            dt = email.utils.parsedate_to_datetime(date_str)
+                            # Convert to local if possible, or naive. parsedate_to_datetime returns aware usually.
+                            
+                            # Simple formatting logic
+                            now = datetime.now(dt.tzinfo)
+                            if dt.date() == now.date():
+                                formatted_time = dt.strftime('%H:%M')
+                            else:
+                                formatted_time = dt.strftime('%b %d')
+                        except:
+                            formatted_time = date_str[:10] # Fallback
+
                     email_data.append({
                         "id": msg['id'],
                         "sender": headers.get('From', 'Unknown'),
                         "subject": headers.get('Subject', '(No Subject)'),
                         "preview": snippet,
-                        "time": "" # Date parsing is complex, skipping for brevity or add if needed
+                        "time": formatted_time,
+                        "is_read": is_read
                     })
             return email_data
         except Exception as e:

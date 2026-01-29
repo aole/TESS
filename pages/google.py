@@ -148,9 +148,14 @@ def create_page():
                     for email in emails:
                         with ui.column().classes('w-full p-2 hover:bg-white/5 rounded-lg transition-colors gap-0 cursor-pointer mb-1').on('click', lambda _, i=email['id']: open_email_dialog(i)):
                             with ui.row().classes('w-full justify-between items-center'):
-                                ui.label(email['sender']).classes('text-xs text-gray-400 truncate pr-2')
+                                ui.label(email['sender']).classes('text-xs text-gray-500 truncate pr-2')
                                 ui.label(email['time']).classes('text-xs text-gray-500 flex-shrink-0')
-                            ui.label(email['subject']).classes('text-sm font-bold text-gray-200 truncate w-full')
+                            
+                            # Bold subject only if unread (is_read is False)
+                            weight = 'font-bold' if not email.get('is_read', True) else 'font-normal'
+                            shade = 'text-gray-100' if not email.get('is_read', True) else 'text-gray-400'
+                            subject = email['subject'][:75] + '...' if len(email['subject']) > 75 else email['subject']
+                            ui.label(subject).classes(f'text-sm {weight} {shade} truncate w-full')
 
             # 2. YouTube Column
             with ui.column().classes('flex-1 h-full bg-[#1e1f20] border border-white/10 rounded-xl overflow-hidden flex flex-col'):
