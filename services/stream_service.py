@@ -53,7 +53,8 @@ class StreamService:
                              tool_funcs_map: Dict[str, Callable] = None,
                              log_requests: bool = False,
                              persist_callback: Callable[[List[Dict]], Any] = None,
-                             listener: Callable = None
+                             listener: Callable = None,
+                             keep_alive: str = "5m"
                              ):
         
         if self.is_streaming(stream_id):
@@ -64,7 +65,7 @@ class StreamService:
         
         task = asyncio.create_task(self._process_stream(
             stream_id, messages, model, temperature, top_p, repeat_penalty, system_prompt, 
-            tool_funcs_map, log_requests, persist_callback, listener
+            tool_funcs_map, log_requests, persist_callback, listener, keep_alive
         ))
         self.active_tasks[stream_id] = task
         
@@ -76,7 +77,7 @@ class StreamService:
         task.add_done_callback(cleanup)
         return task
 
-    async def _process_stream(self, stream_id, messages, model, temperature, top_p, repeat_penalty, system_prompt, tool_funcs_map, log_requests, persist_callback, listener=None):
+    async def _process_stream(self, stream_id, messages, model, temperature, top_p, repeat_penalty, system_prompt, tool_funcs_map, log_requests, persist_callback, listener=None, keep_alive="5m"):
         try:
             # Prepare API messages
             api_messages = []
@@ -148,6 +149,7 @@ class StreamService:
                             'top_p': top_p,
                             'repeat_penalty': repeat_penalty
                         },
+                        keep_alive=keep_alive,
                         tools=list_tools,
                         log_requests=log_requests
                     )

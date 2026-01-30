@@ -9,6 +9,7 @@ import uuid
 import time
 
 async def create_page():
+    page_client = ui.context.client
     
     async def scroll_to_bottom(area_id, check_position=False):
         js = """
@@ -196,61 +197,64 @@ async def create_page():
                                 renderer.render_messages(msgs)
 
         async def poll_batch_updates():
+            # Capture the client context where this poller was started
+            # page_client captured from outer scope
             while current_batch_id:
+                try:
+                    with page_client:
+                         pass # Just ensuring context is alive
+                except:
+                    break # Client disconnected
+                
                 b = batch_service.get_batch(current_batch_id)
                 if not b: break
                 
                 # Update loop
                 all_done = True
                 
-                for model in b['models']:
-                    m_state = b['model_states'][model]
-                    status = m_state['status']
-                    
-                    if status in ['generating', 'waiting']: 
-                        all_done = False
-                    
-                    # Update Metrics
-                    label = model_metrics.get(model)
-                    if label:
-                        if status == 'waiting': label.set_text('Waiting...')
-                        elif status == 'generating': label.set_text(f"Generating... ({m_state['time']:.1f}s)")
-                        elif status == 'done': label.set_text(f"Done in {m_state['time']:.2f}s")
-                        elif status == 'cancelled': label.set_text('Cancelled')
-                        elif status == 'error': label.set_text('Error')
+                with page_client:
+                    for model in b['models']:
+                        m_state = b['model_states'][model]
+                        status = m_state['status']
+                        
+                        if status in ['generating', 'waiting']: 
+                            all_done = False
+                        
+                        # Update Metrics
+                        label = model_metrics.get(model)
+                        if label:
+                            if status == 'waiting': label.set_text('Waiting...')
+                            elif status == 'generating': label.set_text(f"Generating... ({m_state['time']:.1f}s)")
+                            elif status == 'done': label.set_text(f"Done in {m_state['time']:.2f}s")
+                            elif status == 'cancelled': label.set_text('Cancelled')
+                            elif status == 'error': label.set_text('Error')
 
-                    # Update Content (Renderer)
-                    # We can minimize re-rendering by checking length or specialized stream events,
-                    # but simple polling works for now. 
-                    # Optimization: Only render last message if it's changing?
-                    # ConversationRenderer.render_messages clears and redraws which is expensive.
-                    # Ideally we access the specific renderer method 'update_message'.
-                    # We can check if last message is 'assistant' and partial.
-                    
-                    renderer = model_renderers.get(model)
-                    if renderer:
-                        msgs = m_state['messages']
-                        if msgs:
-                            last_msg = msgs[-1]
-                            # Simple logic: just update the last message in the renderer if it exists
-                            # But renderer logic usually requires ID.
-                            if 'id' in last_msg:
-                                # This assumes the message is already rendered once? 
-                                # Start_batch creates the messages initially.
-                                # But `render_results_ui` renders everything initially.
-                                # So we just need to update content of the last one.
-                                
-                                # We assume 'assistant' is last.
-                                if last_msg['role'] == 'assistant':
-                                    await renderer.update_message(
-                                        last_msg['id'], 
-                                        last_msg.get('content',''), 
-                                        last_msg.get('thinking',''), 
-                                        last_msg.get('tool_calls', [])
-                                    )
-                                    # Auto-scroll ONLY if this is the active tab or visible? 
-                                    # Actually we can scroll always.
-                                    await scroll_to_bottom(model_scroll_ids[model], check_position=True)
+                        # Update Content (Renderer)
+                        renderer = model_renderers.get(model)
+                        if renderer:
+                            msgs = m_state['messages']
+                            if msgs:
+                                last_msg = msgs[-1]
+                                if 'id' in last_msg:
+                                    # We assume 'assistant' is last.
+                                    # We assume 'assistant' is last.
+                                    if last_msg['role'] == 'assistant':
+                                        # Ensure message is rendered first
+                                        if last_msg['id'] not in renderer._msg_elements:
+                                             renderer.render_message(last_msg)
+
+                                        await renderer.update_message(
+                                            last_msg['id'], 
+                                            last_msg.get('content',''), 
+                                            last_msg.get('thinking',''), 
+                                            last_msg.get('tool_calls', [])
+                                        )
+                                        # Auto-scroll
+                                        # Ensure context for scroll js
+                                        try:
+                                            await scroll_to_bottom(model_scroll_ids[model], check_position=True)
+                                        except:
+                                            pass
                 
                 if all_done:
                     update_btn()

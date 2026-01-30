@@ -113,10 +113,11 @@ class BatchService:
 
             await stream_service.start_generation(
                 stream_id=stream_id,
-                messages=messages,
+                messages=m_state['messages'], # Use messages from state
                 model=model,
                 system_prompt=state['system_prompt'],
-                log_requests=config_manager.is_logging_enabled('batch')
+                log_requests=config_manager.is_logging_enabled('batch'),
+                keep_alive=0
             )
             
             # Wait for completion
@@ -125,10 +126,11 @@ class BatchService:
                     stream_service.stop_generation(stream_id)
                 await asyncio.sleep(0.1)
             
-            m_state['time'] = time.time() - m_state.get('start_time', 0)
+            end_time = time.time()
+            m_state['time'] = end_time - m_state.get('start_time', end_time)
             
             # Check if it was stopped
-            context = stream_service.get_context(stream_id) or messages
+            context = stream_service.get_context(stream_id) or m_state['messages']
             # Last message is assistant
             if context and context[-1]['role'] == 'assistant':
                 content = context[-1]['content']

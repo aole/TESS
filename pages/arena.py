@@ -9,6 +9,7 @@ import asyncio
 import uuid
 
 async def create_page():
+    page_client = ui.context.client
     
     # helper for scrolling
     async def scroll_to_bottom(area_id, check_position=False):
@@ -124,27 +125,50 @@ async def create_page():
             # --- Event Handlers ---
 
             async def on_stream_event_1(event_type, *args):
-                if event_type == 'update_message':
-                    await renderer1.update_message(*args)
-                    await scroll_to_bottom('arena-scroll-1', check_position=True)
-                elif event_type == 'new_message':
-                     # We trust local messages ref is updated by service via reference, but we need to render
-                     renderer1.render_message(args[0])
-                     await scroll_to_bottom('arena-scroll-1')
-                elif event_type == 'done':
-                    pass # Handled by check? Or we wait for both? 
-                elif event_type == 'error':
-                    ui.notify(f"Model 1 Error: {args[0]}", type='negative')
+                with page_client:
+                    if event_type == 'update_message':
+                        msg_id, content, thinking, tool_calls = args
+                        # Render if missing (UI sync)
+                        if msg_id not in renderer1._msg_elements:
+                            # We need the full message object to render, but update only provides content
+                            # Fortunately, services usually update the message object in place in the list
+                            # So we can find it in messages1
+                            msg = next((m for m in messages1 if m.get('id') == msg_id), None)
+                            if msg:
+                                renderer1.render_message(msg)
+                        
+                        await renderer1.update_message(msg_id, content, thinking, tool_calls)
+                        await scroll_to_bottom('arena-scroll-1', check_position=True)
+                    elif event_type == 'new_message':
+                         # We trust local messages ref is updated by service via reference, but we need to render
+                         msg = args[0]
+                         if msg.get('id') not in renderer1._msg_elements:
+                             renderer1.render_message(msg)
+                         await scroll_to_bottom('arena-scroll-1')
+                    elif event_type == 'done':
+                        pass # Handled by check? Or we wait for both? 
+                    elif event_type == 'error':
+                        ui.notify(f"Model 1 Error: {args[0]}", type='negative')
 
             async def on_stream_event_2(event_type, *args):
-                if event_type == 'update_message':
-                    await renderer2.update_message(*args)
-                    await scroll_to_bottom('arena-scroll-2', check_position=True)
-                elif event_type == 'new_message':
-                     renderer2.render_message(args[0])
-                     await scroll_to_bottom('arena-scroll-2')
-                elif event_type == 'error':
-                    ui.notify(f"Model 2 Error: {args[0]}", type='negative')
+                with page_client:
+                    if event_type == 'update_message':
+                        msg_id, content, thinking, tool_calls = args
+                        # Render if missing
+                        if msg_id not in renderer2._msg_elements:
+                            msg = next((m for m in messages2 if m.get('id') == msg_id), None)
+                            if msg:
+                                renderer2.render_message(msg)
+
+                        await renderer2.update_message(msg_id, content, thinking, tool_calls)
+                        await scroll_to_bottom('arena-scroll-2', check_position=True)
+                    elif event_type == 'new_message':
+                         msg = args[0]
+                         if msg.get('id') not in renderer2._msg_elements:
+                             renderer2.render_message(msg)
+                         await scroll_to_bottom('arena-scroll-2')
+                    elif event_type == 'error':
+                        ui.notify(f"Model 2 Error: {args[0]}", type='negative')
 
             async def run_battle():
                 nonlocal current_battle_id, messages1, messages2
@@ -199,10 +223,6 @@ async def create_page():
                 sid1 = b['stream_id_1']
                 sid2 = b['stream_id_2']
 
-                # Register listeners
-                stream_service.register_listener(sid1, on_stream_event_1)
-                stream_service.register_listener(sid2, on_stream_event_2)
-
                 # Add User Msg
                 user_msg = {'id': str(uuid.uuid4()), 'role': 'user', 'content': content}
                 messages1.append(user_msg.copy())
@@ -220,7 +240,9 @@ async def create_page():
                     messages=messages1,
                     model=model1,
                     system_prompt=system_prompt.value,
-                    log_requests=config_manager.is_logging_enabled('arena')
+                    log_requests=config_manager.is_logging_enabled('arena'),
+                    listener=on_stream_event_1,
+                    keep_alive=0
                 )
 
                 t2 = await stream_service.start_generation(
@@ -228,7 +250,9 @@ async def create_page():
                     messages=messages2,
                     model=model2,
                     system_prompt=system_prompt.value,
-                    log_requests=config_manager.is_logging_enabled('arena')
+                    log_requests=config_manager.is_logging_enabled('arena'),
+                    listener=on_stream_event_2,
+                    keep_alive=0
                 )
                 
                 # Wait for both to complete to reset state?

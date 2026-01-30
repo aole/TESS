@@ -206,27 +206,24 @@ class ConversationRenderer:
         if elements['content']:
             if isinstance(elements['content'], ui.markdown):
                 elements['content'].content = content
+                elements['content'].update()
             elif isinstance(elements['content'], ui.label):
-                # If it was label "..." and we have content, we should swap it?
-                # We can't swap easily. Ideally we change the label text or if we want markdown, we should have initialized as markdown.
-                # Let's simple set text if it's label.
                 elements['content'].text = content
-                # If we really need markdown, we should have created empty markdown initially.
-                # Let's fix _render_view_mode to use Markdown for assistant always.
+                elements['content'].update()
             
         # Update Thinking
         if thinking:
             if elements['thinking']:
                  elements['thinking'].text = thinking
                  elements['thinking'].classes(remove='hidden')
+                 elements['thinking'].update()
         
         # Update Tools
         if tool_calls and elements['tools']:
              elements['tools'].classes(remove='hidden')
-             # We can't append to column easily without clearing?
-             # Streaming tools usually don't change past calls. Use clear()+add?
              elements['tools'].clear()
              with elements['tools']:
                  for tc in tool_calls:
                      self._render_tool_call(tc)
+             elements['tools'].update()
 
