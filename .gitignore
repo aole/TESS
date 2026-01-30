@@ -22,3 +22,10 @@ data/ratings.json
 data/notes.json
 data/chats/
 config.json
+
+# Google Auth
+client_secret.json
+token_*.json
+data/google_tokens/
+data/google_accounts.json
+credentials/
