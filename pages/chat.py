@@ -14,6 +14,7 @@ async def create_page(model_param: str = None):
     # Use the passed parameter
     query_model = model_param
     # State
+    page_client = ui.context.client
     if 'messages' not in app.storage.user:
         app.storage.user['messages'] = []
     if 'chat_id' not in app.storage.user:
@@ -433,29 +434,38 @@ async def create_page(model_param: str = None):
             )
             
             async def on_stream_event(event_type, *args):
-                if event_type == 'new_message':
-                    msg = args[0]
-                    # Update local messages list if not present
-                    if not any(m.get('id') == msg['id'] for m in messages):
-                        messages.append(msg)
-                        app.storage.user['messages'] = messages
-                        with chat_container:
-                            chat_renderer.render_message(msg)
-                        await scroll_to_bottom()
-                elif event_type == 'update_message':
-                    msg_id, content, thinking, tool_calls = args
-                    await chat_renderer.update_message(msg_id, content, thinking, tool_calls)
-                    await scroll_to_bottom(check_position=True)
-                elif event_type == 'done':
-                    state['processing'] = False
-                    state['stopping'] = False
-                    update_button_state()
-                    # Refresh to ensure consistency
-                    app.storage.user['messages'] = messages
-                elif event_type == 'error':
-                    ui.notify(f"Stream error: {args[0]}", type='negative')
-                    state['processing'] = False
-                    update_button_state()
+                with page_client:
+                    if event_type == 'new_message':
+                        msg = args[0]
+                        # Update local messages list if not present (data sync)
+                        if not any(m.get('id') == msg['id'] for m in messages):
+                            messages.append(msg)
+                            try:
+                                app.storage.user['messages'] = messages
+                            except: pass
+                        
+                        # Render if not already rendered (UI sync)
+                        if msg['id'] not in chat_renderer._msg_elements:
+                            with chat_container:
+                                chat_renderer.render_message(msg)
+                            await scroll_to_bottom()
+                            
+                    elif event_type == 'update_message':
+                        msg_id, content, thinking, tool_calls = args
+                        await chat_renderer.update_message(msg_id, content, thinking, tool_calls)
+                        await scroll_to_bottom(check_position=True)
+                    elif event_type == 'done':
+                        state['processing'] = False
+                        state['stopping'] = False
+                        update_button_state()
+                        # Refresh to ensure consistency
+                        try:
+                            app.storage.user['messages'] = messages
+                        except: pass
+                    elif event_type == 'error':
+                        ui.notify(f"Stream error: {args[0]}", type='negative')
+                        state['processing'] = False
+                        update_button_state()
 
 
             
@@ -535,7 +545,8 @@ async def create_page(model_param: str = None):
                             system_prompt=system_prompt.value,
                             tool_funcs_map=tool_funcs_map,
                             log_requests=config_manager.is_logging_enabled('chat'),
-                            persist_callback=persist_chat
+                            persist_callback=persist_chat,
+                            listener=on_stream_event
                         )
                     else:
                         ui.notify("Error: No chat ID", type='negative')

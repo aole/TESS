@@ -52,7 +52,8 @@ class StreamService:
                              system_prompt: str = "",
                              tool_funcs_map: Dict[str, Callable] = None,
                              log_requests: bool = False,
-                             persist_callback: Callable[[List[Dict]], Any] = None
+                             persist_callback: Callable[[List[Dict]], Any] = None,
+                             listener: Callable = None
                              ):
         
         if self.is_streaming(stream_id):
@@ -63,7 +64,7 @@ class StreamService:
         
         task = asyncio.create_task(self._process_stream(
             stream_id, messages, model, temperature, top_p, repeat_penalty, system_prompt, 
-            tool_funcs_map, log_requests, persist_callback
+            tool_funcs_map, log_requests, persist_callback, listener
         ))
         self.active_tasks[stream_id] = task
         
@@ -75,7 +76,7 @@ class StreamService:
         task.add_done_callback(cleanup)
         return task
 
-    async def _process_stream(self, stream_id, messages, model, temperature, top_p, repeat_penalty, system_prompt, tool_funcs_map, log_requests, persist_callback):
+    async def _process_stream(self, stream_id, messages, model, temperature, top_p, repeat_penalty, system_prompt, tool_funcs_map, log_requests, persist_callback, listener=None):
         try:
             # Prepare API messages
             api_messages = []
@@ -127,10 +128,12 @@ class StreamService:
                 messages.append(assistant_msg)
                 
                 # Notify Listener: New Message
-                if stream_id in self.listeners:
-                    try:
-                        await self.listeners[stream_id]('new_message', assistant_msg)
-                    except: pass
+                try:
+                    if listener:
+                         await listener('new_message', assistant_msg)
+                    if stream_id in self.listeners:
+                         await self.listeners[stream_id]('new_message', assistant_msg)
+                except: pass
                 
                 # Setup stream
                 list_tools = list(tool_funcs_map.values()) if tool_funcs_map else None
@@ -175,14 +178,20 @@ class StreamService:
                         if tool_calls: assistant_msg['tool_calls'] = tool_calls
                         
                         # Notify Listener: Update
-                        if stream_id in self.listeners:
-                            try:
+                        try:
+                            if listener:
+                                await listener('update_message', msg_id, response_content, full_thinking, tool_calls)
+                            if stream_id in self.listeners:
                                await self.listeners[stream_id]('update_message', msg_id, response_content, full_thinking, tool_calls)
-                            except: pass
+                        except: pass
                     
                 except Exception as e:
                     assistant_msg['content'] += f"\n[Error: {e}]"
                     print(f"Streaming Exception: {e}")
+                    if listener:
+                         try: await listener('error', str(e))
+                         except: pass
+                             
                     if stream_id in self.listeners:
                          try: await self.listeners[stream_id]('error', str(e))
                          except: pass
@@ -224,9 +233,10 @@ class StreamService:
                         messages.append(tool_msg)
                         api_messages.append({'role': 'tool', 'content': res})
                         
-                        if stream_id in self.listeners:
-                            try: await self.listeners[stream_id]('new_message', tool_msg)
-                            except: pass
+                        try:
+                            if listener: await listener('new_message', tool_msg)
+                            if stream_id in self.listeners: await self.listeners[stream_id]('new_message', tool_msg)
+                        except: pass
                     
                     if persist_callback:
                         if asyncio.iscoroutinefunction(persist_callback):
@@ -242,11 +252,12 @@ class StreamService:
                 if not assistant_msg['content'] and not assistant_msg['thinking']:
                      assistant_msg['content'] = "_Stopped_"
                 
-                # Notify listener
-                if stream_id in self.listeners:
-                    try:
+                try:
+                    if listener:
+                        await listener('update_message', assistant_msg['id'], assistant_msg['content'], assistant_msg['thinking'], assistant_msg.get('tool_calls', []))
+                    if stream_id in self.listeners:
                         await self.listeners[stream_id]('update_message', assistant_msg['id'], assistant_msg['content'], assistant_msg['thinking'], assistant_msg.get('tool_calls', []))
-                    except: pass
+                except: pass
                 
                 # Save
                 if persist_callback:
@@ -260,8 +271,9 @@ class StreamService:
         except Exception as e:
             print(f"Outer Streaming process error: {e}")
         finally:
-             if stream_id in self.listeners:
-                 try: await self.listeners[stream_id]('done')
-                 except: pass
+             try:
+                 if listener: await listener('done')
+                 if stream_id in self.listeners: await self.listeners[stream_id]('done')
+             except: pass
 
 stream_service = StreamService()
