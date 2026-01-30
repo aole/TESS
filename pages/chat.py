@@ -279,8 +279,32 @@ async def create_page(model_param: str = None):
                 ui.notify('Settings saved and persisted', type='positive')
                 settings_dialog.close()
 
+            async def restore_defaults():
+                if not model_select.value:
+                    ui.notify("No model selected", type='warning')
+                    return
+                
+                try:
+                    params = await client.get_model_parameters(model_select.value)
+                    
+                    if 'temperature' in params:
+                        temp_slider.value = params['temperature']
+                    if 'top_p' in params:
+                        top_p_slider.value = params['top_p']
+                    if 'repeat_penalty' in params:
+                        repeat_penalty_slider.value = params['repeat_penalty']
+                    
+                    # Some models return 'system', others might be different, but client wrapper usually normalizes
+                    system_prompt.value = params.get('system', '')
+                    
+                    ui.notify(f"Restored defaults for {model_select.value}", type='info')
+                except Exception as e:
+                    ui.notify(f"Error restoring defaults: {e}", type='negative')
+
             ui.button('Save Changes', on_click=save_settings).props('flat color=primary').classes('w-full mt-4')
-            ui.button('Clear Chat', on_click=clear_chat).props('outline color=negative').classes('w-full mt-2')
+            with ui.row().classes('w-full gap-2 items-center'):
+                ui.button('Clear Chat', on_click=clear_chat).props('outline color=negative').classes('flex-grow')
+                ui.button('Defaults', on_click=restore_defaults).props('outline color=grey').classes('flex-grow')
 
             # Parameter update logic
             async def update_params(initial=False):
