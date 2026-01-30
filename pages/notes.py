@@ -1,5 +1,6 @@
 from nicegui import ui
 from services.note_service import note_service
+from utils.config import config_manager
 from datetime import datetime
 
 def create_page():
@@ -19,7 +20,14 @@ def create_page():
             
                 with ui.row().classes('w-full justify-between items-center pt-2 border-t border-white/5'):
                      ui.label(datetime.now().strftime("%B %d, %Y")).classes('text-xs text-gray-500 pl-1')
-                     ui.button('Save Note', on_click=lambda: add_note()).props('flat no-caps icon=save color=primary')
+                     
+                     with ui.row().classes('items-center gap-2'):
+                         categories = config_manager.get_note_categories()
+                         # Ensure General exists or fallback
+                         default_cat = "General" if "General" in categories else categories[0] if categories else ""
+                         
+                         cat_select = ui.select(categories, value=default_cat, on_change=lambda: refresh_notes()).props('dense options-dense borderless bg-color=transparent').classes('w-32 text-sm text-gray-400')
+                         ui.button('Save Note', on_click=lambda: add_note()).props('flat no-caps icon=save color=primary')
 
 
 
@@ -47,14 +55,18 @@ def create_page():
         def refresh_notes():
             notes_container.clear()
             notes = note_service.get_notes()
+            selected_cat = cat_select.value
+            
+            # Filter
+            filtered_notes = [n for n in notes if n.get('category', 'General') == selected_cat]
             
             with notes_container:
-                if not notes:
+                if not filtered_notes:
                     with ui.column().classes('w-full items-center justify-center py-12 opacity-50'):
                         ui.icon('edit_note', size='48px').classes('text-gray-500 mb-2')
-                        ui.label('No notes yet').classes('text-gray-500')
+                        ui.label(f'No notes in {selected_cat}').classes('text-gray-500')
                 
-                for note in notes:
+                for note in filtered_notes:
                     # Compact row layout
                     with ui.row().classes('w-full items-start group relative p-1 hover:bg-white/5 rounded transition-colors gap-2'):
                         # Timestamp + Content
@@ -85,10 +97,10 @@ def create_page():
         def add_note():
             content = note_input.value.strip()
             if content:
-                note_service.add_note(content)
+                note_service.add_note(content, category=cat_select.value)
                 note_input.value = ''
                 refresh_notes()
-                ui.notify('Note saved', type='positive')
+                ui.notify(f'Note saved to {cat_select.value}', type='positive')
 
         def delete_note(note_id):
             note_service.delete_note(note_id)

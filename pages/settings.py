@@ -55,3 +55,36 @@ def create_page():
                 ui.button(icon='add', on_click=add_tag).props('flat round color=secondary')
             
             render_tags()
+
+        with ui.card().classes('w-full p-6 bg-black/20 border-white/5'):
+            ui.label('Note Categories').classes('text-xl font-bold mb-4 text-gray-200')
+            
+            # Container for categories
+            cats_container = ui.row().classes('gap-2 mb-4')
+            
+            def render_cats():
+                cats_container.clear()
+                with cats_container:
+                    for cat in config_manager.get_note_categories():
+                        c = ui.chip(removable=True, icon='folder', color='emerald-9')
+                        c.classes('text-emerald-200')
+                        c.on('remove', lambda _, t=cat: remove_cat(t))
+                        with c:
+                            ui.label(cat)
+
+            def add_cat():
+                new_cat = cat_input.value.strip()
+                if new_cat:
+                    config_manager.add_note_category(new_cat)
+                    cat_input.value = ''
+                    render_cats()
+
+            def remove_cat(cat):
+                config_manager.remove_note_category(cat)
+                render_cats()
+
+            with ui.row().classes('items-center gap-2'):
+                cat_input = ui.input(placeholder='New Category').classes('w-64').on('keydown.enter', add_cat)
+                ui.button(icon='add', on_click=add_cat).props('flat round color=secondary')
+            
+            render_cats()

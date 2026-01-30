@@ -24,11 +24,12 @@ class NoteService:
         except Exception:
             return []
 
-    def add_note(self, content):
+    def add_note(self, content, category="General"):
         notes = self.get_notes()
         new_note = {
             'id': str(uuid.uuid4()),
             'content': content,
+            'category': category,
             'timestamp': datetime.now().isoformat()
         }
         # Insert at the beginning

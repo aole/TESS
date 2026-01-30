@@ -81,4 +81,23 @@ class ConfigManager:
             tags.remove(tag)
             self.set_rating_tags(tags)
 
+    def get_note_categories(self) -> list:
+        return self.config.get("note_categories", ["General", "Work", "Home"])
+
+    def set_note_categories(self, categories: list):
+        self.config["note_categories"] = categories
+        self._save_config(self.config)
+
+    def add_note_category(self, category: str):
+        categories = self.get_note_categories()
+        if category not in categories:
+            categories.append(category)
+            self.set_note_categories(categories)
+
+    def remove_note_category(self, category: str):
+        categories = self.get_note_categories()
+        if category in categories:
+            categories.remove(category)
+            self.set_note_categories(categories)
+
 config_manager = ConfigManager()
