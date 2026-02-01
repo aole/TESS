@@ -68,42 +68,41 @@ async def create_page(model_param: str = None):
             return # Don't save empty chats unless they already exist? 
                    # Actually, if we just created a "New Chat" and haven't typed, we might not want to save it yet.
         
-        try:
-            # Determine title if new
-            title = "New Chat"
-            if messages:
-                # Find first user message
-                for m in messages:
-                    if m['role'] == 'user':
-                        title = m['content'][:40] + "..." if len(m['content']) > 40 else m['content']
-                        break
-            
-            if current_chat_id:
-                # Update existing
-                chat = chat_service.load_chat(current_chat_id)
-                if chat:
+        with page_client:
+            try:
+                # Determine title if new
+                title = "New Chat"
+                if messages:
+                    # Find first user message
+                    for m in messages:
+                        if m['role'] == 'user':
+                            title = m['content'][:40] + "..." if len(m['content']) > 40 else m['content']
+                            break
+                
+                if current_chat_id:
+                    # Update existing
+                    chat = chat_service.load_chat(current_chat_id)
+                    if chat:
+                        chat.messages = messages
+                        chat.title = title 
+                        
+                        # Update title if it was default
+                        if chat.title == "New Chat" and title != "New Chat":
+                            chat.title = title
+                        
+                        chat_service.save_chat(chat)
+                else:
+                    # Create new
+                    chat = chat_service.create_chat(title=title)
                     chat.messages = messages
-                    chat.title = title # Update title dynamically? Maybe only if it was "New Chat"? 
-                                      # For now, let's update it if it's the first message or so. 
-                                      # Simple approach: always update title based on first message if chat is short?
-                                      # Let's just update messages for now.
-                    # Actually, if title is "New Chat", update it.
-                    if chat.title == "New Chat" and title != "New Chat":
-                        chat.title = title
-                    
                     chat_service.save_chat(chat)
-            else:
-                # Create new
-                chat = chat_service.create_chat(title=title)
-                chat.messages = messages
-                chat_service.save_chat(chat)
-                current_chat_id = chat.id
-                app.storage.user['chat_id'] = current_chat_id
-            
-            # Refresh list
-            refresh_chat_list()
-        except Exception as e:
-            ui.notify(f"Error saving chat: {e}", type='negative')
+                    current_chat_id = chat.id
+                    app.storage.user['chat_id'] = current_chat_id
+                
+                # Refresh list
+                refresh_chat_list()
+            except Exception as e:
+                ui.notify(f"Error saving chat: {e}", type='negative')
 
     # --- Sidebar & Navigation ---
     drawer = ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10 flex flex-col')
@@ -118,15 +117,16 @@ async def create_page(model_param: str = None):
 
     def load_new_chat():
         nonlocal messages, current_chat_id
-        # Save current if needed? (It should happen on message send)
         
+        # Create a new chat session immediately so it appears in history
+        chat = chat_service.create_chat(title="New Chat")
+        current_chat_id = chat.id
         messages = []
-        current_chat_id = None
-        app.storage.user['messages'] = messages
-        app.storage.user['chat_id'] = None
         
-        if 'refresh_chat_ui' in locals():
-            refresh_chat_ui()
+        app.storage.user['messages'] = messages
+        app.storage.user['chat_id'] = current_chat_id
+        
+        refresh_chat_ui()
         refresh_chat_list()
         # Optionally close drawer on mobile?
     
