@@ -4,6 +4,7 @@ import time
 from typing import Dict, List, Optional, Any
 from services.stream_service import stream_service
 from utils.config import config_manager
+from utils.ollama_client import client
 
 class BatchService:
     def __init__(self):
@@ -111,10 +112,16 @@ class BatchService:
             # I should probably update `StreamService` to handle metadata/metrics if I want to keep feature parity.
             # But simpler to verify basic functionality first.
 
+            # Fetch model-specific parameters
+            params = await client.get_model_parameters(model)
+            
             await stream_service.start_generation(
                 stream_id=stream_id,
                 messages=m_state['messages'], # Use messages from state
                 model=model,
+                temperature=params.get('temperature', 0.7),
+                top_p=params.get('top_p', 0.9),
+                repeat_penalty=params.get('repeat_penalty', 1.1),
                 system_prompt=state['system_prompt'],
                 log_requests=config_manager.is_logging_enabled('batch'),
                 keep_alive=0

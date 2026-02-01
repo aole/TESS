@@ -42,6 +42,10 @@ class ConversationRenderer:
                 self.render_message(msg)
 
     def render_message(self, msg: Dict):
+        # Skip system messages - they are not meant to be shown in the UI
+        if msg.get('role') == 'system':
+            return
+
         # Ensure ID
         if 'id' not in msg:
             msg['id'] = str(uuid.uuid4())
