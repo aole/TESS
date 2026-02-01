@@ -241,7 +241,7 @@ class OllamaClient:
                         key = parts[0]
                         value = parts[1]
                         try:
-                            if key == 'temperature':
+                            if key == 'temperature' or key == 'temp':
                                 params['temperature'] = float(value)
                             elif key == 'top_p':
                                 params['top_p'] = float(value)

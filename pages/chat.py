@@ -206,6 +206,18 @@ async def create_page(model_param: str = None):
                     ui.label('Repeat Penalty').classes('text-xs text-muted')
                     
                     system_prompt = ui.textarea(label='System Prompt', placeholder='You are a helpful assistant...', value=app.storage.user.get('system_prompt', '')).classes('w-full text-sm').props('rows=3 filled')
+                    
+             # Sync UI from storage
+            def sync_ui_from_storage():
+                temp_slider.value = app.storage.user.get('temperature', 0.7)
+                top_p_slider.value = app.storage.user.get('top_p', 0.9)
+                repeat_penalty_slider.value = app.storage.user.get('repeat_penalty', 1.1)
+                system_prompt.value = app.storage.user.get('system_prompt', '')
+                
+                # Also tool checks
+                saved_tools = app.storage.user.get('selected_tools', [])
+                for name, box in tool_checks.items():
+                    box.value = name in saved_tools
 
             # Tools
             available_tools = [t for t in tool_service.get_all_tools() if t.active]
@@ -287,17 +299,17 @@ async def create_page(model_param: str = None):
                 try:
                     params = await client.get_model_parameters(model_select.value)
                     
-                    if 'temperature' in params:
-                        temp_slider.value = params['temperature']
-                    if 'top_p' in params:
-                        top_p_slider.value = params['top_p']
-                    if 'repeat_penalty' in params:
-                        repeat_penalty_slider.value = params['repeat_penalty']
+                    # Default fallbacks if not specified in model
+                    # Using app defaults: Temp=0.7, TopP=0.9, RepPen=1.1
+                    temp_slider.value = params.get('temperature', 0.7)
+                    top_p_slider.value = params.get('top_p', 0.9)
+                    repeat_penalty_slider.value = params.get('repeat_penalty', 1.1)
                     
-                    # Some models return 'system', others might be different, but client wrapper usually normalizes
+                    # System prompt
                     system_prompt.value = params.get('system', '')
-                    
+                        
                     ui.notify(f"Restored defaults for {model_select.value}", type='info')
+                        
                 except Exception as e:
                     ui.notify(f"Error restoring defaults: {e}", type='negative')
 
@@ -626,9 +638,13 @@ async def create_page(model_param: str = None):
                     args=['shiftKey']
                 )
 
+                def open_settings():
+                    sync_ui_from_storage()
+                    settings_dialog.open()
+
                 with ui.row().classes('gap-1 items-center'):
                     send_btn = ui.button(icon='send', on_click=send_message).props('flat round color=primary')
-                    ui.button(icon='settings', on_click=settings_dialog.open).props('flat round color=grey')
+                    ui.button(icon='settings', on_click=open_settings).props('flat round color=grey')
 
                     model_select = ui.select(
                         options=model_options,
