@@ -71,11 +71,16 @@ def create_page():
 
                 # Toolbar
                 with ui.row().classes('w-full p-2 gap-2 bg-white/5 border-t border-white/10 items-center justify-between'):
-                    with ui.row().classes('gap-2'):
-                         ui.button('Open', icon='folder_open', on_click=open_dialog.open).props('flat dense color=primary')
-                         ui.button('Save', icon='save', on_click=save_file).props('flat dense color=primary')
-                    
-                    ui.button('Run Tab', icon='open_in_new', on_click=run_tab).props('flat dense color=secondary')
+                    with ui.row().classes('gap-2 items-center flex-grow'):
+                         ui.button(icon='folder_open', on_click=open_dialog.open).props('flat dense color=primary').tooltip('Open File')
+                         ui.button(icon='save', on_click=save_file).props('flat dense color=primary').tooltip('Save File')
+                         
+                         ui.separator().props('vertical').classes('mx-2 h-8')
+                         
+                         prompt_input = ui.input(placeholder='Ask AI to edit...').classes('flex-grow').props('dense outlined rounded input-class=text-white')
+                         ui.button(icon='send').props('flat dense color=secondary').tooltip('Submit Request')
+
+                    ui.button(icon='open_in_new', on_click=run_tab).props('flat dense color=secondary').tooltip('Run in New Tab')
 
             # Right Column: Preview
             with ui.card().classes('w-full h-full glass-panel flex flex-col p-0 overflow-hidden bg-white/5'):

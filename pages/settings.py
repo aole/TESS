@@ -88,3 +88,26 @@ def create_page():
                 ui.button(icon='add', on_click=add_cat).props('flat round color=secondary')
             
             render_cats()
+            
+        # Playground Settings
+        with ui.card().classes('w-full p-6 bg-black/20 border-white/5'):
+            ui.label('Playground Configuration').classes('text-xl font-bold mb-4 text-indigo-400')
+            
+            # We need to import client inside function or top of file, doing top of file import is cleaner usually but let's check
+            # Adding import at top would be best but this tool replaces blocks.
+            # I will insert the import at top and the block here.
+            
+            async def load_models_for_setting():
+                from utils.ollama_client import client
+                try:
+                    models_list = await client.list_models()
+                    options = [m['model'] for m in models_list]
+                    model_select.options = options
+                    # Load saved setting if available (mocked for now)
+                    if options and not model_select.value:
+                        model_select.value = options[0]
+                except:
+                    pass
+
+            model_select = ui.select(options=[], label='AI Assistant Model').classes('w-full')
+            ui.timer(0.1, load_models_for_setting, once=True)
