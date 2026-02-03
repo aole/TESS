@@ -1,11 +1,14 @@
 from nicegui import ui
 
+# State - Text content persists across navigation
+html_content = """<h2>Hello World</h2>"""
+
 def create_page():
-    # State
-    html_content = """<h2>Hello World</h2>"""
     
     # Logic
     def update_preview(e):
+        global html_content
+        html_content = e.value
         preview.run_method('setAttribute', 'srcdoc', e.value)
 
     # Layout
@@ -24,5 +27,5 @@ def create_page():
                 # Use a specific container for the HTML preview to control its environment slightly better if needed
                 with ui.element('div').classes('w-full h-full p-0 overflow-hidden bg-white') as preview_container:
                      preview = ui.element('iframe').classes('w-full h-full border-none')
-                     # Set initial content
-                     preview.props(f'srcdoc="{html_content.replace('"', '&quot;')}"')
+                     # Set initial content safely
+                     ui.timer(0.1, lambda: preview.run_method('setAttribute', 'srcdoc', html_content), once=True)
