@@ -1,16 +1,92 @@
 from nicegui import ui
 import urllib.parse
 
-# State - Text content persists across navigation
-html_content = """<h2>Hello World</h2>"""
+# Constants
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas Game Environment</title>
+    <style>
+        /* Ensure the body and html take up 100% height and remove margins */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* Prevents scrollbars during gameplay */
+            background-color: #000; /* Standard game backdrop */
+        }
+
+        /* Make the canvas behave as a block element to avoid whitespace issues */
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        /** @type {HTMLCanvasElement} */
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Function to scale canvas to the current window size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            // Re-render or notify game engine of resize here if necessary
+        }
+
+        // Initialize size and listen for window resizing
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // --- USER CUSTOM JS CODE START ---
+        {user_js}
+        // --- USER CUSTOM JS CODE END ---
+    </script>
+</body>
+</html>
+"""
+
+DEFAULT_JS = """// Example: Simple "Hello World" animation loop
+function draw() {
+    // Clear screen
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw a moving object
+    const time = Date.now() * 0.002;
+    const x = canvas.width / 2 + Math.cos(time) * 100;
+    const y = canvas.height / 2 + Math.sin(time) * 100;
+
+    ctx.fillStyle = '#00ff00';
+    ctx.beginPath();
+    ctx.arc(x, y, 30, 0, Math.PI * 2);
+    ctx.fill();
+
+    requestAnimationFrame(draw);
+}
+
+draw();"""
+
+# State - JS content persists across navigation
+js_code = DEFAULT_JS
 
 def create_page():
     
     # Logic
     def update_preview(e):
-        global html_content
-        html_content = e.value
-        preview.run_method('setAttribute', 'srcdoc', e.value)
+        global js_code
+        js_code = e.value
+        full_html = HTML_TEMPLATE.replace("{user_js}", js_code)
+        preview.run_method('setAttribute', 'srcdoc', full_html)
 
     # Layout
     with ui.column().classes('w-full h-[calc(100vh-4rem)] pt-4 px-4 max-w-[100%] mx-auto'):
@@ -19,7 +95,7 @@ def create_page():
             # Left Column: Code Editor
             with ui.card().classes('w-full h-full glass-panel flex flex-col p-0 overflow-hidden'):
 
-                editor = ui.codemirror(value=html_content, on_change=update_preview, language='HTML').classes('w-full flex-grow font-mono text-sm')
+                editor = ui.codemirror(value=js_code, on_change=update_preview, language='JavaScript').classes('w-full flex-grow font-mono text-sm')
                 editor.props('theme=dracula')
 
                 # Helper functions for toolbar
@@ -35,8 +111,8 @@ def create_page():
                             content = bytes_content.decode('latin-1')
                         
                         # Update global state
-                        global html_content
-                        html_content = content
+                        global js_code
+                        js_code = content
                         
                         # Update Editor and Preview
                         editor.value = content # Direct property update is more reliable
@@ -49,13 +125,13 @@ def create_page():
 
                 def save_file():
                     # Get current content from global or editor
-                    current_content = html_content
-                    ui.download(current_content.encode('utf-8'), 'playground.html')
+                    current_content = js_code
+                    ui.download(current_content.encode('utf-8'), 'game.js')
 
                 def run_tab():
                     # Use JS to open new window and write content to avoid data: URL restrictions
-                    # Encode content to avoid JS syntax errors
-                    encoded = urllib.parse.quote(html_content)
+                    full_html = HTML_TEMPLATE.replace("{user_js}", js_code)
+                    encoded = urllib.parse.quote(full_html)
                     ui.run_javascript(f'''
                         const win = window.open("", "_blank");
                         win.document.write(decodeURIComponent("{encoded}"));
@@ -64,9 +140,9 @@ def create_page():
 
                 # Open File Dialog
                 with ui.dialog() as open_dialog, ui.card().classes('glass-panel p-6 w-96'):
-                    ui.label('Select HTML File').classes('text-lg font-bold mb-4 text-center w-full')
+                    ui.label('Select JS File').classes('text-lg font-bold mb-4 text-center w-full')
                     # Use a cleaner upload appearance
-                    ui.upload(on_upload=handle_upload, auto_upload=True, label='Choose File').props('accept=.html,.txt,.htm max-files=1 color=primary flat').classes('w-full')
+                    ui.upload(on_upload=handle_upload, auto_upload=True, label='Choose File').props('accept=.js,.txt max-files=1 color=primary flat').classes('w-full')
                     ui.button('Cancel', on_click=open_dialog.close).props('flat color=grey').classes('w-full mt-2')
 
                 # Toolbar
@@ -83,10 +159,11 @@ def create_page():
                     ui.button(icon='open_in_new', on_click=run_tab).props('flat dense color=secondary').tooltip('Run in New Tab')
 
             # Right Column: Preview
-            with ui.card().classes('w-full h-full glass-panel flex flex-col p-0 overflow-hidden bg-white/5'):
+            with ui.card().classes('w-full h-full glass-panel flex flex-col p-0 overflow-hidden bg-black'):
 
                 # Use a specific container for the HTML preview to control its environment slightly better if needed
-                with ui.element('div').classes('w-full h-full p-0 overflow-hidden bg-white') as preview_container:
+                with ui.element('div').classes('w-full h-full p-0 overflow-hidden bg-black') as preview_container:
                      preview = ui.element('iframe').classes('w-full h-full border-none')
                      # Set initial content safely
-                     ui.timer(0.1, lambda: preview.run_method('setAttribute', 'srcdoc', html_content), once=True)
+                     initial_html = HTML_TEMPLATE.replace("{user_js}", js_code)
+                     ui.timer(0.1, lambda: preview.run_method('setAttribute', 'srcdoc', initial_html), once=True)
