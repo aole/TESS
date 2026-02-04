@@ -144,8 +144,9 @@ class ConversationRenderer:
             ui.label(content).classes('text-xs font-mono bg-white/5 p-2 rounded text-gray-300 whitespace-pre-wrap')
         elif role == 'assistant':
             # Always use markdown for assistant to ensure streaming updates work correctly with correct styling
-            # Add min-h to ensure single lines are visible
-            content_markdown = ui.markdown(content).classes('w-full prose dark:prose-invert text-gray-100 min-h-[1.5em] break-words')
+            # Escaping < to prevent HTML injection (style/script) while keeping markdown functional
+            safe_content = content.replace('<', '&lt;')
+            content_markdown = ui.markdown(safe_content).classes('w-full prose dark:prose-invert text-gray-100 min-h-[1.5em] break-words')
         else:
             if not content and not thinking and not tool_calls:
                  # Init placeholder
@@ -156,7 +157,8 @@ class ConversationRenderer:
                     ui.label(content).classes('text-base px-5 py-3 rounded-2xl bg-[#27272a] text-white max-w-full break-words whitespace-pre-wrap')
                 else:
                     # Fallback
-                    content_markdown = ui.markdown(content).classes('w-full prose dark:prose-invert text-gray-100')
+                    safe_content = content.replace('<', '&lt;')
+                    content_markdown = ui.markdown(safe_content).classes('w-full prose dark:prose-invert text-gray-100')
 
         # 4. Ratings (Assistant only)
         if role == 'assistant' and self.get_ratings:
@@ -209,7 +211,8 @@ class ConversationRenderer:
         # Update Content
         if elements['content']:
             if isinstance(elements['content'], ui.markdown):
-                elements['content'].content = content
+                # Escaping < to prevent HTML injection
+                elements['content'].content = content.replace('<', '&lt;')
                 elements['content'].update()
             elif isinstance(elements['content'], ui.label):
                 elements['content'].text = content

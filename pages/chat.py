@@ -10,11 +10,24 @@ from services.batch_service import batch_service
 import asyncio
 import uuid
 
-async def create_page(model_param: str = None):
+async def create_page(model_param: str = None, new_chat: bool = False):
     # Use the passed parameter
     query_model = model_param
     # State
     page_client = ui.context.client
+
+    if new_chat:
+        # Create a new chat session immediately
+        chat = chat_service.create_chat(title="New Chat")
+        app.storage.user['chat_id'] = chat.id
+        app.storage.user['messages'] = []
+        
+        # Clean up URL (optional but recommended to avoid re-creation on refresh)
+        from urllib.parse import quote
+        safe_model = quote(model_param) if model_param else ""
+        url = f"/chat?model={safe_model}" if safe_model else "/chat"
+        await ui.run_javascript(f"window.history.replaceState(null, '', '{url}');")
+
     if 'messages' not in app.storage.user:
         app.storage.user['messages'] = []
     if 'chat_id' not in app.storage.user:
@@ -56,10 +69,12 @@ async def create_page(model_param: str = None):
         model_options = []
         ui.notify(f"Error loading models: {e}", type='negative')
 
-    # Use query param model if available and valid
+    # Use query param model if available and valid, otherwise fallback to storage
     default_model = model_options[0] if model_options else None
     if query_model and query_model in model_options:
         default_model = query_model
+    elif app.storage.user.get('selected_model') in model_options:
+        default_model = app.storage.user['selected_model']
 
     # --- Persistance Helper ---
     async def save_current_chat():
@@ -322,8 +337,9 @@ async def create_page(model_param: str = None):
             async def update_params(initial=False):
                 if not model_select.value: return
                 
-                # Update ratings
+                # Update ratings and storage
                 await update_ratings_display(model_select.value)
+                app.storage.user['selected_model'] = model_select.value
 
                 with model_select:
                     # Update URL without reload

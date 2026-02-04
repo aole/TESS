@@ -253,7 +253,7 @@ def create_page():
 
         # Event binding for slot buttons
         table.on('details', lambda e: show_details(e.args['model']))
-        table.on('chat', lambda e: ui.navigate.to(f'/chat?model={e.args["model"]}'))
+        table.on('chat', lambda e: ui.navigate.to(f'/chat?model={e.args["model"]}&new_chat=true'))
         table.on('create', lambda e: ui.navigate.to(f'/create?base_model={e.args["model"]}'))
         table.on('rename', lambda e: rename_model_dialog(e.args['model']))
         table.on('delete', lambda e: delete_model(e.args['model']))

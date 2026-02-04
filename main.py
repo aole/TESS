@@ -85,9 +85,9 @@ def index():
     models.create_page()
 
 @ui.page('/chat')
-async def chat_page(model: str = None):
+async def chat_page(model: str = None, new_chat: bool = False):
     layout('/chat')
-    await chat.create_page(model)
+    await chat.create_page(model, new_chat)
 
 @ui.page('/arena')
 async def arena_page():
