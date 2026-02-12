@@ -17,7 +17,23 @@ class NoteService:
             with open(NOTES_FILE, 'w') as f:
                 json.dump([], f)
 
+    CONFIG_PATH = os.path.join(DATA_DIR, 'config.json')
+
     def get_notes(self):
+        from utils.config import config_manager
+        storage = config_manager.get_note_storage()
+        
+        if storage == 'google_drive':
+            from services.google_service import google_service
+            content = google_service.read_drive_file('notes.json')
+            if content:
+                try:
+                    return json.loads(content)
+                except:
+                    return []
+            return []
+        
+        # Local fallback
         try:
             with open(NOTES_FILE, 'r') as f:
                 return json.load(f)
@@ -25,6 +41,7 @@ class NoteService:
             return []
 
     def add_note(self, content, category="General"):
+        # Note: This is now potentially slow if using Drive
         notes = self.get_notes()
         new_note = {
             'id': str(uuid.uuid4()),
@@ -43,6 +60,15 @@ class NoteService:
         self._save_notes(notes)
 
     def _save_notes(self, notes):
+        from utils.config import config_manager
+        storage = config_manager.get_note_storage()
+        
+        if storage == 'google_drive':
+            from services.google_service import google_service
+            google_service.save_drive_file('notes.json', json.dumps(notes, indent=2))
+            # Also save local backup? Optional. For now exclusive.
+            return
+
         with open(NOTES_FILE, 'w') as f:
             json.dump(notes, f, indent=2)
 

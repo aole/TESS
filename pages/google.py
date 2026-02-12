@@ -130,6 +130,14 @@ def create_page():
                     ui.button('Sign in', on_click=add_new_account).classes('mt-4')
                 return
 
+            if not google_service.is_account_valid():
+                 with ui.column().classes('w-full h-full items-center justify-center'):
+                    ui.icon('warning', size='48px').classes('text-orange-500 mb-4')
+                    ui.label('Authentication Update Required').classes('text-xl text-gray-200 font-bold')
+                    ui.label('Permissions have changed (Drive access added). Please sign in again.').classes('text-gray-400 mb-4')
+                    ui.button('Update Permissions', on_click=add_new_account).props('color=warning')
+                 return
+
             # 1. Gmail Column
             with ui.column().classes('flex-1 h-full bg-[#1e1f20] border border-white/10 rounded-xl overflow-hidden flex flex-col'):
                 # Header

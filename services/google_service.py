@@ -7,12 +7,15 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
+import io
 
 # Scopes required for the application
 SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/youtube.readonly',
     'https://www.googleapis.com/auth/drive.metadata.readonly',
+    'https://www.googleapis.com/auth/drive.file',
     'https://www.googleapis.com/auth/userinfo.email',
     'https://www.googleapis.com/auth/userinfo.profile',
     'openid'
@@ -123,7 +126,14 @@ class GoogleService:
     def _get_credentials(self, account_id: str) -> Optional[Credentials]:
         token_path = os.path.join(TOKEN_DIR, f'token_{account_id}.json')
         if os.path.exists(token_path):
-            creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+            try:
+                # Use a copy of SCOPES to avoid modification if that were possible
+                creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+            except ValueError:
+                # Can happen if scopes mismatch in some versions or file is corrupt
+                logging.error("Failed to load credentials from file - mismatched scopes")
+                return None
+                
             if creds and creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(Request())
@@ -131,10 +141,24 @@ class GoogleService:
                     with open(token_path, 'w') as token:
                         token.write(creds.to_json())
                 except Exception as e:
-                     logging.error(f"Failed to refresh token: {e}")
+                     # Check for invalid_scope error
+                     error_str = str(e)
+                     if "invalid_scope" in error_str:
+                         logging.error(f"Scope mismatch: {e}. Re-authentication required.")
+                         # Could delete the token file here to force re-auth, but just returning None is safer for now.
+                         # os.remove(token_path) 
+                     else:
+                         logging.error(f"Failed to refresh token: {e}")
                      return None
             return creds
         return None
+
+    def is_account_valid(self, account_id: str = None) -> bool:
+        if account_id is None:
+            account_id = self.current_account_id
+        if not account_id:
+            return False
+        return self._get_credentials(account_id) is not None
 
     def get_gmail_data(self) -> List[Dict]:
         if not self.current_account_id:
@@ -344,5 +368,75 @@ class GoogleService:
         except Exception as e:
             logging.error(f"Drive API error: {e}")
             return []
+
+    def _find_drive_file_id(self, name: str) -> Optional[str]:
+        if not self.current_account_id: return None
+        creds = self._get_credentials(self.current_account_id)
+        if not creds: return None
+        try:
+            service = build('drive', 'v3', credentials=creds)
+            query = f"name = '{name}' and trashed = false"
+            results = service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+            files = results.get('files', [])
+            if files:
+                return files[0]['id']
+            return None
+        except Exception as e:
+            logging.error(f"Drive find error: {e}")
+            return None
+
+    def read_drive_file(self, name: str) -> Optional[str]:
+        file_id = self._find_drive_file_id(name)
+        if not file_id: return None
+        
+        creds = self._get_credentials(self.current_account_id)
+        if not creds: return None
+        
+        try:
+            service = build('drive', 'v3', credentials=creds)
+            request = service.files().get_media(fileId=file_id)
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while done is False:
+                status, done = downloader.next_chunk()
+            return fh.getvalue().decode('utf-8')
+        except Exception as e:
+            logging.error(f"Drive read error: {e}")
+            return None
+
+    def save_drive_file(self, name: str, content: str) -> bool:
+        if not self.current_account_id: return False
+        creds = self._get_credentials(self.current_account_id)
+        if not creds: return False
+        
+        try:
+            service = build('drive', 'v3', credentials=creds)
+            file_id = self._find_drive_file_id(name)
+            
+            fh = io.BytesIO(content.encode('utf-8'))
+            media = MediaIoBaseUpload(fh, mimetype='application/json', resumable=True)
+            
+            if file_id:
+                # Update
+                try:
+                    service.files().update(fileId=file_id, media_body=media).execute()
+                except HttpError as e:
+                     if e.resp.status == 404:
+                         # File not found (maybe deleted externally but id cached? unlikely here as we search by name freshly)
+                         # Search again or create?
+                         # Just create new if update fails?
+                         # For now log and return False
+                         logging.error(f"Update failed: {e}")
+                         return False
+                     raise e
+            else:
+                # Create
+                file_metadata = {'name': name}
+                service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+            return True
+        except Exception as e:
+            logging.error(f"Drive save error: {e}")
+            return False
 
 google_service = GoogleService()

@@ -89,6 +89,14 @@ def create_page():
             
             render_cats()
             
+            ui.separator().classes('my-4 bg-white/10')
+            
+            ui.label('Storage Location').classes('text-sm font-bold text-gray-400 mb-2')
+            ui.select(['local', 'google_drive'], 
+                      label='Save Notes To',
+                      value=config_manager.get_note_storage(),
+                      on_change=lambda e: config_manager.set_note_storage(e.value)).classes('w-full')
+            
         # Playground Settings
         with ui.card().classes('w-full p-6 bg-black/20 border-white/5'):
             ui.label('Playground Configuration').classes('text-xl font-bold mb-4 text-indigo-400')

@@ -100,4 +100,11 @@ class ConfigManager:
             categories.remove(category)
             self.set_note_categories(categories)
 
+    def get_note_storage(self) -> str:
+        return self.config.get("note_storage", "local")
+
+    def set_note_storage(self, storage_type: str):
+        self.config["note_storage"] = storage_type
+        self._save_config(self.config)
+
 config_manager = ConfigManager()
