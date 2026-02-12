@@ -19,26 +19,38 @@ class NoteService:
 
     CONFIG_PATH = os.path.join(DATA_DIR, 'config.json')
 
-    def get_notes(self):
-        from utils.config import config_manager
-        storage = config_manager.get_note_storage()
-        
-        if storage == 'google_drive':
-            from services.google_service import google_service
-            content = google_service.read_drive_file('notes.json')
-            if content:
-                try:
-                    return json.loads(content)
-                except:
-                    return []
-            return []
-        
-        # Local fallback
+    def _get_local_notes(self):
         try:
             with open(NOTES_FILE, 'r') as f:
                 return json.load(f)
         except Exception:
             return []
+
+    def _get_drive_notes(self):
+        from services.google_service import google_service
+        content = google_service.read_drive_file('notes.json')
+        if content:
+            try:
+                return json.loads(content)
+            except:
+                return []
+        return []
+
+    def _save_local_notes(self, notes):
+        with open(NOTES_FILE, 'w') as f:
+            json.dump(notes, f, indent=2)
+
+    def _save_drive_notes(self, notes):
+        from services.google_service import google_service
+        google_service.save_drive_file('notes.json', json.dumps(notes, indent=2))
+
+    def get_notes(self):
+        from utils.config import config_manager
+        storage = config_manager.get_note_storage()
+        
+        if storage == 'google_drive':
+            return self._get_drive_notes()
+        return self._get_local_notes()
 
     def add_note(self, content, category="General"):
         # Note: This is now potentially slow if using Drive
@@ -64,12 +76,50 @@ class NoteService:
         storage = config_manager.get_note_storage()
         
         if storage == 'google_drive':
-            from services.google_service import google_service
-            google_service.save_drive_file('notes.json', json.dumps(notes, indent=2))
-            # Also save local backup? Optional. For now exclusive.
+            self._save_drive_notes(notes)
             return
 
-        with open(NOTES_FILE, 'w') as f:
-            json.dump(notes, f, indent=2)
+        self._save_local_notes(notes)
+
+    def sync_notes(self):
+        """
+        Merges notes from both local and Google Drive storage, 
+        and saves the union to both locations.
+        """
+        local_notes = self._get_local_notes()
+        drive_notes = self._get_drive_notes()
+        
+        # Merge logic: Use dictionary keyed by ID
+        # Prefer the version with the later timestamp if conflict (though rare if IDs are unique uuids)
+        # Actually, if we just want union of distinct notes:
+        merged = {}
+        
+        for n in local_notes + drive_notes:
+            nid = n.get('id')
+            if not nid: continue
+            
+            if nid not in merged:
+                merged[nid] = n
+            else:
+                # Conflict resolution: compare timestamps
+                existing = merged[nid]
+                try:
+                    ts_exist = datetime.fromisoformat(existing.get('timestamp', ''))
+                    ts_new = datetime.fromisoformat(n.get('timestamp', ''))
+                    if ts_new > ts_exist:
+                        merged[nid] = n
+                except:
+                    # If timestamp parsing fails, keep existing or new? Keep existing for stability
+                    pass
+        
+        # Convert back to list and sort by timestamp descending
+        final_notes = list(merged.values())
+        final_notes.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        # Save to both
+        self._save_local_notes(final_notes)
+        self._save_drive_notes(final_notes)
+        
+        return len(final_notes)
 
 note_service = NoteService()

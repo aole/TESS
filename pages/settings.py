@@ -1,5 +1,6 @@
 from nicegui import ui
 from utils.config import config_manager
+from services.note_service import note_service
 
 def create_page():
     with ui.column().classes('w-full max-w-3xl mx-auto p-8 gap-8'):
@@ -92,10 +93,52 @@ def create_page():
             ui.separator().classes('my-4 bg-white/10')
             
             ui.label('Storage Location').classes('text-sm font-bold text-gray-400 mb-2')
-            ui.select(['local', 'google_drive'], 
+            
+            def handle_storage_change(e):
+                new_val = e.value
+                old_val = config_manager.get_note_storage()
+                
+                if new_val == old_val:
+                    return
+
+                # Create Dialog
+                with ui.dialog() as dialog, ui.card().classes('bg-[#1e1f20] border border-white/10 p-6 w-96'):
+                    ui.label('Sync Notes?').classes('text-xl font-bold text-gray-200 mb-2')
+                    ui.label('Merge existing notes from both locations?').classes('text-gray-400 text-sm mb-6')
+                    
+                    with ui.row().classes('w-full justify-end gap-2'):
+                        async def do_sync():
+                            dialog.close()
+                            ui.notify('Syncing...', type='info')
+                            try:
+                                # Run sync in background to avoid blocking UI if drive is slow
+                                from nicegui import run
+                                count = await run.io_bound(note_service.sync_notes)
+                                config_manager.set_note_storage(new_val)
+                                ui.notify(f'Synced {count} notes using {new_val}', type='positive')
+                            except Exception as ex:
+                                ui.notify(f'Sync failed: {ex}', type='negative')
+                                storage_select.value = old_val
+
+                        def just_switch():
+                            dialog.close()
+                            config_manager.set_note_storage(new_val)
+                            ui.notify(f'Switched to {new_val}', type='positive')
+
+                        def cancel():
+                            dialog.close()
+                            storage_select.value = old_val # Revert
+
+                        ui.button('Cancel', on_click=cancel).props('flat color=grey')
+                        ui.button('Switch Only', on_click=just_switch).props('flat color=warning')
+                        ui.button('Sync & Switch', on_click=do_sync).props('flat color=primary')
+                
+                dialog.open()
+
+            storage_select = ui.select(['local', 'google_drive'], 
                       label='Save Notes To',
                       value=config_manager.get_note_storage(),
-                      on_change=lambda e: config_manager.set_note_storage(e.value)).classes('w-full')
+                      on_change=handle_storage_change).classes('w-full')
             
         # Playground Settings
         with ui.card().classes('w-full p-6 bg-black/20 border-white/5'):
