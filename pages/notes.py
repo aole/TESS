@@ -52,9 +52,11 @@ def create_page():
             except:
                 return iso_str
 
-        def refresh_notes():
+        async def refresh_notes():
             notes_container.clear()
-            notes = note_service.get_notes()
+            # If using Drive, this might be slow, so run in background
+            from nicegui import run
+            notes = await run.io_bound(note_service.get_notes)
             selected_cat = cat_select.value
             
             # Filter
@@ -94,18 +96,23 @@ def create_page():
                         # Absolute positioning to right, slightly adjusted for tighter layout
                         ui.button(icon='close', on_click=lambda _, n=note: delete_note(n['id'])).props('flat round dense size=xs color=grey').classes('opacity-0 group-hover:opacity-100 transition-opacity absolute right-1 top-1')
 
-        def add_note():
+        async def add_note():
             content = note_input.value.strip()
             if content:
-                note_service.add_note(content, category=cat_select.value)
+                from nicegui import run
+                ui.notify('Saving...', type='ongoing')
+                await run.io_bound(note_service.add_note, content, category=cat_select.value)
                 note_input.value = ''
-                refresh_notes()
+                await refresh_notes()
                 ui.notify(f'Note saved to {cat_select.value}', type='positive')
 
-        def delete_note(note_id):
-            note_service.delete_note(note_id)
-            refresh_notes()
+        async def delete_note(note_id):
+            ui.notify('Deleting...', type='ongoing') # Notify first
+            from nicegui import run
+            await run.io_bound(note_service.delete_note, note_id)
+            await refresh_notes()
             ui.notify('Note deleted', type='info')
 
         # Initial Load
-        refresh_notes()
+        # Initial Load
+        ui.timer(0, refresh_notes, once=True)
