@@ -55,26 +55,117 @@ HTML_TEMPLATE = """
 </html>
 """
 
-DEFAULT_JS = """// Example: Simple "Hello World" animation loop
-function draw() {
-    // Clear screen
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+DEFAULT_JS = """
+const GRID_SIZE = 50;
+const TEAM = ['#2222AA', '#AA2222']
+const PLAYER_SIZE = 20;
 
-    // Draw a moving object
-    const time = Date.now() * 0.002;
-    const x = canvas.width / 2 + Math.cos(time) * 100;
-    const y = canvas.height / 2 + Math.sin(time) * 100;
+let players = [[], []]; 
 
-    ctx.fillStyle = '#00ff00';
-    ctx.beginPath();
-    ctx.arc(x, y, 30, 0, Math.PI * 2);
-    ctx.fill();
+// 2. Use Math.floor to ensure we stay within the grid bounds
+const GRID_MAX_X = Math.floor(canvas.width / GRID_SIZE);
+const GRID_MAX_Y = Math.floor(canvas.height / GRID_SIZE);
 
-    requestAnimationFrame(draw);
+// 3. Helper for random integers
+const randomInt = (max) => Math.floor(Math.random() * max);
+
+// 4. Spawn logic
+for (let t = 0; t < 2; t++) {
+    for (let i = 0; i < 3; i++) {
+        players[t][i] = {
+            x: randomInt(GRID_MAX_X), 
+            y: randomInt(GRID_MAX_Y)
+        };
+    }
 }
 
-draw();"""
+let grid_x = -1;
+let grid_y = -1;
+
+function drawGrid() {
+    ctx.beginPath();
+    ctx.strokeStyle = '#AAA'; // Subtle dark grey for grid lines
+    ctx.lineWidth = 1;
+
+    // Draw vertical lines
+    for (let x = 0; x <= canvas.width; x += GRID_SIZE) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+    }
+
+    // Draw horizontal lines
+    for (let y = 0; y <= canvas.height; y += GRID_SIZE) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+    }
+
+    ctx.stroke();
+}
+
+function drawPlayers() {
+    for (let t = 0; t < 2; t++) {
+        ctx.fillStyle = TEAM[t];
+        for (let i = 0; i < 3; i++){
+            let x = players[t][i].x * GRID_SIZE + GRID_SIZE/2;
+            let y = players[t][i].y * GRID_SIZE + GRID_SIZE/2;
+            ctx.beginPath();
+            ctx.arc(x, y, PLAYER_SIZE/2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+}
+
+function animate() {
+    // 1. Clear the screen
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 2. Draw the background grid
+    drawGrid();
+    drawPlayers();
+
+    // 3. User Game Logic (Example: Mouse Follower)
+    drawUserExample();
+
+    requestAnimationFrame(animate);
+}
+
+// --- Example Interaction Logic ---
+let mouse = { x: 0, y: 0 };
+window.addEventListener('mousemove', (e) => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    grid_x = Math.floor(mouse.x / GRID_SIZE);
+    grid_y = Math.floor(mouse.y / GRID_SIZE);
+});
+
+window.addEventListener('mousedown', (e) => {
+    let found = false;
+    let t, i;
+    for (t = 0; t < 2; t++) {
+        for (i = 0; i < 3; i++) {
+            if (grid_x==players[t][i].x && grid_y==players[t][i].y) {
+                found = true;
+                break;
+            }
+        }
+        if (found) break;
+    }
+    if (found) {
+        console.log('found: '+t+','+i);
+    }
+});
+
+function drawUserExample() {
+    const snapX = grid_x * GRID_SIZE;
+    const snapY = grid_y * GRID_SIZE;
+    
+    ctx.fillStyle = '#55555577';
+    ctx.fillRect(snapX, snapY, GRID_SIZE, GRID_SIZE);
+}
+
+animate();
+"""
 
 # State - JS content persists across navigation
 js_code = DEFAULT_JS
