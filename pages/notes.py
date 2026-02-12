@@ -100,19 +100,26 @@ def create_page():
             content = note_input.value.strip()
             if content:
                 from nicegui import run
-                ui.notify('Saving...', type='ongoing')
-                await run.io_bound(note_service.add_note, content, category=cat_select.value)
-                note_input.value = ''
-                await refresh_notes()
-                ui.notify(f'Note saved to {cat_select.value}', type='positive')
+                # n = ui.notify('Saving...', type='ongoing') 
+                # ongoing type returning None calls caused issues. Using short timeout instead.
+                ui.notify('Saving...', timeout=2000)
+                
+                try:
+                    await run.io_bound(note_service.add_note, content, category=cat_select.value)
+                    note_input.value = ''
+                    await refresh_notes()
+                    # if n: n.dismiss()
+                    ui.notify(f'Note saved to {cat_select.value}', type='positive')
+                except Exception as e:
+                    # if n: n.dismiss()
+                    ui.notify(f'Failed to save: {e}', type='negative')
 
         async def delete_note(note_id):
-            ui.notify('Deleting...', type='ongoing') # Notify first
+            # ui.notify('Deleting...', type='ongoing') # Optional, maybe too noisy
             from nicegui import run
             await run.io_bound(note_service.delete_note, note_id)
-            await refresh_notes()
             ui.notify('Note deleted', type='info')
+            await refresh_notes()
 
-        # Initial Load
         # Initial Load
         ui.timer(0, refresh_notes, once=True)
