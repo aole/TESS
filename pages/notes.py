@@ -52,11 +52,10 @@ def create_page():
             except:
                 return iso_str
 
-        async def refresh_notes():
+        def refresh_notes():
             notes_container.clear()
-            # If using Drive, this might be slow, so run in background
-            from nicegui import run
-            notes = await run.io_bound(note_service.get_notes)
+            # get_notes is now fast local read
+            notes = note_service.get_notes()
             selected_cat = cat_select.value
             
             # Filter
@@ -96,30 +95,28 @@ def create_page():
                         # Absolute positioning to right, slightly adjusted for tighter layout
                         ui.button(icon='close', on_click=lambda _, n=note: delete_note(n['id'])).props('flat round dense size=xs color=grey').classes('opacity-0 group-hover:opacity-100 transition-opacity absolute right-1 top-1')
 
-        async def add_note():
+        def add_note():
             content = note_input.value.strip()
             if content:
-                from nicegui import run
-                # n = ui.notify('Saving...', type='ongoing') 
-                # ongoing type returning None calls caused issues. Using short timeout instead.
-                ui.notify('Saving...', timeout=2000)
-                
+                # Fast local update + background sync
                 try:
-                    await run.io_bound(note_service.add_note, content, category=cat_select.value)
+                    note_service.add_note(content, category=cat_select.value)
                     note_input.value = ''
-                    await refresh_notes()
-                    # if n: n.dismiss()
+                    # Refresh UI immediately - reusing async refresh logic by scheduling it or just running if we make refresh sync?
+                    # Let's make refresh_notes async wrapper but logic sync if possible? 
+                    # Actually, since I changed refresh_notes signature above to async, I must await it or call it properly.
+                    # But wait, I'm replacing the whole block.
+                    # I will make refresh_notes sync again since IO is fast.
+                    refresh_notes()
                     ui.notify(f'Note saved to {cat_select.value}', type='positive')
                 except Exception as e:
-                    # if n: n.dismiss()
                     ui.notify(f'Failed to save: {e}', type='negative')
 
-        async def delete_note(note_id):
-            # ui.notify('Deleting...', type='ongoing') # Optional, maybe too noisy
-            from nicegui import run
-            await run.io_bound(note_service.delete_note, note_id)
+        def delete_note(note_id):
+            # Fast local update + background sync
+            note_service.delete_note(note_id)
             ui.notify('Note deleted', type='info')
-            await refresh_notes()
+            refresh_notes()
 
         # Initial Load
         ui.timer(0, refresh_notes, once=True)

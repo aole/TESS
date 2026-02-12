@@ -45,16 +45,12 @@ class NoteService:
         google_service.save_drive_file('notes.json', json.dumps(notes, indent=2))
 
     def get_notes(self):
-        from utils.config import config_manager
-        storage = config_manager.get_note_storage()
-        
-        if storage == 'google_drive':
-            return self._get_drive_notes()
+        # Always return local notes for immediate UI feedback.
+        # Syncing happens in background or via Settings explicit sync.
         return self._get_local_notes()
 
     def add_note(self, content, category="General"):
-        # Note: This is now potentially slow if using Drive
-        notes = self.get_notes()
+        notes = self._get_local_notes()
         new_note = {
             'id': str(uuid.uuid4()),
             'content': content,
@@ -67,19 +63,22 @@ class NoteService:
         return new_note
 
     def delete_note(self, note_id):
-        notes = self.get_notes()
+        notes = self._get_local_notes()
         notes = [n for n in notes if n['id'] != note_id]
         self._save_notes(notes)
 
     def _save_notes(self, notes):
+        # 1. Save local immediately
+        self._save_local_notes(notes)
+        
+        # 2. Check config and sync to Drive in background
         from utils.config import config_manager
         storage = config_manager.get_note_storage()
         
         if storage == 'google_drive':
-            self._save_drive_notes(notes)
-            return
-
-        self._save_local_notes(notes)
+            # Fire and forget background sync
+            import threading
+            threading.Thread(target=self._save_drive_notes, args=(notes,)).start()
 
     def sync_notes(self):
         """
