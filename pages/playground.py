@@ -1,5 +1,6 @@
 from nicegui import ui
 import urllib.parse
+import os
 
 # Constants
 HTML_TEMPLATE = """
@@ -55,120 +56,64 @@ HTML_TEMPLATE = """
 </html>
 """
 
-DEFAULT_JS = """
-const GRID_SIZE = 50;
-const TEAM = ['#2222AA', '#AA2222']
-const PLAYER_SIZE = 20;
+BOILERPLATE_JS = """/* 
+    Welcome to the Canvas Playground!
+    
+    Available assignments:
+    - canvas: HTMLCanvasElement (id="gameCanvas")
+    - ctx: CanvasRenderingContext2D
+    - resizeCanvas(): Call to reset canvas to full window size
+    
+    Your code is automatically saved to data/playground/canvas.js
+*/
 
-let players = [[], []]; 
-
-// 2. Use Math.floor to ensure we stay within the grid bounds
-const GRID_MAX_X = Math.floor(canvas.width / GRID_SIZE);
-const GRID_MAX_Y = Math.floor(canvas.height / GRID_SIZE);
-
-// 3. Helper for random integers
-const randomInt = (max) => Math.floor(Math.random() * max);
-
-// 4. Spawn logic
-for (let t = 0; t < 2; t++) {
-    for (let i = 0; i < 3; i++) {
-        players[t][i] = {
-            x: randomInt(GRID_MAX_X), 
-            y: randomInt(GRID_MAX_Y)
-        };
-    }
-}
-
-let grid_x = -1;
-let grid_y = -1;
-
-function drawGrid() {
-    ctx.beginPath();
-    ctx.strokeStyle = '#AAA'; // Subtle dark grey for grid lines
-    ctx.lineWidth = 1;
-
-    // Draw vertical lines
-    for (let x = 0; x <= canvas.width; x += GRID_SIZE) {
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvas.height);
-    }
-
-    // Draw horizontal lines
-    for (let y = 0; y <= canvas.height; y += GRID_SIZE) {
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvas.width, y);
-    }
-
-    ctx.stroke();
-}
-
-function drawPlayers() {
-    for (let t = 0; t < 2; t++) {
-        ctx.fillStyle = TEAM[t];
-        for (let i = 0; i < 3; i++){
-            let x = players[t][i].x * GRID_SIZE + GRID_SIZE/2;
-            let y = players[t][i].y * GRID_SIZE + GRID_SIZE/2;
-            ctx.beginPath();
-            ctx.arc(x, y, PLAYER_SIZE/2, 0, Math.PI * 2);
-            ctx.fill();
-        }
-    }
-}
+// Example: Bouncing Box
+let x = 100, y = 100;
+let dx = 4, dy = 4;
+const size = 50;
 
 function animate() {
-    // 1. Clear the screen
-    ctx.fillStyle = '#000';
+    // Clear with slight fade effect
+    ctx.fillStyle = 'rgba(0,0,0,0.1)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // 2. Draw the background grid
-    drawGrid();
-    drawPlayers();
-
-    // 3. User Game Logic (Example: Mouse Follower)
-    drawUserExample();
-
-    requestAnimationFrame(animate);
-}
-
-// --- Example Interaction Logic ---
-let mouse = { x: 0, y: 0 };
-window.addEventListener('mousemove', (e) => {
-    mouse.x = e.clientX;
-    mouse.y = e.clientY;
-    grid_x = Math.floor(mouse.x / GRID_SIZE);
-    grid_y = Math.floor(mouse.y / GRID_SIZE);
-});
-
-window.addEventListener('mousedown', (e) => {
-    let found = false;
-    let t, i;
-    for (t = 0; t < 2; t++) {
-        for (i = 0; i < 3; i++) {
-            if (grid_x==players[t][i].x && grid_y==players[t][i].y) {
-                found = true;
-                break;
-            }
-        }
-        if (found) break;
-    }
-    if (found) {
-        console.log('found: '+t+','+i);
-    }
-});
-
-function drawUserExample() {
-    const snapX = grid_x * GRID_SIZE;
-    const snapY = grid_y * GRID_SIZE;
     
-    ctx.fillStyle = '#55555577';
-    ctx.fillRect(snapX, snapY, GRID_SIZE, GRID_SIZE);
+    // Update
+    x += dx;
+    y += dy;
+    
+    if(x + size > canvas.width || x < 0) dx = -dx;
+    if(y + size > canvas.height || y < 0) dy = -dy;
+    
+    // Draw
+    ctx.fillStyle = '#00ff00';
+    ctx.fillRect(x, y, size, size);
+    
+    requestAnimationFrame(animate);
 }
 
 animate();
 """
 
-# State - JS content persists across navigation
-js_code = DEFAULT_JS
+CANVAS_FILE = 'data/playground/canvas.js'
+
+def load_js_code():
+    if not os.path.exists(CANVAS_FILE):
+        try:
+            os.makedirs(os.path.dirname(CANVAS_FILE), exist_ok=True)
+            with open(CANVAS_FILE, 'w', encoding='utf-8') as f:
+                f.write(BOILERPLATE_JS)
+            return BOILERPLATE_JS
+        except Exception as e:
+            print(f"Error creating default canvas file: {e}")
+            return BOILERPLATE_JS
+
+    try:
+        with open(CANVAS_FILE, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception:
+        return BOILERPLATE_JS
+
+js_code = load_js_code()
 
 def create_page():
     
@@ -176,6 +121,11 @@ def create_page():
     def update_preview(e):
         global js_code
         js_code = e.value
+        
+        # Save to file
+        with open(CANVAS_FILE, 'w', encoding='utf-8') as f:
+            f.write(js_code)
+            
         full_html = HTML_TEMPLATE.replace("{user_js}", js_code)
         preview.run_method('setAttribute', 'srcdoc', full_html)
 
@@ -189,36 +139,6 @@ def create_page():
                 editor = ui.codemirror(value=js_code, on_change=update_preview, language='JavaScript').classes('w-full flex-grow font-mono text-sm')
                 editor.props('theme=dracula')
 
-                # Helper functions for toolbar
-                async def handle_upload(e):
-                    try:
-                        # e.file is the file object, read() is async and returns bytes
-                        bytes_content = await e.file.read()
-                        
-                        # Try to decode as utf-8, fallback to latin-1
-                        try:
-                            content = bytes_content.decode('utf-8')
-                        except UnicodeDecodeError:
-                            content = bytes_content.decode('latin-1')
-                        
-                        # Update global state
-                        global js_code
-                        js_code = content
-                        
-                        # Update Editor and Preview
-                        editor.value = content # Direct property update is more reliable
-                        update_preview(type("Event", (), {"value": content})) 
-                        
-                        open_dialog.close()
-                        ui.notify('File loaded successfully', type='success')
-                    except Exception as err:
-                        ui.notify(f'Failed to open file: {str(err)}', type='negative')
-
-                def save_file():
-                    # Get current content from global or editor
-                    current_content = js_code
-                    ui.download(current_content.encode('utf-8'), 'game.js')
-
                 def run_tab():
                     # Use JS to open new window and write content to avoid data: URL restrictions
                     full_html = HTML_TEMPLATE.replace("{user_js}", js_code)
@@ -229,21 +149,9 @@ def create_page():
                         win.document.close();
                     ''')
 
-                # Open File Dialog
-                with ui.dialog() as open_dialog, ui.card().classes('glass-panel p-6 w-96'):
-                    ui.label('Select JS File').classes('text-lg font-bold mb-4 text-center w-full')
-                    # Use a cleaner upload appearance
-                    ui.upload(on_upload=handle_upload, auto_upload=True, label='Choose File').props('accept=.js,.txt max-files=1 color=primary flat').classes('w-full')
-                    ui.button('Cancel', on_click=open_dialog.close).props('flat color=grey').classes('w-full mt-2')
-
                 # Toolbar
                 with ui.row().classes('w-full p-2 gap-2 bg-white/5 border-t border-white/10 items-center justify-between'):
                     with ui.row().classes('gap-2 items-center flex-grow'):
-                         ui.button(icon='folder_open', on_click=open_dialog.open).props('flat dense color=primary').tooltip('Open File')
-                         ui.button(icon='save', on_click=save_file).props('flat dense color=primary').tooltip('Save File')
-                         
-                         ui.separator().props('vertical').classes('mx-2 h-8')
-                         
                          prompt_input = ui.input(placeholder='Ask AI to edit...').classes('flex-grow').props('dense outlined rounded input-class=text-white')
                          ui.button(icon='send').props('flat dense color=secondary').tooltip('Submit Request')
 
