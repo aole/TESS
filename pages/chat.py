@@ -120,15 +120,16 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 ui.notify(f"Error saving chat: {e}", type='negative')
 
     # --- Sidebar & Navigation ---
-    drawer = ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10 flex flex-col')
+    drawer = ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10')
     with drawer:
-        # Header
-        with ui.row().classes('w-full items-center justify-between p-4 border-b border-white/5'):
-             ui.label('History').classes('text-lg font-bold text-gray-200')
-             ui.button(icon='add', on_click=lambda: load_new_chat()).props('flat round dense color=primary').tooltip('New Chat')
-
-        # Chat List
-        chat_list_container = ui.column().classes('w-full flex-grow overflow-y-auto p-2 gap-1')
+        with ui.column().classes('w-full h-full p-0 m-0 no-wrap gap-0'):
+            # Header
+            with ui.row().classes('w-full items-center justify-between p-4 border-b border-white/5 shrink-0'):
+                 ui.label('History').classes('text-lg font-bold text-gray-200')
+                 ui.button(icon='add', on_click=lambda: load_new_chat()).props('flat round dense color=primary').tooltip('New Chat')
+    
+            # Chat List
+            chat_list_container = ui.column().classes('w-full flex-grow overflow-y-auto p-2 gap-1')
 
     def load_new_chat():
         nonlocal messages, current_chat_id

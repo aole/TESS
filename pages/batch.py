@@ -61,34 +61,35 @@ async def create_page():
     results_container = None 
 
     # -- Left Drawer (Configuration) --
-    with ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10 flex flex-col p-4'):
-        ui.label('Configuration').classes('text-lg font-bold text-gray-200 mb-4')
-        
-        # System Prompt
-        ui.label('System Prompt').classes('text-sm font-medium text-gray-400 mb-1')
-        default_sys = batch_state['system_prompt'] if batch_state else ''
-        system_prompt = ui.textarea(placeholder='You are a helpful assistant...', value=default_sys).props('dense rows=4 filled flat').classes('w-full text-sm mb-6 bg-white/5 rounded-md')
+    with ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10'):
+        with ui.column().classes('w-full h-full p-4 no-wrap'):
+            ui.label('Configuration').classes('text-lg font-bold text-gray-200 mb-4')
+            
+            # System Prompt
+            ui.label('System Prompt').classes('text-sm font-medium text-gray-400 mb-1')
+            default_sys = batch_state['system_prompt'] if batch_state else ''
+            system_prompt = ui.textarea(placeholder='You are a helpful assistant...', value=default_sys).props('dense rows=4 filled flat').classes('w-full text-sm mb-6 bg-white/5 rounded-md')
 
-        # Model Selection
-        with ui.row().classes('w-full justify-between items-center mb-2'):
-            ui.label('Models').classes('text-sm font-bold text-gray-300')
-            with ui.row().classes('gap-1'):
-                def toggle_all(value):
-                    for t in model_toggles.values():
-                        t.value = value
-                
-                ui.button('All', on_click=lambda: toggle_all(True)).props('dense flat size=sm color=secondary')
-                ui.button('None', on_click=lambda: toggle_all(False)).props('dense flat size=sm text-color=grey')
-        
-        with ui.scroll_area().classes('flex-grow -mr-2 pr-2'):
-            with ui.column().classes('gap-1'):
-                # Pre-select if recovering?
-                rec_models = set(batch_state['models']) if batch_state else set()
-                
-                for m in all_models:
-                    is_checked = m in rec_models if batch_state else False
-                    t = ui.checkbox(m, value=is_checked).props('dense color=secondary size=sm').classes('text-sm text-gray-400')
-                    model_toggles[m] = t
+            # Model Selection
+            with ui.row().classes('w-full justify-between items-center mb-2'):
+                ui.label('Models').classes('text-sm font-bold text-gray-300')
+                with ui.row().classes('gap-1'):
+                    def toggle_all(value):
+                        for t in model_toggles.values():
+                            t.value = value
+                    
+                    ui.button('All', on_click=lambda: toggle_all(True)).props('dense flat size=sm color=secondary')
+                    ui.button('None', on_click=lambda: toggle_all(False)).props('dense flat size=sm text-color=grey')
+            
+            with ui.scroll_area().classes('flex-grow -mr-2 pr-2'):
+                with ui.column().classes('gap-1'):
+                    # Pre-select if recovering?
+                    rec_models = set(batch_state['models']) if batch_state else set()
+                    
+                    for m in all_models:
+                        is_checked = m in rec_models if batch_state else False
+                        t = ui.checkbox(m, value=is_checked).props('dense color=secondary size=sm').classes('text-sm text-gray-400')
+                        model_toggles[m] = t
 
     # -- Main Content --
     with ui.column().classes('w-full h-full pt-14 px-4 max-w-7xl mx-auto'):
