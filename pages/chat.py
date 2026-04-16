@@ -162,9 +162,14 @@ async def create_page(model_param: str = None, new_chat: bool = False):
 
     def delete_chat_history(chat_id):
         chat_service.delete_chat(chat_id)
-        refresh_chat_list()
         if current_chat_id == chat_id:
-            load_new_chat()
+            chats = chat_service.list_chats()
+            if chats:
+                load_chat_by_id(chats[0]['id'])
+            else:
+                load_new_chat()
+        else:
+            refresh_chat_list()
 
     def refresh_chat_list():
         chat_list_container.clear()
