@@ -183,13 +183,12 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 is_active = c['id'] == current_chat_id
                 bg_class = 'bg-white/10' if is_active else 'hover:bg-white/5'
                 
-                with ui.card().classes(f'w-full p-3 text-sm cursor-pointer transition-colors {bg_class} relative group border border-white/5').on('click', lambda _, cid=c['id']: load_chat_by_id(cid)):
-                    with ui.row().classes('w-full justify-between items-center gap-2'):
-                         with ui.column().classes('flex-grow min-w-0 gap-0'):
-                             ui.label(c['title']).classes('font-medium text-gray-200 truncate w-full')
-                             ui.label(c['updated_at'][:10]).classes('text-xs text-gray-500')
-                         
-                         ui.button(icon='delete').on('click.stop', lambda _, cid=c['id']: delete_chat_history(cid)).props('flat round dense size=xs color=grey').classes('opacity-0 group-hover:opacity-100 transition-opacity')
+                with ui.card().classes(f'w-full py-1 px-3 text-sm cursor-pointer transition-colors {bg_class} relative group border border-white/5').on('click', lambda _, cid=c['id']: load_chat_by_id(cid)):
+                    with ui.column().classes('w-full min-w-0 gap-0'):
+                         ui.label(c['title']).classes('font-medium text-gray-200 truncate w-full pr-1')
+                         ui.label(c['updated_at'][:10]).classes('text-xs text-gray-500')
+                    
+                    ui.button(icon='delete').on('click.stop', lambda _, cid=c['id']: delete_chat_history(cid)).props('flat round dense size=sm color=red-4').classes('absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60')
 
     # Initial Refresh
     refresh_chat_list()
