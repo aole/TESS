@@ -912,6 +912,7 @@ name = "ollama-model-mgmt"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "google-api-python-client" },
     { name = "google-auth-oauthlib" },
     { name = "nicegui" },
@@ -920,6 +921,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=46.0.4" },
     { name = "google-api-python-client" },
     { name = "google-auth-oauthlib" },
     { name = "nicegui", specifier = ">=3.4.1" },

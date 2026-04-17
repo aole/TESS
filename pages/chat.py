@@ -32,6 +32,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
         app.storage.user['messages'] = []
     if 'chat_id' not in app.storage.user:
         app.storage.user['chat_id'] = None
+    # Clear unlocked chats when the page is newly loaded
+    app.storage.user['unlocked_chats'] = {}
 
     # We use lists/dicts in storage, distinct from the local variables
     # We reference them here, but we must be careful to update the storage when we change them.
@@ -44,7 +46,14 @@ async def create_page(model_param: str = None, new_chat: bool = False):
     if current_chat_id:
         chat = chat_service.load_chat(current_chat_id)
         if chat:
-            messages = chat.messages
+            if chat.is_encrypted:
+                pw = app.storage.user['unlocked_chats'].get(current_chat_id)
+                if pw and chat_service.verify_password(current_chat_id, pw):
+                    messages = chat_service.decrypt_messages(chat.messages, pw, chat.salt)
+                else:
+                    messages = chat.messages
+            else:
+                messages = chat.messages
             # Update storage with fresh data from disk
             app.storage.user['messages'] = messages
         else:
@@ -98,12 +107,20 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     # Update existing
                     chat = chat_service.load_chat(current_chat_id)
                     if chat:
-                        chat.messages = messages
                         chat.title = title 
                         
                         # Update title if it was default
                         if chat.title == "New Chat" and title != "New Chat":
                             chat.title = title
+
+                        if chat.is_encrypted:
+                            pw = app.storage.user['unlocked_chats'].get(current_chat_id)
+                            if pw:
+                                chat.messages = chat_service.encrypt_messages(messages, pw, chat.salt)
+                            else:
+                                chat.messages = messages
+                        else:
+                            chat.messages = messages
                         
                         chat_service.save_chat(chat)
                 else:
@@ -134,6 +151,9 @@ async def create_page(model_param: str = None, new_chat: bool = False):
     def load_new_chat():
         nonlocal messages, current_chat_id
         
+        if current_chat_id:
+            app.storage.user['unlocked_chats'].pop(current_chat_id, None)
+
         # Create a new chat session immediately so it appears in history
         chat = chat_service.create_chat(title="New Chat")
         current_chat_id = chat.id
@@ -144,19 +164,34 @@ async def create_page(model_param: str = None, new_chat: bool = False):
         
         refresh_chat_ui()
         refresh_chat_list()
+        try:
+            update_encryption_ui()
+        except NameError: pass
         # Optionally close drawer on mobile?
     
     def load_chat_by_id(chat_id):
         nonlocal messages, current_chat_id
+        if current_chat_id and current_chat_id != chat_id:
+            app.storage.user['unlocked_chats'].pop(current_chat_id, None)
         chat = chat_service.load_chat(chat_id)
         if chat:
-            messages = chat.messages
             current_chat_id = chat.id
+            if chat.is_encrypted:
+                pw = app.storage.user['unlocked_chats'].get(chat_id)
+                if pw and chat_service.verify_password(chat_id, pw):
+                    messages = chat_service.decrypt_messages(chat.messages, pw, chat.salt)
+                else:
+                    messages = chat.messages
+            else:
+                messages = chat.messages
             app.storage.user['messages'] = messages
             app.storage.user['chat_id'] = current_chat_id
             if 'refresh_chat_ui' in locals():
                 refresh_chat_ui()
             refresh_chat_list()
+            try:
+                update_encryption_ui()
+            except NameError: pass
         else:
             ui.notify("Could not load chat", type='negative')
 
@@ -276,6 +311,15 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                            pass
 
                     ui.input('Tags (comma separated)', value=", ".join(current_tags), on_change=update_tags).classes('w-full').props('dense debounce=500')
+
+            # Security (Encryption)
+            with ui.expansion('Security', icon='security').classes('w-full bg-white/5 rounded-lg').props('dense'):
+                with ui.column().classes('w-full p-2 gap-2'):
+                    ui.label('Protect your chat history with a password.').classes('text-xs text-gray-400')
+                    settings_encrypt_btn = ui.button('Encrypt Chat', icon='lock').props('outline color=primary').classes('w-full')
+                    settings_remove_enc_btn = ui.button('Remove Encryption', icon='lock_open').props('outline color=negative').classes('w-full hidden')
+                    settings_unlock_btn = ui.button('Unlock Chat', icon='key').props('outline color=warning').classes('w-full hidden')
+                    settings_lock_btn = ui.button('Lock Chat', icon='lock').props('outline color=warning').classes('w-full hidden')
 
             # Ratings
             ratings_section = ui.expansion('Model Ratings', icon='star').classes('w-full bg-white/5 rounded-lg hidden').props('dense')
@@ -534,6 +578,82 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 refresh_chat_ui()
                 await scroll_to_bottom()
 
+            # Encryption Controls
+            encryption_controls = ui.row().classes('w-full items-center justify-end gap-2 px-2 pb-2')
+            
+            async def prompt_encryption():
+                with ui.dialog() as d, ui.card().classes('bg-[#18181b] border border-white/10'):
+                    ui.label('Encrypt Chat').classes('text-lg font-bold text-gray-200')
+                    pw1 = ui.input('Password', password=True, password_toggle_button=True).classes('w-full')
+                    pw2 = ui.input('Confirm Password', password=True, password_toggle_button=True).classes('w-full')
+                    
+                    async def do_encrypt():
+                        nonlocal messages
+                        if not pw1.value or pw1.value != pw2.value:
+                            ui.notify('Passwords do not match or empty', type='negative')
+                            return
+                        chat = chat_service.load_chat(current_chat_id)
+                        if chat:
+                            import secrets
+                            chat.is_encrypted = True
+                            chat.salt = secrets.token_hex(16)
+                            
+                            garbage_messages = chat_service.encrypt_messages(messages, pw1.value, chat.salt)
+                            chat.messages = garbage_messages
+                            chat_service.save_chat(chat, update_timestamp=False)
+                            
+                            # Do NOT add to unlocked_chats, so it immediately locks and renders garbage
+                            app.storage.user['unlocked_chats'].pop(current_chat_id, None)
+                            
+                            # Replace local messages and re-render
+                            messages.clear()
+                            messages.extend(garbage_messages)
+                            app.storage.user['messages'] = messages
+                            refresh_chat_ui()
+                            
+                            ui.notify('Chat encrypted', type='positive')
+                            update_encryption_ui()
+                        d.close()
+                    ui.button('Encrypt', on_click=do_encrypt).props('color=primary').classes('w-full mt-2')
+                await d
+
+            async def prompt_unlock():
+                with ui.dialog() as d, ui.card().classes('bg-[#18181b] border border-white/10'):
+                    ui.label('Unlock Chat').classes('text-lg font-bold text-gray-200')
+                    pw = ui.input('Password', password=True, password_toggle_button=True).classes('w-full').on('keydown.enter', lambda: do_unlock())
+                    
+                    async def do_unlock():
+                        if chat_service.verify_password(current_chat_id, pw.value):
+                            app.storage.user['unlocked_chats'][current_chat_id] = pw.value
+                            load_chat_by_id(current_chat_id)
+                            ui.notify('Chat unlocked', type='positive')
+                            d.close()
+                        else:
+                            ui.notify('Incorrect password', type='negative')
+                    ui.button('Unlock', on_click=do_unlock).props('color=warning').classes('w-full mt-2')
+                await d
+
+            async def prompt_remove_encryption():
+                chat = chat_service.load_chat(current_chat_id)
+                if chat:
+                    chat.is_encrypted = False
+                    chat.salt = None
+                    app.storage.user['unlocked_chats'].pop(current_chat_id, None)
+                    chat.messages = messages
+                    chat_service.save_chat(chat, update_timestamp=False)
+                    ui.notify('Encryption removed', type='info')
+                    update_encryption_ui()
+
+            def do_lock():
+                app.storage.user['unlocked_chats'].pop(current_chat_id, None)
+                load_chat_by_id(current_chat_id)
+                ui.notify('Chat locked', type='info')
+
+            settings_encrypt_btn.on('click', prompt_encryption)
+            settings_remove_enc_btn.on('click', prompt_remove_encryption)
+            settings_unlock_btn.on('click', prompt_unlock)
+            settings_lock_btn.on('click', do_lock)
+
             # Input Area
             with ui.row().classes('w-full items-end gap-2 p-2 glass-panel rounded-lg'):
                 user_input = ui.textarea(placeholder='Type a message...').classes('w-full flex-grow').props('autogrow bg-color=transparent borderless dense rows=1')
@@ -556,6 +676,56 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 
                 # Poll for global updates
                 ui.timer(1.0, update_button_state)
+
+                def update_encryption_ui():
+                    if not current_chat_id:
+                        settings_encrypt_btn.classes(add='hidden')
+                        settings_unlock_btn.classes(add='hidden')
+                        settings_lock_btn.classes(add='hidden')
+                        settings_remove_enc_btn.classes(add='hidden')
+                        if 'user_input' in locals() and user_input:
+                            user_input.props('disable=false')
+                            user_input.placeholder = 'Type a message...'
+                            if send_btn: send_btn.props('disable=false')
+                        return
+
+                    chat = chat_service.load_chat(current_chat_id)
+                    if not chat: return
+                    
+                    if chat.is_encrypted:
+                        settings_encrypt_btn.classes(add='hidden')
+                        pw = app.storage.user['unlocked_chats'].get(current_chat_id)
+                        is_unlocked = pw and chat_service.verify_password(current_chat_id, pw)
+                        
+                        if is_unlocked:
+                            settings_unlock_btn.classes(add='hidden')
+                            settings_lock_btn.classes(remove='hidden')
+                            settings_remove_enc_btn.classes(remove='hidden')
+                            if 'user_input' in locals() and user_input:
+                                user_input.props('disable=false')
+                                user_input.placeholder = 'Type a message...'
+                                if send_btn: send_btn.props('disable=false')
+                        else:
+                            settings_unlock_btn.classes(remove='hidden')
+                            settings_lock_btn.classes(add='hidden')
+                            settings_remove_enc_btn.classes(add='hidden')
+                            if 'user_input' in locals() and user_input:
+                                user_input.props('disable=true')
+                                user_input.placeholder = 'Chat is locked. Unlock to continue or view.'
+                                if send_btn: send_btn.props('disable=true')
+                    else:
+                        settings_encrypt_btn.classes(remove='hidden')
+                        settings_unlock_btn.classes(add='hidden')
+                        settings_lock_btn.classes(add='hidden')
+                        settings_remove_enc_btn.classes(add='hidden')
+                        if 'user_input' in locals() and user_input:
+                            user_input.props('disable=false')
+                            user_input.placeholder = 'Type a message...'
+                            if send_btn: send_btn.props('disable=false')
+
+                update_encryption_ui()
+                # Run periodically just in case
+                ui.timer(2.0, update_encryption_ui)
 
                 # --- Core Generation Logic ---
                 async def generate_response():

@@ -2,9 +2,12 @@ import json
 import os
 import uuid
 import asyncio
+from utils import encription
 from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass, asdict
+
+
 
 # Define storage directory
 CHATS_DIR = os.path.join(os.getcwd(), 'data', 'chats')
@@ -16,6 +19,8 @@ class ChatSession:
     created_at: str
     updated_at: str
     messages: List[Dict]
+    is_encrypted: bool = False
+    salt: Optional[str] = None
 
 class ChatService:
     def __init__(self):
@@ -40,8 +45,9 @@ class ChatService:
         self.save_chat(chat)
         return chat
 
-    def save_chat(self, chat: ChatSession):
-        chat.updated_at = datetime.now().isoformat()
+    def save_chat(self, chat: ChatSession, update_timestamp: bool = True):
+        if update_timestamp:
+            chat.updated_at = datetime.now().isoformat()
         try:
             with open(self._get_file_path(chat.id), 'w', encoding='utf-8') as f:
                 json.dump(asdict(chat), f, indent=4, ensure_ascii=False)
@@ -109,5 +115,17 @@ class ChatService:
         if len(content) > 60:
             return content[:57] + "..."
         return content
+
+    def verify_password(self, chat_id: str, password: str) -> bool:
+        chat = self.load_chat(chat_id)
+        if not chat or not chat.is_encrypted or not chat.salt:
+            return True
+        return encription.verify_encrypted_messages(chat.messages, chat.salt, password)
+
+    def decrypt_messages(self, messages: List[Dict], password: str, salt: str) -> List[Dict]:
+        return encription.decrypt_messages(messages, password, salt)
+
+    def encrypt_messages(self, messages: List[Dict], password: str, salt: str) -> List[Dict]:
+        return encription.encrypt_messages(messages, password, salt)
 
 chat_service = ChatService()
