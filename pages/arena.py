@@ -82,14 +82,14 @@ async def create_page():
         system_prompt = ui.textarea(label='Shared System Prompt', placeholder='You are a helpful assistant...', value=default_sys).props('dense rows=1').classes('w-full glass-panel px-2 rounded')
 
         # Chat Areas
-        with ui.grid(columns=2).classes('w-full flex-grow gap-2'):
+        with ui.grid(columns=2).classes('w-full flex-grow min-h-0 gap-2'):
             # Area 1
-            chat1 = ui.column().classes('h-full w-full overflow-y-auto p-4 gap-4 rounded-lg bg-black/20 border border-white/5').props('id=arena-scroll-1')
+            chat1 = ui.column().classes('h-full w-full flex-nowrap overflow-y-auto p-4 gap-4 rounded-lg bg-black/20 border border-white/5').props('id=arena-scroll-1')
             with chat1:
                 ui.label('Model 1 Output').classes('text-xs text-muted mb-1')
             
             # Area 2
-            chat2 = ui.column().classes('h-full w-full overflow-y-auto p-4 gap-4 rounded-lg bg-black/20 border border-white/5').props('id=arena-scroll-2')
+            chat2 = ui.column().classes('h-full w-full flex-nowrap overflow-y-auto p-4 gap-4 rounded-lg bg-black/20 border border-white/5').props('id=arena-scroll-2')
             with chat2:
                 ui.label('Model 2 Output').classes('text-xs text-muted mb-1')
 
