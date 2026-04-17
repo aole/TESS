@@ -119,10 +119,14 @@ class ConversationRenderer:
         
         # 1. Thinking
         thinking = msg.get('thinking', '')
-        # Always create label, hidden if empty
-        thinking_label = ui.label(thinking).classes('text-xs text-gray-400 font-mono bg-white/5 p-3 rounded-md border-l-2 border-indigo-500 whitespace-pre-wrap w-full')
+        
+        # Use an expansion panel for thinking output
+        thinking_container = ui.expansion('Thought Process', icon='psychology').classes('w-full bg-white/5 rounded-md border-l-2 border-indigo-500 mb-2')
         if not thinking:
-            thinking_label.classes('hidden')
+            thinking_container.classes('hidden')
+            
+        with thinking_container:
+            thinking_label = ui.label(thinking).classes('text-xs text-gray-400 font-mono whitespace-pre-wrap w-full p-2')
         
         # 2. Tool Calls
         tool_calls = msg.get('tool_calls', [])
@@ -166,7 +170,8 @@ class ConversationRenderer:
 
         # Store references for streaming updates
         self._msg_elements[msg_id] = {
-            'thinking': thinking_label,
+            'thinking_container': thinking_container,
+            'thinking_label': thinking_label,
             'tools': tool_container,
             'content': content_markdown
         }
@@ -220,10 +225,12 @@ class ConversationRenderer:
             
         # Update Thinking
         if thinking:
-            if elements['thinking']:
-                 elements['thinking'].text = thinking
-                 elements['thinking'].classes(remove='hidden')
-                 elements['thinking'].update()
+            if elements.get('thinking_container'):
+                 elements['thinking_container'].classes(remove='hidden')
+                 # NiceGUI Expansion handles visibility
+            if elements.get('thinking_label'):
+                 elements['thinking_label'].text = thinking
+                 elements['thinking_label'].update()
         
         # Update Tools
         if tool_calls and elements['tools']:
