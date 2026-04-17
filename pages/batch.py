@@ -92,12 +92,10 @@ async def create_page():
                         model_toggles[m] = t
 
     # -- Main Content --
-    with ui.column().classes('w-full h-full pt-14 px-4 max-w-7xl mx-auto'):
-        # Header
-        ui.label('Batch Processing').classes('text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400 mb-6')
+    with ui.column().classes('w-full h-full pt-8 px-4 max-w-7xl mx-auto'):
         
         # User Prompt Section
-        with ui.card().classes('w-full glass-panel p-4 mb-6'):
+        with ui.card().classes('w-full glass-panel p-4 mb-4'):
             default_prompt = batch_state['user_prompt'] if batch_state else ''
             user_prompt = ui.textarea(label='User Prompt', placeholder='Tell me a joke...', value=default_prompt).props('dense rows=2 autogrow').classes('w-full mb-4')
             
@@ -151,7 +149,6 @@ async def create_page():
             run_btn = ui.button('Run Batch', on_click=run_batch).props('color=primary icon=play_arrow').classes('w-full h-10 text-md')
 
         # Results Area
-        ui.label('Results').classes('text-lg font-bold mb-2')
         results_container = ui.column().classes('w-full flex-grow')
         
         # UI References for updates
