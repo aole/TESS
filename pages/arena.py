@@ -74,6 +74,9 @@ async def create_page():
                 value=default_m2
             ).props('dense options-dense').classes('w-1/3 glass-panel px-2 rounded')
 
+            ui.space()
+            clear_btn = ui.button(icon='delete_sweep').props('flat round color=negative outline').classes('mt-1').tooltip('Clear Chat')
+
         # System Prompt
         default_sys = battle_state['system_prompt'] if battle_state else ''
         system_prompt = ui.textarea(label='Shared System Prompt', placeholder='You are a helpful assistant...', value=default_sys).props('dense rows=1').classes('w-full glass-panel px-2 rounded')
@@ -121,6 +124,37 @@ async def create_page():
                      send_btn.props('icon=send color=primary')
             
             ui.timer(1.0, update_btn)
+            
+            def clear_chat():
+                nonlocal current_battle_id, messages1, messages2, battle_state
+                if state['processing'] or stream_service.any_active() or batch_service.any_active():
+                    state['stopping'] = True
+                    stream_service.stop_all()
+                    batch_service.stop_all()
+                    if current_battle_id:
+                        b = arena_service.get_battle(current_battle_id)
+                        if b:
+                            stream_service.stop_generation(b['stream_id_1'])
+                            stream_service.stop_generation(b['stream_id_2'])
+                    update_btn()
+
+                current_battle_id = None
+                app.storage.user['arena_battle_id'] = None
+                battle_state = None
+                messages1 = []
+                messages2 = []
+                
+                renderer1.clear()
+                with chat1:
+                    ui.label('Model 1 Output').classes('text-xs text-muted mb-1')
+                    
+                renderer2.clear()
+                with chat2:
+                    ui.label('Model 2 Output').classes('text-xs text-muted mb-1')
+                    
+                ui.notify('Chat cleared. Ready for a new session.', type='info')
+            
+            clear_btn.on('click', clear_chat)
             
             # --- Event Handlers ---
 
