@@ -94,11 +94,17 @@ async def create_page():
     # -- Main Content --
     with ui.column().classes('w-full h-full pt-8 px-4 max-w-7xl mx-auto'):
         
+        state = {'stopping': False}
+
         # User Prompt Section
-        with ui.card().classes('w-full glass-panel p-4 mb-4'):
+        with ui.card().classes('w-full glass-panel px-3 py-2 mb-2 z-10'):
             default_prompt = batch_state['user_prompt'] if batch_state else ''
-            user_prompt = ui.textarea(label='User Prompt', placeholder='Tell me a joke...', value=default_prompt).props('dense rows=2 autogrow').classes('w-full mb-4')
+            user_prompt = ui.textarea(label='User Prompt', placeholder='Tell me a joke...', value=default_prompt).props('dense rows=4').classes('w-full')
             
+            with ui.row().classes('w-full justify-between items-center'):
+                run_btn = ui.button(icon='send').props('flat round color=primary dense')
+                clear_btn = ui.button('Clear Batch', icon='delete_sweep').props('flat color=negative text-sm dense')
+
             def update_btn():
                 if not run_btn: return
                 
@@ -106,12 +112,13 @@ async def create_page():
                 is_busy = stream_service.any_active() or batch_service.any_active()
                 
                 if is_busy:
-                    run_btn.props('color=negative icon=stop')
-                    run_btn.set_text('Stop All')
-                    return
-                
-                run_btn.props('color=primary icon=play_arrow')
-                run_btn.set_text('Run Batch')
+                    if state['stopping']:
+                        run_btn.props('icon=hourglass_empty color=warning')
+                    else:
+                        run_btn.props('icon=stop color=negative')
+                else:
+                    run_btn.props('icon=send color=primary')
+                    state['stopping'] = False
             
             ui.timer(1.0, update_btn)
 
@@ -121,6 +128,7 @@ async def create_page():
                 # Check if running
                 # Check if Global Busy
                 if stream_service.any_active() or batch_service.any_active():
+                    state['stopping'] = True
                     batch_service.stop_all()
                     stream_service.stop_all()
                     update_btn()
@@ -135,6 +143,7 @@ async def create_page():
                     ui.notify('Enter a prompt', type='warning')
                     return
                 
+                state['stopping'] = False
                 current_batch_id = batch_service.start_batch(user_prompt.value, system_prompt.value, targets)
                 app.storage.user['batch_id'] = current_batch_id
                 batch_state = batch_service.get_batch(current_batch_id)
@@ -146,7 +155,28 @@ async def create_page():
                 asyncio.create_task(poll_batch_updates())
 
             user_prompt.on('keydown.enter.exact', lambda e: run_batch() if not e.args['shiftKey'] else None, args=['shiftKey'])
-            run_btn = ui.button('Run Batch', on_click=run_batch).props('color=primary icon=play_arrow').classes('w-full h-10 text-md')
+            run_btn.on('click', run_batch)
+            
+            def clear_batch():
+                nonlocal current_batch_id, batch_state
+                if stream_service.any_active() or batch_service.any_active():
+                    state['stopping'] = True
+                    batch_service.stop_all()
+                    stream_service.stop_all()
+                    update_btn()
+
+                current_batch_id = None
+                app.storage.user['batch_id'] = None
+                batch_state = None
+                
+                results_container.clear()
+                model_renderers.clear()
+                model_metrics.clear()
+                model_scroll_ids.clear()
+                
+                ui.notify('Batch cleared. Ready for a new run.', type='info')
+            
+            clear_btn.on('click', clear_batch)
 
         # Results Area
         results_container = ui.column().classes('w-full flex-grow')
