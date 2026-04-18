@@ -296,23 +296,6 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                                  is_checked = t_name in saved_tools
                                  tool_checks[t_name] = ui.checkbox(t_name, value=is_checked, on_change=update_tool_storage).classes('text-sm text-gray-300')
 
-            # Tags
-            with ui.expansion('Rating Tags', icon='label').classes('w-full bg-white/5 rounded-lg').props('dense'):
-                with ui.column().classes('w-full p-2'):
-                    current_tags = app.storage.user.get('tags', ["General", "Coding", "Tools", "Writing"])
-                    
-                    def update_tags(e):
-                        tags = [t.strip() for t in e.value.split(',') if t.strip()]
-                        if not tags: tags = ["General"]
-                        app.storage.user['tags'] = tags
-                        # Update renderer if it exists
-                        try:
-                           chat_renderer.available_tags = tags
-                        except:
-                           pass
-
-                    ui.input('Tags (comma separated)', value=", ".join(current_tags), on_change=update_tags).classes('w-full').props('dense debounce=500')
-
             # Security (Encryption)
             with ui.expansion('Security', icon='security').classes('w-full bg-white/5 rounded-lg').props('dense'):
                 with ui.column().classes('w-full p-2 gap-2'):
@@ -533,7 +516,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 on_play_tts=lambda msg: asyncio.create_task(handle_play_tts(msg)),
                 get_playing_tts_id=lambda: state.get('playing_tts_id'),
                 get_ratings=get_msg_ratings,
-                available_tags=app.storage.user.get('tags', ["General", "Coding", "Tools", "Writing"]),
+                available_tags=config_manager.get_rating_tags(),
                 on_save_and_respond=None # Will be set later
             )
             async def play_audio_js(b64_str):
