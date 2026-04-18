@@ -681,6 +681,12 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         if app.storage.user.get('tts_enabled', False):
                             if msg_id not in state['tts_cursors']:
                                 state['tts_cursors'][msg_id] = 0
+                                
+                                if state.get('playing_tts_id') != msg_id:
+                                    await stop_playback()
+                                    state['playing_tts_id'] = msg_id
+                                    state['tts_generation_complete'] = False
+                                    chat_renderer.render_messages(messages)
                             
                             spoken = state['tts_cursors'][msg_id]
                             unspoken = content[spoken:]
@@ -703,7 +709,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                             if flush_end_pos is not None:
                                 sentence = unspoken[:flush_end_pos]
                                 state['tts_cursors'][msg_id] += flush_end_pos
-                                asyncio.create_task(play_tts(sentence))
+                                asyncio.create_task(play_tts(sentence, is_manual_playback_id=msg_id))
                                 
                     elif event_type == 'done':
                         state['processing'] = False
@@ -719,8 +725,11 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                                     final_unspoken = m.get('content', '')[spoken:]
                                     if final_unspoken.strip():
                                         state['tts_cursors'][last_id] += len(final_unspoken)
-                                        asyncio.create_task(play_tts(final_unspoken))
+                                        asyncio.create_task(play_tts(final_unspoken, is_manual_playback_id=last_id))
                                     break
+                                    
+                        if last_id and state.get('playing_tts_id') == last_id:
+                            state['tts_generation_complete'] = True
                                     
                         # Refresh to ensure consistency
                         try:
