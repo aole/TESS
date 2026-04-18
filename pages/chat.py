@@ -69,7 +69,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
         if 'id' not in msg:
             msg['id'] = str(uuid.uuid4())
     
-    state = {'processing': False, 'stopping': False, 'tts_cursors': {}, 'last_update_msg_id': None, 'playing_tts_id': None}
+    state = {'processing': False, 'stopping': False, 'tts_cursors': {}, 'last_update_msg_id': None, 'playing_tts_id': None, 'tts_generation_complete': False}
 
     # Model Selection Logic (Prep)
     try:
@@ -577,6 +577,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 with page_client:
                     await ui.run_javascript("if(window.stopAudio) window.stopAudio();")
                 state['playing_tts_id'] = None
+                state['tts_generation_complete'] = False
                 
             async def handle_play_tts(msg):
                 if state.get('playing_tts_id') == msg['id']:
@@ -587,6 +588,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     
                 await stop_playback()
                 state['playing_tts_id'] = msg['id']
+                state['tts_generation_complete'] = False
                 with page_client:
                     chat_renderer.render_messages(messages)
                 
@@ -618,6 +620,23 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     if state.get('playing_tts_id') != msg['id']:
                         break
                     await play_tts(s, is_manual_playback_id=msg['id'])
+                    
+                if state.get('playing_tts_id') == msg['id']:
+                    state['tts_generation_complete'] = True
+
+            async def sync_tts_state():
+                if state.get('playing_tts_id') and state.get('tts_generation_complete'):
+                    with page_client:
+                        try:
+                            is_playing = await ui.run_javascript('return !!(window.isPlayingAudio || (window.audioQueue && window.audioQueue.length > 0));')
+                            if not is_playing:
+                                state['playing_tts_id'] = None
+                                state['tts_generation_complete'] = False
+                                chat_renderer.render_messages(messages)
+                        except Exception:
+                            pass
+            
+            ui.timer(1.0, sync_tts_state)
 
             tts_lock = asyncio.Lock()
             async def play_tts(text_chunk, is_manual_playback_id=None):
