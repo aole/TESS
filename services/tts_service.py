@@ -21,6 +21,15 @@ class TTSService:
             finally:
                 self.loading = False
                 
+    def warmup(self):
+        self.ensure_pipeline()
+        if self.pipeline:
+            try:
+                # Dummy generation to load the voice tensor
+                list(self.pipeline("a", voice='af_heart'))
+            except Exception:
+                pass
+                
     def generate_audio_b64(self, text: str, voice: str = 'af_heart') -> List[str]:
         if not self.pipeline:
             self.ensure_pipeline()

@@ -861,6 +861,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
 
                 # --- User Action Handlers ---
                 async def save_and_respond(msg, new_content):
+                    if app.storage.user.get('tts_enabled', False):
+                        asyncio.create_task(asyncio.to_thread(tts_service.warmup))
                     msg['content'] = new_content
                     msg['editing'] = False
                     
@@ -890,6 +892,9 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     if not content or not model_select.value: return
                     
                     user_input.value = ''
+                    
+                    if app.storage.user.get('tts_enabled', False):
+                        asyncio.create_task(asyncio.to_thread(tts_service.warmup))
                     
                     user_msg = {'role': 'user', 'content': content, 'id': str(uuid.uuid4())}
                     messages.append(user_msg)
@@ -927,8 +932,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         is_on = app.storage.user['tts_enabled']
                         tts_btn.props(f"icon={'volume_up' if is_on else 'volume_off'} color={'primary' if is_on else 'grey'}")
                         if is_on:
-                            # Preload pipeline on first click
-                            asyncio.create_task(asyncio.to_thread(tts_service.ensure_pipeline))
+                            # Preload pipeline and warm up on first click
+                            asyncio.create_task(asyncio.to_thread(tts_service.warmup))
                     tts_btn.on('click', toggle_tts)
                     if app.storage.user.get('tts_enabled', False):
                         tts_btn.props("icon=volume_up color=primary")
