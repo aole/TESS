@@ -69,7 +69,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
         if 'id' not in msg:
             msg['id'] = str(uuid.uuid4())
     
-    state = {'processing': False, 'stopping': False, 'tts_cursors': {}, 'last_update_msg_id': None}
+    state = {'processing': False, 'stopping': False, 'tts_cursors': {}, 'last_update_msg_id': None, 'playing_tts_id': None}
 
     # Model Selection Logic (Prep)
     try:
@@ -530,6 +530,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 on_delete=handle_delete,
                 on_rate=handle_rate,
                 on_delete_rating=handle_delete_rating,
+                on_play_tts=lambda msg: asyncio.create_task(handle_play_tts(msg)),
+                get_playing_tts_id=lambda: state.get('playing_tts_id'),
                 get_ratings=get_msg_ratings,
                 available_tags=app.storage.user.get('tags', ["General", "Coding", "Tools", "Writing"]),
                 on_save_and_respond=None # Will be set later
@@ -539,16 +541,27 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     if (!window.audioQueue) {{
                         window.audioQueue = [];
                         window.isPlayingAudio = false;
+                        window.currentAudioObj = null;
+                        
+                        window.stopAudio = function() {{
+                            window.audioQueue = [];
+                            if (window.currentAudioObj) {{
+                                window.currentAudioObj.pause();
+                                window.currentAudioObj = null;
+                            }}
+                            window.isPlayingAudio = false;
+                        }};
+                        
                         window.playNextAudio = function() {{
                             if (window.audioQueue.length > 0 && !window.isPlayingAudio) {{
                                 window.isPlayingAudio = true;
                                 let src = window.audioQueue.shift();
-                                let a = new Audio('data:audio/wav;base64,' + src);
-                                a.onended = function() {{
+                                window.currentAudioObj = new Audio('data:audio/wav;base64,' + src);
+                                window.currentAudioObj.onended = function() {{
                                     window.isPlayingAudio = false;
                                     window.playNextAudio();
                                 }};
-                                a.play().catch(e => {{
+                                window.currentAudioObj.play().catch(e => {{
                                     console.error("Audio play error", e);
                                     window.isPlayingAudio = false;
                                     window.playNextAudio();
@@ -559,6 +572,52 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     window.audioQueue.push('{b64_str}');
                     window.playNextAudio();
                 """)
+                
+            async def stop_playback():
+                with page_client:
+                    await ui.run_javascript("if(window.stopAudio) window.stopAudio();")
+                state['playing_tts_id'] = None
+                
+            async def handle_play_tts(msg):
+                if state.get('playing_tts_id') == msg['id']:
+                    await stop_playback()
+                    with page_client:
+                        chat_renderer.render_messages(messages)
+                    return
+                    
+                await stop_playback()
+                state['playing_tts_id'] = msg['id']
+                with page_client:
+                    chat_renderer.render_messages(messages)
+                
+                content = msg.get('content', '')
+                import re
+                boundary_pattern = (
+                    r'(?<!\bMr)(?<!\bMrs)(?<!\bMs)(?<!\bDr)(?<!\bProf)'
+                    r'(?<!\bSr)(?<!\bJr)(?<!\bSt)(?<!\bCapt)(?<!\bCol)'
+                    r'(?<!\bGen)(?<!\bLt)(?<!\bSgt)(?<!\b[A-Za-z])'
+                    r'([.!?\n]+)(\s*)'
+                )
+                
+                # Split and keep delimiters
+                parts = re.split(boundary_pattern, content, flags=re.IGNORECASE)
+                sentences = []
+                current_s = ""
+                for i in range(0, len(parts), 3):
+                    current_s += parts[i]
+                    if i + 1 < len(parts): current_s += parts[i+1] # delim
+                    if i + 2 < len(parts): current_s += parts[i+2] # space
+                    
+                    if current_s.strip():
+                        sentences.append(current_s)
+                        current_s = ""
+                if current_s.strip():
+                    sentences.append(current_s)
+                    
+                for s in sentences:
+                    if state.get('playing_tts_id') != msg['id']:
+                        break
+                    await play_tts(s)
 
             tts_lock = asyncio.Lock()
             async def play_tts(text_chunk):

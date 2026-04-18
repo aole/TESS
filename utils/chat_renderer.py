@@ -12,6 +12,8 @@ class ConversationRenderer:
                  on_rate: Optional[Callable[[Dict, int, str], Any]] = None,
                  on_delete_rating: Optional[Callable[[Dict, str], Any]] = None,
                  on_save_and_respond: Optional[Callable[[Dict, str], Any]] = None,
+                 on_play_tts: Optional[Callable[[Dict], Any]] = None,
+                 get_playing_tts_id: Optional[Callable[[], str]] = None,
                  get_ratings: Optional[Callable[[str], List[Any]]] = None,
                  available_tags: List[str] = ["General", "Coding", "Tools", "Writing"],
                  show_avatars: bool = True):
@@ -24,6 +26,8 @@ class ConversationRenderer:
         self.on_rate = on_rate
         self.on_delete_rating = on_delete_rating
         self.on_save_and_respond = on_save_and_respond
+        self.on_play_tts = on_play_tts
+        self.get_playing_tts_id = get_playing_tts_id
         self.get_ratings = get_ratings
         self.available_tags = available_tags
         self.show_avatars = show_avatars
@@ -91,10 +95,15 @@ class ConversationRenderer:
                         self._render_view_mode(msg)
 
     def _render_controls(self, msg: Dict):
-        if not (self.on_edit or self.on_delete):
+        if not (self.on_edit or self.on_delete or self.on_play_tts):
             return
             
         with ui.row().classes('opacity-0 group-hover:opacity-100 transition-opacity gap-1'):
+            if self.on_play_tts:
+                is_playing = self.get_playing_tts_id and self.get_playing_tts_id() == msg.get('id')
+                icon = 'stop' if is_playing else 'play_arrow'
+                color = 'primary' if is_playing else 'grey'
+                ui.button(icon=icon, on_click=lambda m=msg: self.on_play_tts(m)).props(f'flat round dense size=sm color={color}')
             if self.on_edit:
                 ui.button(icon='edit', on_click=lambda m=msg: self.on_edit(m)).props('flat round dense size=sm color=grey')
             if self.on_delete:
