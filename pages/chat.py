@@ -617,13 +617,19 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 for s in sentences:
                     if state.get('playing_tts_id') != msg['id']:
                         break
-                    await play_tts(s)
+                    await play_tts(s, is_manual_playback_id=msg['id'])
 
             tts_lock = asyncio.Lock()
-            async def play_tts(text_chunk):
+            async def play_tts(text_chunk, is_manual_playback_id=None):
+                if is_manual_playback_id and state.get('playing_tts_id') != is_manual_playback_id:
+                    return
                 async with tts_lock:
+                    if is_manual_playback_id and state.get('playing_tts_id') != is_manual_playback_id:
+                        return
                     try:
                         b64_list = await asyncio.to_thread(tts_service.generate_audio_b64, text_chunk)
+                        if is_manual_playback_id and state.get('playing_tts_id') != is_manual_playback_id:
+                            return
                         for b64 in b64_list:
                             with page_client:
                                 await play_audio_js(b64)
