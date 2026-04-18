@@ -13,9 +13,12 @@ class TTSService:
             try:
                 # Lazy import to avoid slowing down imports
                 import os
+                import warnings
                 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+                warnings.filterwarnings("ignore", category=FutureWarning, module="torch.*")
+                warnings.filterwarnings("ignore", category=UserWarning, module="torch.*")
                 from kokoro import KPipeline
-                self.pipeline = KPipeline(lang_code='a')
+                self.pipeline = KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M')
             except Exception as e:
                 print(f"Failed to initialize TTS pipeline: {e}")
             finally:
