@@ -613,11 +613,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                             matches = list(re.finditer(boundary_pattern, unspoken, re.IGNORECASE))
                             
                             flush_end_pos = None
-                            for match in matches:
-                                candidate = unspoken[:match.end()]
-                                if len(candidate.split()) >= 25:
-                                    flush_end_pos = match.end()
-                                    break
+                            if matches:
+                                flush_end_pos = matches[0].end()
                                     
                             if flush_end_pos is not None:
                                 sentence = unspoken[:flush_end_pos]
