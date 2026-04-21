@@ -47,12 +47,13 @@ VOICES = {
     # Italian
     'if_sara': 'Italian Female - Sara',
     'im_nicola': 'Italian Male - Nicola',
-    # Japanese
-    'jf_alpha': 'Japanese Female - Alpha',
-    'jf_gongitsune': 'Japanese Female - Gongitsune',
-    'jf_nezumi': 'Japanese Female - Nezumi',
-    'jf_tebukuro': 'Japanese Female - Tebukuro',
-    'jm_kumo': 'Japanese Male - Kumo',
+    # Japanese voices require pyopenjtalk (no Windows binary wheel; needs C++ build tools)
+    # Uncomment below only after successfully installing pyopenjtalk:
+    # 'jf_alpha': 'Japanese Female - Alpha',
+    # 'jf_gongitsune': 'Japanese Female - Gongitsune',
+    # 'jf_nezumi': 'Japanese Female - Nezumi',
+    # 'jf_tebukuro': 'Japanese Female - Tebukuro',
+    # 'jm_kumo': 'Japanese Male - Kumo',
     # Portuguese
     'pf_dora': 'Portuguese Female - Dora',
     'pm_alex': 'Portuguese Male - Alex',
@@ -70,10 +71,13 @@ VOICES = {
 
 class TTSService:
     def __init__(self):
-        self.pipelines = {}  # Cache pipelines by lang_code
+        self.pipelines = {}   # Cache pipelines by lang_code
+        self.failed = set()   # Track lang_codes that failed so we don't retry
         self.loading = False
     
     def ensure_pipeline(self, lang_code='a'):
+        if lang_code in self.failed:
+            return None
         if lang_code not in self.pipelines and not self.loading:
             self.loading = True
             try:
@@ -86,7 +90,8 @@ class TTSService:
                 from kokoro import KPipeline
                 self.pipelines[lang_code] = KPipeline(lang_code=lang_code, repo_id='hexgrad/Kokoro-82M')
             except Exception as e:
-                print(f"Failed to initialize TTS pipeline for {lang_code}: {e}")
+                print(f"Failed to initialize TTS pipeline for '{lang_code}': {e}")
+                self.failed.add(lang_code)  # Don't retry this lang_code
             finally:
                 self.loading = False
         return self.pipelines.get(lang_code)

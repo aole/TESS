@@ -93,9 +93,14 @@ def create_page():
                     with ui.column().classes('flex-grow'):
                         ui.label('Voice Selection').classes('text-xs font-medium text-slate-400 mb-1')
                         # Persistence: Load last used voice or use default
+                        _default_voice = 'af_heart'
+                        _stored_voice = app.storage.user.get('last_tts_voice', _default_voice)
+                        if _stored_voice not in VOICES:
+                            _stored_voice = _default_voice
+                            app.storage.user.update({'last_tts_voice': _stored_voice})
                         voice_select = ui.select(
                             options=VOICES,
-                            value=app.storage.user.get('last_tts_voice', 'af_heart'),
+                            value=_stored_voice,
                             with_input=True,
                             on_change=lambda e: app.storage.user.update({'last_tts_voice': e.value})
                         ).classes('w-full').props('outlined dense dark')
