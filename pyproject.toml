@@ -12,5 +12,9 @@ dependencies = [
     "cryptography>=46.0.4",
     "kokoro>=0.9.4",
     "soundfile",
-    "torch"
+    "torch",
+    "ordered-set>=4.1.0",
+    "pypinyin>=0.55.0",
+    "cn2an>=0.5.23",
+    "misaki[zh]>=0.9.4",
 ]
