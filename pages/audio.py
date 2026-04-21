@@ -21,15 +21,25 @@ def create_page():
         with ui.card().classes('w-full glass-panel p-6 border-white/10'):
             with ui.column().classes('w-full gap-4'):
                 ui.label('Input Text').classes('text-sm font-medium text-slate-300 uppercase tracking-wider')
+                
+                # Persistence: Load last used text or use default
+                default_text = 'Hello! I am your AI-powered speech synthesizer. Enter any text here and click generate to hear it spoken back to you.'
                 text_input = ui.textarea(
                     placeholder='Type something here to convert to speech...',
-                    value='Hello! I am your AI-powered speech synthesizer. Enter any text here and click generate to hear it spoken back to you.'
+                    value=app.storage.user.get('last_tts_text', default_text),
+                    on_change=lambda e: app.storage.user.update({'last_tts_text': e.value})
                 ).classes('w-full').props('outlined rows=10 input-style="color: white; font-size: 1.1rem; line-height: 1.6;"')
 
                 with ui.row().classes('w-full items-end gap-4'):
                     with ui.column().classes('flex-grow'):
                         ui.label('Voice Selection').classes('text-xs font-medium text-slate-400 mb-1')
-                        voice_select = ui.select(options=VOICES, value='af_heart', with_input=True).classes('w-full').props('outlined dense dark')
+                        # Persistence: Load last used voice or use default
+                        voice_select = ui.select(
+                            options=VOICES, 
+                            value=app.storage.user.get('last_tts_voice', 'af_heart'), 
+                            with_input=True,
+                            on_change=lambda e: app.storage.user.update({'last_tts_voice': e.value})
+                        ).classes('w-full').props('outlined dense dark')
                     
                     generate_btn = ui.button('Generate Speech', icon='record_voice_over', on_click=lambda: generate()) \
                         .classes('h-12 px-6 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-lg transition-all transform hover:scale-[1.02] active:scale-[0.98]')

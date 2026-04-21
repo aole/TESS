@@ -300,16 +300,15 @@ async def create_page(model_param: str = None, new_chat: bool = False):
             with ui.expansion('Audio (TTS)', icon='volume_up').classes('w-full bg-white/5 rounded-lg').props('dense'):
                 with ui.column().classes('w-full p-2 gap-2'):
                     ui.label('Select Voice').classes('text-xs text-gray-400')
-                    voice_select_chat = ui.select(
-                        options=VOICES, 
-                        value=app.storage.user.get('tts_voice', 'af_heart'),
-                        with_input=True
-                    ).classes('w-full').props('outlined dense dark')
-                    
                     def update_voice_storage():
                         app.storage.user['tts_voice'] = voice_select_chat.value
                     
-                    voice_select_chat.on_change(update_voice_storage)
+                    voice_select_chat = ui.select(
+                        options=VOICES, 
+                        value=app.storage.user.get('tts_voice', 'af_heart'),
+                        with_input=True,
+                        on_change=update_voice_storage
+                    ).classes('w-full').props('outlined dense dark')
 
             # Security (Encryption)
             with ui.expansion('Security', icon='security').classes('w-full bg-white/5 rounded-lg').props('dense'):
