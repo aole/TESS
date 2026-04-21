@@ -24,7 +24,7 @@ def create_page():
                 text_input = ui.textarea(
                     placeholder='Type something here to convert to speech...',
                     value='Hello! I am your AI-powered speech synthesizer. Enter any text here and click generate to hear it spoken back to you.'
-                ).classes('w-full min-h-[200px]').props('outlined autogrow input-style="color: white; font-size: 1.1rem; line-height: 1.6;"')
+                ).classes('w-full').props('outlined rows=10 input-style="color: white; font-size: 1.1rem; line-height: 1.6;"')
 
                 with ui.row().classes('w-full items-end gap-4'):
                     with ui.column().classes('flex-grow'):
