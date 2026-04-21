@@ -10,6 +10,49 @@ AUDIO_DIR = 'data/audio'
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
 
+def get_wav_duration(filepath: str) -> str:
+    """Return a human-readable duration string for a WAV file."""
+    try:
+        import wave
+        with wave.open(filepath, 'rb') as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate()
+            seconds = frames / rate
+        m, s = divmod(int(seconds), 60)
+        return f'{m}:{s:02d}'
+    except Exception:
+        return ''
+
+
+def get_wav_speaker(filepath: str) -> str:
+    """Extract the IART (speaker) field from a WAV RIFF LIST/INFO chunk."""
+    try:
+        import struct
+        with open(filepath, 'rb') as f:
+            data = f.read()
+        # Scan for LIST chunk
+        pos = 12  # skip RIFF header
+        while pos + 8 <= len(data):
+            chunk_id = data[pos:pos+4]
+            chunk_size = struct.unpack_from('<I', data, pos+4)[0]
+            if chunk_id == b'LIST' and data[pos+8:pos+12] == b'INFO':
+                # Walk INFO sub-chunks
+                sub_pos = pos + 12
+                end = pos + 8 + chunk_size
+                while sub_pos + 8 <= end:
+                    sub_id = data[sub_pos:sub_pos+4]
+                    sub_size = struct.unpack_from('<I', data, sub_pos+4)[0]
+                    if sub_id == b'IART':
+                        raw = data[sub_pos+8:sub_pos+8+sub_size]
+                        return raw.rstrip(b'\x00').decode('utf-8', errors='replace')
+                    # sub-chunks are padded to even size
+                    sub_pos += 8 + sub_size + (sub_size % 2)
+            pos += 8 + chunk_size + (chunk_size % 2)
+    except Exception:
+        pass
+    return ''
+
+
 def create_page():
     # --- Left Drawer: Audio File List ---
     drawer = ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10')
@@ -61,13 +104,12 @@ def create_page():
                         # Trim the timestamp suffix for display
                         display_name = re.sub(r'-\d{14}\.wav$', '', fname).replace('_', ' ')
                         ui.label(display_name).classes('text-sm font-medium text-gray-200 truncate w-full')
-                        # File size
-                        try:
-                            size_kb = os.path.getsize(os.path.join(AUDIO_DIR, fname)) // 1024
-                            size_str = f'{size_kb / 1024:.1f} MB' if size_kb > 1024 else f'{size_kb} KB'
-                        except Exception:
-                            size_str = ''
-                        ui.label(size_str).classes('text-xs text-gray-500')
+                        # Duration + speaker
+                        fpath = os.path.join(AUDIO_DIR, fname)
+                        duration = get_wav_duration(fpath)
+                        speaker = get_wav_speaker(fpath)
+                        subtitle = ' · '.join(filter(None, [duration, speaker]))
+                        ui.label(subtitle).classes('text-xs text-gray-500 truncate w-full')
 
     # --- Main Content Area ---
     with ui.column().classes('w-full max-w-4xl mx-auto p-8 gap-6'):
@@ -132,7 +174,18 @@ def create_page():
         try:
             ui.notify('Synthesizing speech...', type='info', color='indigo')
             from nicegui import run
-            audio_bytes = await run.cpu_bound(tts_service.generate_audio_bytes, text_input.value, voice=voice_select.value)
+            wav_metadata = {
+                    'speaker': f'{voice_select.value}/Kokoro TTS',
+                    'comment': VOICES.get(voice_select.value, voice_select.value),
+                    'software': 'TESS',
+                    'date': datetime.now().strftime('%Y-%m-%d'),
+                }
+            audio_bytes = await run.cpu_bound(
+                    tts_service.generate_audio_bytes,
+                    text_input.value,
+                    voice=voice_select.value,
+                    metadata=wav_metadata,
+                )
             if audio_bytes:
                 # Generate dynamic filename
                 prefix = text_input.value[:32]

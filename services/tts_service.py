@@ -1,6 +1,8 @@
 import io
 import base64
-from typing import List, Dict
+import struct
+from datetime import datetime
+from typing import List, Dict, Optional
 
 VOICES = {
     # American English
@@ -136,7 +138,47 @@ class TTSService:
             print(f"TTS Generation Error: {e}")
             return []
 
-    def generate_audio_bytes(self, text: str, voice: str = 'af_heart') -> bytes:
+    @staticmethod
+    def _embed_wav_metadata(wav_bytes: bytes, metadata: Dict[str, str]) -> bytes:
+        """Append a RIFF LIST/INFO chunk with metadata to raw WAV bytes.
+
+        Supported keys map to standard INFO chunk IDs:
+          speaker -> IART (artist / speaker name)
+          comment -> ICMT
+          software -> ISFT
+          date     -> ICRD
+        """
+        KEY_MAP = {
+            'speaker': b'IART',
+            'comment': b'ICMT',
+            'software': b'ISFT',
+            'date':     b'ICRD',
+        }
+
+        # Build the INFO sub-chunks
+        info_data = b'INFO'
+        for key, chunk_id in KEY_MAP.items():
+            value = metadata.get(key, '').strip()
+            if not value:
+                continue
+            # Stored string is null-terminated; padded to even byte boundary
+            raw = value.encode('utf-8') + b'\x00'
+            if len(raw) % 2:
+                raw += b'\x00'
+            # Chunk size = actual string length + null terminator (no pad byte)
+            chunk_size = len(value.encode('utf-8')) + 1
+            info_data += chunk_id + struct.pack('<I', chunk_size) + raw
+
+        list_chunk = b'LIST' + struct.pack('<I', len(info_data)) + info_data
+
+        # Patch the root RIFF size (bytes 4-8)
+        new_wav = bytearray(wav_bytes) + bytearray(list_chunk)
+        original_riff_size = struct.unpack_from('<I', new_wav, 4)[0]
+        struct.pack_into('<I', new_wav, 4, original_riff_size + len(list_chunk))
+        return bytes(new_wav)
+
+    def generate_audio_bytes(self, text: str, voice: str = 'af_heart',
+                             metadata: Optional[Dict[str, str]] = None) -> bytes:
         lang_code = self.get_lang_code(voice)
         pipeline = self.ensure_pipeline(lang_code)
             
@@ -159,7 +201,12 @@ class TTSService:
             
             buffer = io.BytesIO()
             sf.write(buffer, combined_audio, 24000, format='WAV')
-            return buffer.getvalue()
+            wav_bytes = buffer.getvalue()
+
+            if metadata:
+                wav_bytes = self._embed_wav_metadata(wav_bytes, metadata)
+
+            return wav_bytes
         except Exception as e:
             print(f"TTS Error: {e}")
             return b""

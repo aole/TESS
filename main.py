@@ -137,4 +137,10 @@ def settings_page():
 
 if __name__ in {"__main__", "__mp_main__"}:
     app.add_static_files('/data', 'data')
-    ui.run(title='TESS', dark=True, reload=True, port=8080, storage_secret='ollama_manager_secret')
+    ui.run(
+        title='TESS',
+        dark=True,
+        reload=True,
+        port=8080,
+        storage_secret='ollama_manager_secret',
+    )
