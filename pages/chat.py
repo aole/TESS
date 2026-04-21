@@ -7,7 +7,7 @@ from services.chat_service import chat_service
 from utils.chat_renderer import ConversationRenderer
 from services.stream_service import stream_service
 from services.batch_service import batch_service
-from services.tts_service import tts_service
+from services.tts_service import tts_service, VOICES
 import asyncio
 import uuid
 
@@ -295,6 +295,21 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                              for t_name in tool_options.keys():
                                  is_checked = t_name in saved_tools
                                  tool_checks[t_name] = ui.checkbox(t_name, value=is_checked, on_change=update_tool_storage).classes('text-sm text-gray-300')
+
+            # TTS Voice Selection
+            with ui.expansion('Audio (TTS)', icon='volume_up').classes('w-full bg-white/5 rounded-lg').props('dense'):
+                with ui.column().classes('w-full p-2 gap-2'):
+                    ui.label('Select Voice').classes('text-xs text-gray-400')
+                    voice_select_chat = ui.select(
+                        options=VOICES, 
+                        value=app.storage.user.get('tts_voice', 'af_heart'),
+                        with_input=True
+                    ).classes('w-full').props('outlined dense dark')
+                    
+                    def update_voice_storage():
+                        app.storage.user['tts_voice'] = voice_select_chat.value
+                    
+                    voice_select_chat.on_change(update_voice_storage)
 
             # Security (Encryption)
             with ui.expansion('Security', icon='security').classes('w-full bg-white/5 rounded-lg').props('dense'):
@@ -629,7 +644,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     if is_manual_playback_id and state.get('playing_tts_id') != is_manual_playback_id:
                         return
                     try:
-                        b64_list = await asyncio.to_thread(tts_service.generate_audio_b64, text_chunk)
+                        voice = app.storage.user.get('tts_voice', 'af_heart')
+                        b64_list = await asyncio.to_thread(tts_service.generate_audio_b64, text_chunk, voice=voice)
                         if is_manual_playback_id and state.get('playing_tts_id') != is_manual_playback_id:
                             return
                         for b64 in b64_list:

@@ -1,5 +1,5 @@
 from nicegui import ui, app
-from services.tts_service import tts_service
+from services.tts_service import tts_service, VOICES
 import base64
 import os
 import time
@@ -7,19 +7,6 @@ import time
 TEMP_AUDIO_FILE = 'data/tts_output.wav'
 os.makedirs('data', exist_ok=True)
 
-VOICES = {
-    'af_heart': 'Female - Heart',
-    'af_bella': 'Female - Bella',
-    'af_nicole': 'Female - Nicole',
-    'af_sarah': 'Female - Sarah',
-    'af_sky': 'Female - Sky',
-    'am_adam': 'Male - Adam',
-    'am_michael': 'Male - Michael',
-    'bf_isabelle': 'Female (British) - Isabelle',
-    'bf_emma': 'Female (British) - Emma',
-    'bm_george': 'Male (British) - George',
-    'bm_lewis': 'Male (British) - Lewis',
-}
 
 def create_page():
     with ui.column().classes('w-full max-w-4xl mx-auto p-8 gap-6'):
@@ -40,7 +27,7 @@ def create_page():
                 with ui.row().classes('w-full items-end gap-4'):
                     with ui.column().classes('flex-grow'):
                         ui.label('Voice Selection').classes('text-xs font-medium text-slate-400 mb-1')
-                        voice_select = ui.select(options=VOICES, value='af_heart').classes('w-full').props('outlined dense dark')
+                        voice_select = ui.select(options=VOICES, value='af_heart', with_input=True).classes('w-full').props('outlined dense dark')
                     
                     generate_btn = ui.button('Generate Speech', icon='record_voice_over', on_click=lambda: generate()) \
                         .classes('h-12 px-6 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-lg transition-all transform hover:scale-[1.02] active:scale-[0.98]')
