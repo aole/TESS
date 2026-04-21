@@ -56,4 +56,36 @@ class TTSService:
             print(f"TTS Generation Error: {e}")
             return []
 
+    def generate_audio_bytes(self, text: str, voice: str = 'af_heart') -> bytes:
+        if not self.pipeline:
+            self.ensure_pipeline()
+            
+        if not self.pipeline or not text.strip():
+            return b""
+            
+        import soundfile as sf
+        import numpy as np
+            
+        try:
+            generator = self.pipeline(text, voice=voice)
+            full_audio = []
+            for i, (gs, ps, audio) in enumerate(generator):
+                full_audio.append(audio)
+            
+            if not full_audio:
+                return b""
+                
+            combined_audio = np.concatenate(full_audio)
+            
+            buffer = io.BytesIO()
+            sf.write(buffer, combined_audio, 24000, format='WAV')
+            return buffer.getvalue()
+        except Exception as e:
+            print(f"TTS Error: {e}")
+            return b""
+
+    def generate_audio_full_b64(self, text: str, voice: str = 'af_heart') -> str:
+        data = self.generate_audio_bytes(text, voice)
+        return base64.b64encode(data).decode('utf-8') if data else ""
+
 tts_service = TTSService()

@@ -1,5 +1,5 @@
 from nicegui import ui, app
-from pages import models, chat, arena, batch, tools, create, settings, notes, google, playground
+from pages import models, chat, arena, batch, tools, create, settings, notes, google, playground, audio
 
 # Page styling and configuration
 # Page styling and configuration
@@ -71,6 +71,7 @@ def layout(page_path: str = ''):
             nav_link('Models', '/')
             nav_link('Create', '/create')
             nav_link('Playground', '/playground')
+            nav_link('Audio', '/audio')
             nav_link('Tools', '/tools')
             nav_link('Arena', '/arena')
             nav_link('Batch', '/batch')
@@ -124,10 +125,16 @@ def playground_page():
     layout('/playground')
     playground.create_page()
 
+@ui.page('/audio')
+def audio_page():
+    layout('/audio')
+    audio.create_page()
+
 @ui.page('/settings')
 def settings_page():
     layout('/settings')
     settings.create_page()
 
 if __name__ in {"__main__", "__mp_main__"}:
+    app.add_static_files('/data', 'data')
     ui.run(title='TESS', dark=True, reload=True, port=8080, storage_secret='ollama_manager_secret')
