@@ -21,6 +21,7 @@ inspect_model_output.py
 data/ratings.json
 data/notes.json
 data/chats/
+data/audio/
 config.json
 
 # Google Auth

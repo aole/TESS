@@ -3,9 +3,11 @@ from services.tts_service import tts_service, VOICES
 import base64
 import os
 import time
+import re
+from datetime import datetime
 
-TEMP_AUDIO_FILE = 'data/tts_output.wav'
-os.makedirs('data', exist_ok=True)
+AUDIO_DIR = 'data/audio'
+os.makedirs(AUDIO_DIR, exist_ok=True)
 
 
 def create_page():
@@ -40,10 +42,10 @@ def create_page():
                 with player_container:
                     audio_player = ui.audio('').classes('w-full shadow-inner rounded-lg')
 
-        def refresh_player():
+        def refresh_player(filename: str):
             player_container.clear()
             with player_container:
-                ui.audio(f'/data/tts_output.wav?t={time.time()}').classes('w-full shadow-inner rounded-lg').props('autoplay')
+                ui.audio(f'/data/audio/{filename}').classes('w-full shadow-inner rounded-lg').props('autoplay')
 
         async def generate():
             if not text_input.value.strip():
@@ -56,9 +58,22 @@ def create_page():
                 from nicegui import run
                 audio_bytes = await run.cpu_bound(tts_service.generate_audio_bytes, text_input.value, voice=voice_select.value)
                 if audio_bytes:
-                    with open(TEMP_AUDIO_FILE, 'wb') as f:
+                    # Generate dynamic filename
+                    prefix = text_input.value[:32]
+                    # Convert spaces and special characters to underscore
+                    sanitized = re.sub(r'[^a-zA-Z0-9]+', '_', prefix).strip('_')
+                    if not sanitized:
+                        sanitized = "audio"
+                    
+                    # Compact date and time: YYYYMMDDHHMMSS
+                    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+                    filename = f"{sanitized}-{timestamp}.wav"
+                    filepath = os.path.join(AUDIO_DIR, filename)
+
+                    with open(filepath, 'wb') as f:
                         f.write(audio_bytes)
-                    refresh_player()
+                    
+                    refresh_player(filename)
                     ui.notify('Synthesis Finished!', type='positive', color='green')
                 else:
                     ui.notify('Generated audio was empty!', type='negative', color='red')
