@@ -1,5 +1,6 @@
 from nicegui import ui, app, run
 from utils.config import config_manager
+from utils.ui_card import ui_card, ui_info_card
 from services.note_service import note_service
 
 # ── Storage key used to persist system info for the session ──────────────────
@@ -20,8 +21,7 @@ def _build_system_panel(info: dict, container: ui.column):
     container.clear()
     with container:
         # ── OS & Hardware ─────────────────────────────────────────────────────
-        with ui.card().classes("w-full p-4 bg-black/30 border border-white/5 rounded-xl"):
-            ui.label("System").classes("text-xs font-bold text-indigo-400 uppercase tracking-widest mb-3")
+        with ui_info_card(heading="System", heading_color="indigo"):
             with ui.column().classes("gap-3 w-full"):
                 _icon_row("computer", "Operating System", info.get("os", "—"))
                 _icon_row("memory", "CPU", info.get("cpu", "—"), "purple")
@@ -30,8 +30,7 @@ def _build_system_panel(info: dict, container: ui.column):
                 _icon_row("developer_board", "RAM", info.get("ram", "—"), "green")
 
         # ── GPUs ─────────────────────────────────────────────────────────────
-        with ui.card().classes("w-full p-4 bg-black/30 border border-white/5 rounded-xl"):
-            ui.label("Graphics").classes("text-xs font-bold text-purple-400 uppercase tracking-widest mb-3")
+        with ui_info_card(heading="Graphics", heading_color="purple"):
             gpus = info.get("gpus", [])
             if gpus:
                 with ui.column().classes("gap-3 w-full"):
@@ -44,8 +43,7 @@ def _build_system_panel(info: dict, container: ui.column):
                 ui.label("No GPU detected").classes("text-sm text-gray-500 italic")
 
         # ── Software ─────────────────────────────────────────────────────────
-        with ui.card().classes("w-full p-4 bg-black/30 border border-white/5 rounded-xl"):
-            ui.label("Software").classes("text-xs font-bold text-emerald-400 uppercase tracking-widest mb-3")
+        with ui_info_card(heading="Software", heading_color="emerald"):
             with ui.column().classes("gap-3 w-full"):
                 _icon_row("code", "Python", info.get("python", "—"), "yellow")
                 _icon_row("bolt", "CUDA", info.get("cuda", "—"), "orange")
@@ -80,7 +78,7 @@ def create_page():
         # LEFT PANEL — System Information
         # ════════════════════════════════════════════════════════════════════
         with ui.column().classes(
-            "w-72 shrink-0 min-h-screen p-4 gap-4 border-r border-white/10 "
+            "w-100 shrink-0 min-h-screen p-4 gap-4 border-r border-white/10 "
             "bg-black/20 sticky top-14 self-start overflow-y-auto"
         ).style("max-height: calc(100vh - 3.5rem)"):
 
@@ -126,9 +124,13 @@ def create_page():
             )
 
             # ── Logging ───────────────────────────────────────────────────────
-            with ui.card().classes('w-full p-6 bg-black/20 border-white/5'):
-                ui.label('Logging Configuration').classes('text-xl font-bold mb-4 text-gray-200')
-
+            with ui_card(
+                heading="Logging Configuration",
+                heading_icon="article",
+                heading_color="indigo",
+                footer_text="> Logs are saved to `logs/llm_debug.log`",
+                footer_markdown=True,
+            ):
                 with ui.column().classes('gap-4'):
                     ui.checkbox('Enable Chat Logging',
                                 value=config_manager.is_logging_enabled('chat'),
@@ -142,12 +144,8 @@ def create_page():
                                 value=config_manager.is_logging_enabled('batch'),
                                 on_change=lambda e: config_manager.set_logging('batch', e.value)).classes('text-gray-300')
 
-                ui.markdown('> Logs are saved to `logs/llm_debug.log`').classes('mt-4 text-sm text-gray-500 italic')
-
             # ── Rating Tags ───────────────────────────────────────────────────
-            with ui.card().classes('w-full p-6 bg-black/20 border-white/5'):
-                ui.label('Rating Tags').classes('text-xl font-bold mb-4 text-gray-200')
-
+            with ui_card(heading="Rating Tags", heading_icon="label", heading_color="purple"):
                 tags_container = ui.row().classes('gap-2 mb-4')
 
                 def render_tags():
@@ -178,9 +176,7 @@ def create_page():
                 render_tags()
 
             # ── Note Categories ───────────────────────────────────────────────
-            with ui.card().classes('w-full p-6 bg-black/20 border-white/5'):
-                ui.label('Note Categories').classes('text-xl font-bold mb-4 text-gray-200')
-
+            with ui_card(heading="Note Categories", heading_icon="folder", heading_color="emerald"):
                 cats_container = ui.row().classes('gap-2 mb-4')
 
                 def render_cats():
@@ -211,7 +207,6 @@ def create_page():
                 render_cats()
 
                 ui.separator().classes('my-4 bg-white/10')
-
                 ui.label('Storage Location').classes('text-sm font-bold text-gray-400 mb-2')
 
                 def handle_storage_change(e):
@@ -261,9 +256,7 @@ def create_page():
                 ).classes('w-full')
 
             # ── Playground ────────────────────────────────────────────────────
-            with ui.card().classes('w-full p-6 bg-black/20 border-white/5'):
-                ui.label('Playground Configuration').classes('text-xl font-bold mb-4 text-indigo-400')
-
+            with ui_card(heading="Playground Configuration", heading_icon="science", heading_color="indigo"):
                 async def load_models_for_setting():
                     from utils.ollama_client import client
                     try:
