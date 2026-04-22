@@ -74,6 +74,23 @@ def create_page():
         with container:
             ui.audio(f'/data/audio/{filename}').classes('w-full shadow-inner rounded-lg').props('autoplay')
 
+    def delete_audio_file(filename: str):
+        """Delete an audio file from disk and refresh the list."""
+        fpath = os.path.join(AUDIO_DIR, filename)
+        try:
+            os.remove(fpath)
+        except Exception as e:
+            ui.notify(f'Could not delete file: {e}', type='negative', color='red')
+            return
+        ui.notify('Audio file deleted', type='positive', color='green')
+        # Restore the placeholder player so the playback card stays visible
+        container = player_state['container']
+        if container is not None:
+            container.clear()
+            with container:
+                ui.audio('').classes('w-full shadow-inner rounded-lg')
+        refresh_audio_list()
+
     def refresh_audio_list(selected_filename: str = None):
         audio_list_container.clear()
         try:
@@ -104,6 +121,10 @@ def create_page():
                     subtitle=subtitle,
                     active=is_active,
                     on_click=lambda f=fname: load_audio_file(f),
+                    action_icon='delete',
+                    action_color='red-4',
+                    action_tooltip='Delete file',
+                    on_action=lambda f=fname: delete_audio_file(f),
                     extra_classes='rounded-lg',
                 ):
                     pass
