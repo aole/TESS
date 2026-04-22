@@ -5,8 +5,10 @@ Standardized UI component library for the Ollama Model Manager.
 
 Components
 ----------
-ui_card        – settings / content card with optional heading & footer
-ui_info_card   – compact display-only info panel (e.g. system info)
+ui_card        – settings / content card with optional heading & footer;
+                 supports collapsible heading (collapsible=True, collapsed=False)
+ui_info_card   – compact display-only info panel (e.g. system info);
+                 also supports collapsible=True / collapsed=True
 ui_list        – scrollable sidebar list container with an optional header
 ui_list_item   – clickable row inside a ui_list with title, subtitle,
                  active-state highlight, and an optional action button
@@ -17,9 +19,18 @@ Quick reference
     from utils.ui_components import ui_card, ui_info_card, ui_list, ui_list_item
 
     # ── Cards ────────────────────────────────────────────────────────────────
+    # Standard (non-collapsible) card
     with ui_card(heading="Logging", heading_icon="article", heading_color="indigo",
                  footer_text="> Saved to logs/", footer_markdown=True):
         ui.checkbox("Enable logging")
+
+    # Collapsible card (starts expanded by default)
+    with ui_card(heading="Advanced", heading_icon="tune", collapsible=True):
+        ui.checkbox("Debug mode")
+
+    # Collapsible card that starts collapsed
+    with ui_card(heading="Danger Zone", collapsible=True, collapsed=True):
+        ui.button("Reset all settings")
 
     with ui_info_card(heading="System", heading_color="indigo"):
         ui.label("OS: Windows 11")
@@ -61,6 +72,9 @@ def ui_card(
     heading: Optional[str] = None,
     heading_icon: Optional[str] = None,
     heading_color: str = "indigo",
+    # ── Collapsible ──────────────────────────────────────────────────────────
+    collapsible: bool = True,
+    collapsed: bool = False,
     # ── Card-level styling ───────────────────────────────────────────────────
     extra_classes: str = "",
     # ── Footer ───────────────────────────────────────────────────────────────
@@ -74,11 +88,17 @@ def ui_card(
     • body slot  ← everything inside the ``with`` block goes here
     • optional footer  (callable *or* plain / markdown text)
 
+    When ``collapsible=True`` the heading row becomes a clickable toggle
+    that shows / hides the body and footer.  A rotating chevron icon
+    indicates the current state.  ``collapsed=True`` starts the card closed.
+
     Parameters
     ----------
     heading         : Card title shown at the top.
     heading_icon    : Material-icon name placed left of the title (optional).
     heading_color   : Tailwind colour prefix for icon/title accent (default "indigo").
+    collapsible     : If True, the heading row toggles body visibility (default True).
+    collapsed       : Initial collapsed state (only relevant when collapsible=True).
     extra_classes   : Additional Tailwind classes appended to the card.
     footer          : Zero-argument callable that builds the footer UI.
     footer_text     : Static text rendered as the footer.
@@ -91,28 +111,55 @@ def ui_card(
     with ui.card().classes(base_classes):
         # ── Heading ──────────────────────────────────────────────────────────
         if heading:
-            with ui.row().classes("items-center gap-2 mb-4"):
-                if heading_icon:
-                    ui.icon(heading_icon, size="20px").classes(
-                        f"text-{heading_color}-400"
+            header_row_classes = "items-center gap-2 mb-4"
+            if collapsible:
+                header_row_classes += " cursor-pointer select-none w-full justify-between"
+
+            with ui.row().classes(header_row_classes) as header_row:
+                with ui.row().classes("items-center gap-2"):
+                    if heading_icon:
+                        ui.icon(heading_icon, size="20px").classes(
+                            f"text-{heading_color}-400"
+                        )
+                    ui.label(heading).classes(
+                        f"text-xl font-bold text-{heading_color}-400"
                     )
-                ui.label(heading).classes(
-                    f"text-xl font-bold text-{heading_color}-400"
-                )
 
-        # ── Body ─────────────────────────────────────────────────────────────
-        yield
+                if collapsible:
+                    chevron = ui.icon(
+                        "expand_less" if not collapsed else "expand_more",
+                        size="20px",
+                    ).classes(f"text-{heading_color}-400 transition-transform duration-200")
 
-        # ── Footer ───────────────────────────────────────────────────────────
-        if footer is not None:
-            ui.separator().classes("my-4 bg-white/10")
-            footer()
-        elif footer_text:
-            ui.separator().classes("my-4 bg-white/10")
-            if footer_markdown:
-                ui.markdown(footer_text).classes("text-sm text-gray-500 italic")
-            else:
-                ui.label(footer_text).classes("text-sm text-gray-500 italic")
+        # ── Body + Footer (wrapped so they can be toggled together) ───────────
+        with ui.column().classes("w-full gap-0") as body_col:
+            if collapsible and collapsed:
+                body_col.set_visibility(False)
+
+            # ── Body slot ────────────────────────────────────────────────────
+            yield
+
+            # ── Footer ───────────────────────────────────────────────────────
+            if footer is not None:
+                ui.separator().classes("my-4 bg-white/10")
+                footer()
+            elif footer_text:
+                ui.separator().classes("my-4 bg-white/10")
+                if footer_markdown:
+                    ui.markdown(footer_text).classes("text-sm text-gray-500 italic")
+                else:
+                    ui.label(footer_text).classes("text-sm text-gray-500 italic")
+
+        # ── Wire up toggle logic ──────────────────────────────────────────────
+        if collapsible and heading:
+            _state = {"collapsed": collapsed}
+
+            def _toggle(state=_state, col=body_col, chev=chevron):
+                state["collapsed"] = not state["collapsed"]
+                col.set_visibility(not state["collapsed"])
+                chev.props(f'name={"expand_more" if state["collapsed"] else "expand_less"}')
+
+            header_row.on("click", lambda _: _toggle())
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -125,16 +172,24 @@ def ui_info_card(
     heading: Optional[str] = None,
     heading_color: str = "indigo",
     extra_classes: str = "",
+    # ── Collapsible ──────────────────────────────────────────────────────────
+    collapsible: bool = True,
+    collapsed: bool = False,
 ):
     """
     Lighter-weight variant used for display-only info panels (e.g. system
     info) with a smaller, all-caps heading and a more translucent background.
+
+    When ``collapsible=True`` the heading acts as a clickable toggle that
+    shows / hides the card body.  ``collapsed=True`` starts the card closed.
 
     Parameters
     ----------
     heading       : Section label (rendered uppercase, small, accented).
     heading_color : Tailwind colour prefix for the heading label.
     extra_classes : Additional Tailwind classes appended to the card.
+    collapsible   : If True, the heading row toggles body visibility (default True).
+    collapsed     : Initial collapsed state (only relevant when collapsible=True).
     """
     base_classes = (
         "w-full p-4 bg-black/30 border border-white/5 rounded-xl " + extra_classes
@@ -142,11 +197,36 @@ def ui_info_card(
 
     with ui.card().classes(base_classes):
         if heading:
-            ui.label(heading).classes(
-                f"text-xs font-bold text-{heading_color}-400 "
-                "uppercase tracking-widest mb-3"
+            heading_row_classes = (
+                "flex items-center justify-between w-full mb-3"
+                + (" cursor-pointer select-none" if collapsible else "")
             )
-        yield
+            with ui.row().classes(heading_row_classes) as heading_row:
+                ui.label(heading).classes(
+                    f"text-xs font-bold text-{heading_color}-400 "
+                    "uppercase tracking-widest"
+                )
+                if collapsible:
+                    chevron = ui.icon(
+                        "expand_less" if not collapsed else "expand_more",
+                        size="16px",
+                    ).classes(f"text-{heading_color}-400 transition-transform duration-200")
+
+        with ui.column().classes("w-full gap-0") as body_col:
+            if collapsible and collapsed:
+                body_col.set_visibility(False)
+
+            yield
+
+        if collapsible and heading:
+            _state = {"collapsed": collapsed}
+
+            def _toggle(state=_state, col=body_col, chev=chevron):
+                state["collapsed"] = not state["collapsed"]
+                col.set_visibility(not state["collapsed"])
+                chev.props(f'name={"expand_more" if state["collapsed"] else "expand_less"}')
+
+            heading_row.on("click", lambda _: _toggle())
 
 
 # ══════════════════════════════════════════════════════════════════════════════
