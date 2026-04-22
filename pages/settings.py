@@ -1,6 +1,6 @@
 from nicegui import ui, app, run
 from utils.config import config_manager
-from utils.ui_card import ui_card, ui_info_card
+from utils.ui_components import ui_card, ui_info_card
 from services.note_service import note_service
 
 # ── Storage key used to persist system info for the session ──────────────────

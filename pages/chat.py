@@ -8,6 +8,7 @@ from utils.chat_renderer import ConversationRenderer
 from services.stream_service import stream_service
 from services.batch_service import batch_service
 from services.tts_service import tts_service, VOICES
+from utils.ui_components import ui_list, ui_list_item
 import asyncio
 import uuid
 
@@ -140,14 +141,12 @@ async def create_page(model_param: str = None, new_chat: bool = False):
     # --- Sidebar & Navigation ---
     drawer = ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10')
     with drawer:
-        with ui.column().classes('w-full h-full p-0 m-0 no-wrap gap-0'):
-            # Header
-            with ui.row().classes('w-full items-center justify-between p-4 border-b border-white/5 shrink-0'):
-                 ui.label('History').classes('text-lg font-bold text-gray-200')
-                 ui.button(icon='add', on_click=lambda: load_new_chat()).props('flat round dense color=primary').tooltip('New Chat')
-    
-            # Chat List
-            chat_list_container = ui.column().classes('w-full flex-grow overflow-y-auto p-2 gap-1')
+        chat_list_container = ui_list(
+            heading='History',
+            action_icon='add',
+            action_tooltip='New Chat',
+            on_action=lambda: load_new_chat(),
+        )
 
     def load_new_chat():
         nonlocal messages, current_chat_id
@@ -213,18 +212,20 @@ async def create_page(model_param: str = None, new_chat: bool = False):
         with chat_list_container:
             if not chats:
                 ui.label('No history').classes('text-sm text-gray-500 italic p-4')
-            
+
             for c in chats:
-                # Styling for active chat
                 is_active = c['id'] == current_chat_id
-                bg_class = 'bg-white/10' if is_active else 'hover:bg-white/5'
-                
-                with ui.card().classes(f'w-full py-1 px-3 text-sm cursor-pointer transition-colors {bg_class} relative group border border-white/5').on('click', lambda _, cid=c['id']: load_chat_by_id(cid)):
-                    with ui.column().classes('w-full min-w-0 gap-0'):
-                         ui.label(c['title']).classes('font-medium text-gray-200 truncate w-full pr-1')
-                         ui.label(c['updated_at'][:10]).classes('text-xs text-gray-500')
-                    
-                    ui.button(icon='delete').on('click.stop', lambda _, cid=c['id']: delete_chat_history(cid)).props('flat round dense size=sm color=red-4').classes('absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60')
+                with ui_list_item(
+                    title=c['title'],
+                    subtitle=c['updated_at'][:10],
+                    active=is_active,
+                    on_click=lambda cid=c['id']: load_chat_by_id(cid),
+                    action_icon='delete',
+                    action_color='red-4',
+                    action_tooltip='Delete chat',
+                    on_action=lambda cid=c['id']: delete_chat_history(cid),
+                ):
+                    pass
 
     # Initial Refresh
     refresh_chat_list()

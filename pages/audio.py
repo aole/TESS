@@ -1,4 +1,5 @@
 from nicegui import ui, app
+from utils.ui_components import ui_list, ui_list_item
 from services.tts_service import tts_service, VOICES
 import base64
 import os
@@ -57,14 +58,10 @@ def create_page():
     # --- Left Drawer: Audio File List ---
     drawer = ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10')
     with drawer:
-        with ui.column().classes('w-full h-full p-0 m-0 no-wrap gap-0'):
-            # Header
-            with ui.row().classes('w-full items-center justify-between p-4 border-b border-white/5 shrink-0'):
-                ui.label('Audio Files').classes('text-lg font-bold text-gray-200')
-                ui.icon('audio_file', size='22px').classes('text-indigo-400')
-
-            # File list container
-            audio_list_container = ui.column().classes('w-full flex-grow overflow-y-auto p-2 gap-1')
+        audio_list_container = ui_list(
+            heading='Audio Files',
+            heading_icon='audio_file',
+        )
 
     # Shared player container reference (will be set below)
     player_state = {'container': None}
@@ -95,21 +92,21 @@ def create_page():
 
             for fname in files:
                 is_active = fname == selected_filename
-                bg_class = 'bg-indigo-500/20 border-indigo-400/40' if is_active else 'hover:bg-white/5 border-white/5'
+                # Trim the timestamp suffix for display
+                display_name = re.sub(r'-\d{14}\.wav$', '', fname).replace('_', ' ')
+                fpath = os.path.join(AUDIO_DIR, fname)
+                duration = get_wav_duration(fpath)
+                speaker = get_wav_speaker(fpath)
+                subtitle = ' \u00b7 '.join(filter(None, [duration, speaker]))
 
-                with ui.card().classes(
-                    f'w-full py-2 px-3 cursor-pointer transition-all border {bg_class} rounded-lg'
-                ).on('click', lambda _, f=fname: load_audio_file(f)):
-                    with ui.column().classes('w-full min-w-0 gap-0.5'):
-                        # Trim the timestamp suffix for display
-                        display_name = re.sub(r'-\d{14}\.wav$', '', fname).replace('_', ' ')
-                        ui.label(display_name).classes('text-sm font-medium text-gray-200 truncate w-full')
-                        # Duration + speaker
-                        fpath = os.path.join(AUDIO_DIR, fname)
-                        duration = get_wav_duration(fpath)
-                        speaker = get_wav_speaker(fpath)
-                        subtitle = ' · '.join(filter(None, [duration, speaker]))
-                        ui.label(subtitle).classes('text-xs text-gray-500 truncate w-full')
+                with ui_list_item(
+                    title=display_name,
+                    subtitle=subtitle,
+                    active=is_active,
+                    on_click=lambda f=fname: load_audio_file(f),
+                    extra_classes='rounded-lg',
+                ):
+                    pass
 
     # --- Main Content Area ---
     with ui.column().classes('w-full max-w-4xl mx-auto p-8 gap-6'):
