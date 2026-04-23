@@ -263,13 +263,14 @@ Text:
             pass2_prompt = f"""Using the following list of characters: {', '.join(unique_names)}, 
 segment this story into a sequence of spoken parts. 
 
-CRITICAL: Distinguish between actual dialogue and narrative tags. 
+CRITICAL:
+- Do NOT add, remove, or change any words from the original text. Your output must contain the EXACT same words as the input.
+- Distinguish between actual dialogue and narrative tags. 
 - Direct dialogue must be assigned to the character speaking.
 - Narrative descriptions, tags (like "said Bilbo"), and actions must be assigned to the "Narrator".
 Combine consecutive segments ONLY if they belong to the same speaker.
 
-Example: "Hello!" said Bilbo. "How are you?"
-Output: [
+Example Output: [
   {{"speaker": "{unique_names[0] if unique_names else 'Bilbo'}", "text": "Hello!"}},
   {{"speaker": "Narrator", "text": "said Bilbo."}},
   {{"speaker": "{unique_names[0] if unique_names else 'Bilbo'}", "text": "How are you?"}}
@@ -285,9 +286,15 @@ Text:
             match2 = re.search(r'\[\s*\{.*\}\s*\]', content2, re.DOTALL)
             segments = json.loads(match2.group(0)) if match2 else json.loads(content2)
             
+            # Update the input text with annotations for user editing
+            annotated_text = ""
+            for seg in segments:
+                annotated_text += f"[{seg['speaker']}] {seg['text']}\n\n"
+            
+            text_input.set_value(annotated_text.strip())
             state['segments'] = segments
             generate_multi_btn.set_visibility(True)
-            ui.notify(f'Processed {len(segments)} segments for {len(speakers)} speakers', type='positive')
+            ui.notify(f'Script generated with {len(segments)} segments', type='positive')
             
         except Exception as e:
             ui.notify(f'Processing error: {str(e)}', type='negative')
@@ -296,13 +303,26 @@ Text:
             process_btn.props(remove='loading')
 
     async def generate_multi():
-        if not state['segments']:
-            ui.notify('No segments to generate', type='warning')
+        # Parse the annotated text from the input area
+        raw_text = text_input.value.strip()
+        if not raw_text:
+            ui.notify('No text to generate', type='warning')
+            return
+            
+        # Regex to find [Speaker] text...
+        import re
+        pattern = r'\[([^\]]+)\]\s*(.*?)(?=\s*\[|$)'
+        matches = re.findall(pattern, raw_text, re.DOTALL)
+        
+        segments = [{'speaker': m[0].strip(), 'text': m[1].strip()} for m in matches]
+        
+        if not segments:
+            ui.notify('No valid segments found. Use [Speaker Name] format.', type='warning')
             return
             
         generate_multi_btn.props('loading')
         try:
-            ui.notify('Starting multi-speaker synthesis...', color='indigo')
+            ui.notify('Starting synthesis...', color='indigo')
             
             import soundfile as sf
             import numpy as np
@@ -311,16 +331,20 @@ Text:
             
             all_audio_data = []
             
-            # Step 1: Generate audio for each segment
-            for i, seg in enumerate(state['segments']):
+            for i, seg in enumerate(segments):
                 speaker = seg['speaker']
                 text = seg['text']
-                voice = state['speaker_voices'].get(speaker, 'af_heart')
+                if not text: continue
                 
-                ui.notify(f'Synthesizing segment {i+1}/{len(state["segments"])} ({speaker})...', color='indigo', duration=1)
+                # Try to find the voice for this speaker name (case insensitive)
+                voice = 'af_heart'
+                for s_name, s_voice in state['speaker_voices'].items():
+                    if s_name.lower() == speaker.lower():
+                        voice = s_voice
+                        break
                 
-                # We need raw audio samples to concatenate
-                # Since tts_service doesn't expose raw samples easily, we generate bytes and read them back
+                ui.notify(f'Segment {i+1}/{len(segments)} ({speaker})...', color='indigo', duration=1)
+                
                 audio_bytes = await run.cpu_bound(
                     tts_service.generate_audio_bytes,
                     text,
@@ -336,26 +360,23 @@ Text:
                 ui.notify('No audio was generated!', type='negative')
                 return
             
-            # Step 2: Concatenate and Save
             combined = np.concatenate(all_audio_data)
             
-            # Generate dynamic filename
-            prefix = text_input.value[:32]
-            sanitized = re.sub(r'[^a-zA-Z0-9]+', '_', prefix).strip('_')
+            # Use original text (or first 32 chars) for filename
+            clean_prefix = re.sub(r'\[[^\]]+\]', '', raw_text[:64]).strip()
+            sanitized = re.sub(r'[^a-zA-Z0-9]+', '_', clean_prefix[:32]).strip('_')
             if not sanitized: sanitized = "story"
             timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
             filename = f"{sanitized}-{timestamp}.wav"
             filepath = os.path.join(AUDIO_DIR, filename)
             
-            # Save combined file
             final_buffer = io.BytesIO()
             sf.write(final_buffer, combined, 24000, format='WAV')
             
-            # Add metadata for the "primary" speaker or a generic one
             metadata = {
-                'speaker': 'Multi-Speaker Story',
-                'comment': f'Speakers: {", ".join(state["speaker_voices"].keys())}',
-                'software': 'TESS Story Studio',
+                'speaker': 'Annotated Story',
+                'comment': f'Segments: {len(segments)}',
+                'software': 'TESS Story Studio v2',
                 'date': datetime.now().strftime('%Y-%m-%d'),
             }
             final_bytes = tts_service._embed_wav_metadata(final_buffer.getvalue(), metadata)
@@ -364,7 +385,7 @@ Text:
                 f.write(final_bytes)
                 
             refresh_player(filename)
-            ui.notify('Full story generated!', type='positive')
+            ui.notify('Audio generated from script!', type='positive')
             
         except Exception as e:
             ui.notify(f'Generation error: {str(e)}', type='negative')
