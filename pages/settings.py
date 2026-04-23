@@ -256,17 +256,26 @@ def create_page():
                 ).classes('w-full')
 
             # ── Playground ────────────────────────────────────────────────────
-            with ui_card(heading="Playground Configuration", heading_icon="science", heading_color="indigo"):
+            with ui_card(heading="Default Models", heading_icon="psychology", heading_color="indigo"):
                 async def load_models_for_setting():
                     from utils.ollama_client import client
                     try:
                         models_list = await client.list_models()
                         options = [m['model'] for m in models_list]
-                        model_select.options = options
-                        if options and not model_select.value:
-                            model_select.value = options[0]
+                        story_model_select.options = options
+                        
+                        # Load from config
+                        current = config_manager.get_default_model('story_processing')
+                        if current in options:
+                            story_model_select.value = current
+                        elif options:
+                            story_model_select.value = options[0]
                     except Exception:
                         pass
 
-                model_select = ui.select(options=[], label='AI Assistant Model').classes('w-full')
+                story_model_select = ui.select(
+                    options=[], 
+                    label='Story Processing Model',
+                    on_change=lambda e: config_manager.set_default_model('story_processing', e.value)
+                ).classes('w-full')
                 ui.timer(0.1, load_models_for_setting, once=True)

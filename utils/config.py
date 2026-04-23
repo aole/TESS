@@ -107,4 +107,13 @@ class ConfigManager:
         self.config["note_storage"] = storage_type
         self._save_config(self.config)
 
+    def get_default_model(self, key: str) -> str:
+        return self.config.get("default_models", {}).get(key, "")
+
+    def set_default_model(self, key: str, model_name: str):
+        if "default_models" not in self.config:
+            self.config["default_models"] = {}
+        self.config["default_models"][key] = model_name
+        self._save_config(self.config)
+
 config_manager = ConfigManager()
