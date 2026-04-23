@@ -214,7 +214,7 @@ Text:
             resp1 = await client.chat(model=model, messages=[{'role': 'user', 'content': pass1_prompt}], stream=False)
             content1 = resp1.get('message', {}).get('content', '')
             match1 = re.search(r'\[\s*\{.*\}\s*\]', content1, re.DOTALL)
-            speakers = json.loads(match1.group(0)) if match1 else json.loads(content1)
+            speakers = json.loads(match1.group(0), strict=False) if match1 else json.loads(content1, strict=False)
             
             state['speakers'] = speakers
             unique_names = [s['name'] for s in speakers]
@@ -228,20 +228,24 @@ Text:
                     gender = s.get('gender', 'Neutral')
                     desc = s.get('description', '')
                     
-                    # Smart voice assignment
-                    is_female = 'female' in gender.lower()
-                    is_male = 'male' in gender.lower()
-                    
-                    if 'narrator' in name.lower():
-                        default_voice = 'af_heart'
-                    elif is_female:
-                        default_voice = 'af_bella'
-                    elif is_male:
-                        default_voice = 'am_adam'
+                    # PERSISTENCE: Check if we already assigned a voice to this speaker in this session
+                    if name in state['speaker_voices']:
+                        default_voice = state['speaker_voices'][name]
                     else:
-                        default_voice = 'af_sky'
+                        # Smart voice assignment
+                        is_female = 'female' in gender.lower()
+                        is_male = 'male' in gender.lower()
                         
-                    state['speaker_voices'][name] = default_voice
+                        if 'narrator' in name.lower():
+                            default_voice = 'af_heart'
+                        elif is_female:
+                            default_voice = 'af_bella'
+                        elif is_male:
+                            default_voice = 'am_adam'
+                        else:
+                            default_voice = 'af_sky'
+                        
+                        state['speaker_voices'][name] = default_voice
                     
                     with ui.card().classes('w-full p-3 bg-white/5 border border-white/10'):
                         with ui.row().classes('w-full justify-between items-start'):
@@ -268,6 +272,7 @@ CRITICAL:
 - Distinguish between actual dialogue and narrative tags. 
 - Direct dialogue must be assigned to the character speaking.
 - Narrative descriptions, tags (like "said Bilbo"), and actions must be assigned to the "Narrator".
+- Ensure the output is valid JSON. Escape all newlines in the "text" field with \\n.
 Combine consecutive segments ONLY if they belong to the same speaker.
 
 Example Output: [
@@ -284,7 +289,7 @@ Text:
             resp2 = await client.chat(model=model, messages=[{'role': 'user', 'content': pass2_prompt}], stream=False)
             content2 = resp2.get('message', {}).get('content', '')
             match2 = re.search(r'\[\s*\{.*\}\s*\]', content2, re.DOTALL)
-            segments = json.loads(match2.group(0)) if match2 else json.loads(content2)
+            segments = json.loads(match2.group(0), strict=False) if match2 else json.loads(content2, strict=False)
             
             # Update the input text with annotations for user editing
             annotated_text = ""
