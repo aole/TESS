@@ -201,48 +201,80 @@ def create_page():
                 config = json.load(f)
             model = config.get('default_models', {}).get('story_processing', 'gemma4:e4b')
             
-            prompt = f"""Analyze the following story text and identify all speakers, including a "Narrator" for descriptive text. 
-Return the result as a STRICT JSON list of objects, where each object has a 'speaker' field and a 'text' field representing the segment spoken by that speaker. 
-Ensure every part of the input text is assigned to a speaker. Combine consecutive segments of the same speaker.
+            # --- Pass 1: Speaker Identification & Metadata ---
+            ui.notify('Pass 1: Identifying speakers and traits...', color='indigo')
+            pass1_prompt = f"""Identify all characters in the following story, including a "Narrator" for descriptive parts. 
+For each character, specify their gender (Male, Female, or Neutral) and a brief description of their voice personality.
+Return ONLY a JSON list of objects.
+Example: [{{"name": "Alice", "gender": "Female", "description": "High-pitched and curious"}}, ...]
 
 Text:
 {text_input.value}
 """
-            ui.notify(f'Analyzing story with {model}...', color='indigo')
-            response = await client.chat(model=model, messages=[{'role': 'user', 'content': prompt}], stream=False)
-            content = response.get('message', {}).get('content', '')
+            resp1 = await client.chat(model=model, messages=[{'role': 'user', 'content': pass1_prompt}], stream=False)
+            content1 = resp1.get('message', {}).get('content', '')
+            match1 = re.search(r'\[\s*\{.*\}\s*\]', content1, re.DOTALL)
+            speakers = json.loads(match1.group(0)) if match1 else json.loads(content1)
             
-            # Extract JSON from markdown if needed
-            json_match = re.search(r'\[\s*\{.*\}\s*\]', content, re.DOTALL)
-            if json_match:
-                segments = json.loads(json_match.group(0))
-            else:
-                # Fallback if model didn't use code blocks or gave raw json
-                segments = json.loads(content)
+            state['speakers'] = speakers
+            unique_names = [s['name'] for s in speakers]
             
-            state['segments'] = segments
-            unique_speakers = sorted(list(set(s['speaker'] for s in segments)))
-            
-            # Update UI
+            # Update UI immediately with speaker cards
             speaker_settings_container.clear()
             with speaker_settings_container:
                 ui.label('Assign Voices').classes('text-sm font-medium text-slate-400 uppercase tracking-wider mb-2')
-                for speaker in unique_speakers:
-                    # Default voice assignment logic
-                    default_voice = 'af_heart' if 'narrator' in speaker.lower() else 'af_bella'
-                    state['speaker_voices'][speaker] = default_voice
+                for s in speakers:
+                    name = s['name']
+                    gender = s.get('gender', 'Neutral')
+                    desc = s.get('description', '')
+                    
+                    # Smart voice assignment
+                    is_female = 'female' in gender.lower()
+                    is_male = 'male' in gender.lower()
+                    
+                    if 'narrator' in name.lower():
+                        default_voice = 'af_heart'
+                    elif is_female:
+                        default_voice = 'af_bella'
+                    elif is_male:
+                        default_voice = 'am_adam'
+                    else:
+                        default_voice = 'af_sky'
+                        
+                    state['speaker_voices'][name] = default_voice
                     
                     with ui.card().classes('w-full p-3 bg-white/5 border border-white/10'):
-                        ui.label(speaker).classes('text-sm font-bold text-indigo-300 mb-1')
+                        with ui.row().classes('w-full justify-between items-start'):
+                            ui.label(name).classes('text-sm font-bold text-indigo-300')
+                            ui.badge(gender).classes('bg-indigo-900/50 text-[10px]')
+                        
+                        if desc:
+                            ui.label(desc).classes('text-xs text-slate-400 italic mb-2')
+                            
                         ui.select(
                             options=VOICES,
                             value=default_voice,
                             with_input=True,
-                            on_change=lambda e, s=speaker: state['speaker_voices'].update({s: e.value})
+                            on_change=lambda e, n=name: state['speaker_voices'].update({n: e.value})
                         ).classes('w-full').props('outlined dense dark')
+
+            # --- Pass 2: Text Segmentation ---
+            ui.notify('Pass 2: Segmenting story text...', color='indigo')
+            pass2_prompt = f"""Using the following list of characters: {', '.join(unique_names)}, 
+segment this story into a sequence of spoken parts. Combine consecutive segments of the same speaker.
+Return ONLY a JSON list of objects with 'speaker' and 'text' fields.
+
+Text:
+{text_input.value}
+"""
+            resp2 = await client.chat(model=model, messages=[{'role': 'user', 'content': pass2_prompt}], stream=False)
+            content2 = resp2.get('message', {}).get('content', '')
+            match2 = re.search(r'\[\s*\{.*\}\s*\]', content2, re.DOTALL)
+            segments = json.loads(match2.group(0)) if match2 else json.loads(content2)
             
+            state['segments'] = segments
             generate_multi_btn.set_visibility(True)
-            ui.notify(f'Identified {len(unique_speakers)} speakers', type='positive')
+            ui.notify(f'Processed {len(segments)} segments for {len(speakers)} speakers', type='positive')
             
         except Exception as e:
             ui.notify(f'Processing error: {str(e)}', type='negative')
