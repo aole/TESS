@@ -79,8 +79,12 @@ def create_page():
         ui.label('Story Studio').classes('text-xl font-bold text-white mb-4')
         
         process_btn = ui.button('Process Text', icon='psychology', on_click=lambda: process_text()) \
-            .classes('w-full mb-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg')
+            .classes('w-full mb-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg')
         process_btn.props('no-caps')
+
+        status_label = ui.label('').classes('text-xs text-slate-500 italic mb-2')
+        progress_bar = ui.linear_progress(value=0, show_value=False).classes('w-full mb-4')
+        progress_bar.set_visibility(False)
 
         speaker_settings_container = ui.column().classes('w-full gap-4')
         
@@ -195,6 +199,9 @@ def create_page():
             return
         
         process_btn.props('loading')
+        progress_bar.set_visibility(True)
+        progress_bar.set_value(0)
+        
         try:
             # Load config to get story model
             with open('config.json', 'r') as f:
@@ -202,7 +209,9 @@ def create_page():
             model = config.get('default_models', {}).get('story_processing', 'gemma4:e4b')
             
             # --- Pass 1: Speaker Identification & Metadata ---
-            ui.notify('Pass 1: Identifying speakers and traits...', color='indigo')
+            status_label.set_text('Pass 1: Identifying characters...')
+            progress_bar.set_value(0.1)
+            
             pass1_prompt = f"""Identify all characters in the following story, including a "Narrator" for descriptive parts. 
 For each character, specify their gender (Male, Female, or Neutral) and a brief description of their voice personality.
 Return ONLY a JSON list of objects.
@@ -262,50 +271,75 @@ Text:
                             on_change=lambda e, n=name: state['speaker_voices'].update({n: e.value})
                         ).classes('w-full').props('outlined dense dark')
 
-            # --- Pass 2: Text Segmentation ---
-            ui.notify('Pass 2: Segmenting story text...', color='indigo')
-            pass2_prompt = f"""Using the following list of characters: {', '.join(unique_names)}, 
-segment this story into a sequence of spoken parts. 
+            # --- Pass 2: Text Segmentation (Chunked) ---
+            status_label.set_text('Pass 2: Segmenting text...')
+            progress_bar.set_value(0.3)
+            
+            # Split text into chunks paragraph by paragraph
+            def get_chunks(text):
+                # Try splitting by double newlines first (standard paragraph separation)
+                chunks = [p.strip() for p in text.split('\n\n') if p.strip()]
+                if len(chunks) <= 1:
+                    # Fallback to single newlines if no double newlines are detected
+                    chunks = [p.strip() for p in text.split('\n') if p.strip()]
+                return chunks
+
+            text_chunks = get_chunks(text_input.value)
+            all_segments = []
+            
+            for i, chunk in enumerate(text_chunks):
+                chunk_prog = 0.3 + (i / len(text_chunks)) * 0.6
+                progress_bar.set_value(chunk_prog)
+                status_label.set_text(f'Segmenting chunk {i+1}/{len(text_chunks)}...')
+                
+                pass2_prompt = f"""You are a script segmenter. 
+Characters: {', '.join(unique_names)}
+
+CONTEXT (Full Story):
+{text_input.value}
+
+---
+TASK: Segment the following SECTION into a JSON list of objects.
 
 CRITICAL:
-- Do NOT add, remove, or change any words from the original text. Your output must contain the EXACT same words as the input.
-- Distinguish between actual dialogue and narrative tags. 
-- Direct dialogue must be assigned to the character speaking.
-- Narrative descriptions, tags (like "said Bilbo"), and actions must be assigned to the "Narrator".
-- Ensure the output is valid JSON. Escape all newlines in the "text" field with \\n.
-Combine consecutive segments ONLY if they belong to the same speaker.
+- Do NOT add, remove, or change any words. Stick strictly to the SECTION text.
+- Distinguish dialogue from narrative tags.
+- Example: "This is weird!" Bob said "Who did this?"
+  Output: [
+    {{"speaker": "Bob", "text": "This is weird!"}},
+    {{"speaker": "Narrator", "text": "Bob said"}},
+    {{"speaker": "Bob", "text": "Who did this?"}}
+  ]
 
-Example Output: [
-  {{"speaker": "{unique_names[0] if unique_names else 'Bilbo'}", "text": "Hello!"}},
-  {{"speaker": "Narrator", "text": "said Bilbo."}},
-  {{"speaker": "{unique_names[0] if unique_names else 'Bilbo'}", "text": "How are you?"}}
-]
-
-Return ONLY a JSON list of objects with 'speaker' and 'text' fields.
-
-Text:
-{text_input.value}
+SECTION TO SEGMENT:
+{chunk}
 """
-            resp2 = await client.chat(model=model, messages=[{'role': 'user', 'content': pass2_prompt}], stream=False)
-            content2 = resp2.get('message', {}).get('content', '')
-            match2 = re.search(r'\[\s*\{.*\}\s*\]', content2, re.DOTALL)
-            segments = json.loads(match2.group(0), strict=False) if match2 else json.loads(content2, strict=False)
+                resp2 = await client.chat(model=model, messages=[{'role': 'user', 'content': pass2_prompt}], stream=False)
+                content2 = resp2.get('message', {}).get('content', '')
+                match2 = re.search(r'\[\s*\{.*\}\s*\]', content2, re.DOTALL)
+                chunk_segments = json.loads(match2.group(0), strict=False) if match2 else json.loads(content2, strict=False)
+                all_segments.extend(chunk_segments)
+            
+            status_label.set_text('Finishing up...')
+            progress_bar.set_value(1.0)
             
             # Update the input text with annotations for user editing
             annotated_text = ""
-            for seg in segments:
+            for seg in all_segments:
                 annotated_text += f"[{seg['speaker']}] {seg['text']}\n\n"
             
             text_input.set_value(annotated_text.strip())
-            state['segments'] = segments
+            state['segments'] = all_segments
             generate_multi_btn.set_visibility(True)
-            ui.notify(f'Script generated with {len(segments)} segments', type='positive')
+            ui.notify(f'Script generated with {len(all_segments)} segments', type='positive')
             
         except Exception as e:
             ui.notify(f'Processing error: {str(e)}', type='negative')
             print(f"Process text error: {e}")
         finally:
             process_btn.props(remove='loading')
+            progress_bar.set_visibility(False)
+            status_label.set_text('')
 
     async def generate_multi():
         # Parse the annotated text from the input area
