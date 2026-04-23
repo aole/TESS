@@ -261,7 +261,20 @@ Text:
             # --- Pass 2: Text Segmentation ---
             ui.notify('Pass 2: Segmenting story text...', color='indigo')
             pass2_prompt = f"""Using the following list of characters: {', '.join(unique_names)}, 
-segment this story into a sequence of spoken parts. Combine consecutive segments of the same speaker.
+segment this story into a sequence of spoken parts. 
+
+CRITICAL: Distinguish between actual dialogue and narrative tags. 
+- Direct dialogue must be assigned to the character speaking.
+- Narrative descriptions, tags (like "said Bilbo"), and actions must be assigned to the "Narrator".
+Combine consecutive segments ONLY if they belong to the same speaker.
+
+Example: "Hello!" said Bilbo. "How are you?"
+Output: [
+  {{"speaker": "{unique_names[0] if unique_names else 'Bilbo'}", "text": "Hello!"}},
+  {{"speaker": "Narrator", "text": "said Bilbo."}},
+  {{"speaker": "{unique_names[0] if unique_names else 'Bilbo'}", "text": "How are you?"}}
+]
+
 Return ONLY a JSON list of objects with 'speaker' and 'text' fields.
 
 Text:
