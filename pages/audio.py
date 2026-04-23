@@ -1,10 +1,12 @@
 from nicegui import ui, app
 from utils.ui_components import ui_list, ui_list_item
 from services.tts_service import tts_service, VOICES
+from utils.ollama_client import client
 import base64
 import os
 import time
 import re
+import json
 from datetime import datetime
 
 AUDIO_DIR = 'data/audio'
@@ -62,6 +64,30 @@ def create_page():
             heading='Audio Files',
             heading_icon='audio_file',
         )
+
+    # --- Right Drawer: Story Processing ---
+    right_drawer = ui.right_drawer(value=True).classes('bg-[#18181b] border-l border-white/10 p-4')
+    
+    # State for multi-speaker processing
+    state = {
+        'segments': [],      # List of {'speaker': ..., 'text': ...}
+        'speaker_voices': {}, # Map of speaker_name -> voice_id
+        'is_processing': False
+    }
+
+    with right_drawer:
+        ui.label('Story Studio').classes('text-xl font-bold text-white mb-4')
+        
+        process_btn = ui.button('Process Text', icon='psychology', on_click=lambda: process_text()) \
+            .classes('w-full mb-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg')
+        process_btn.props('no-caps')
+
+        speaker_settings_container = ui.column().classes('w-full gap-4')
+        
+        generate_multi_btn = ui.button('Generate Full Audio', icon='auto_awesome', on_click=lambda: generate_multi()) \
+            .classes('w-full mt-6 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg')
+        generate_multi_btn.props('no-caps shadow-lg')
+        generate_multi_btn.set_visibility(False)
 
     # Shared player container reference (will be set below)
     player_state = {'container': None}
@@ -147,27 +173,7 @@ def create_page():
                     placeholder='Type something here to convert to speech...',
                     value=app.storage.user.get('last_tts_text', default_text),
                     on_change=lambda e: app.storage.user.update({'last_tts_text': e.value})
-                ).classes('w-full').props('outlined rows=10 input-style="color: white; font-size: 1.1rem; line-height: 1.6;"')
-
-                with ui.row().classes('w-full items-end gap-4'):
-                    with ui.column().classes('flex-grow'):
-                        ui.label('Voice Selection').classes('text-xs font-medium text-slate-400 mb-1')
-                        # Persistence: Load last used voice or use default
-                        _default_voice = 'af_heart'
-                        _stored_voice = app.storage.user.get('last_tts_voice', _default_voice)
-                        if _stored_voice not in VOICES:
-                            _stored_voice = _default_voice
-                            app.storage.user.update({'last_tts_voice': _stored_voice})
-                        voice_select = ui.select(
-                            options=VOICES,
-                            value=_stored_voice,
-                            with_input=True,
-                            on_change=lambda e: app.storage.user.update({'last_tts_voice': e.value})
-                        ).classes('w-full').props('outlined dense dark')
-
-                    generate_btn = ui.button('Generate Speech', icon='record_voice_over', on_click=lambda: generate()) \
-                        .classes('h-12 px-6 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-lg transition-all transform hover:scale-[1.02] active:scale-[0.98]')
-                    generate_btn.props('no-caps shadow-lg')
+                ).classes('w-full').props('outlined rows=15 input-style="color: white; font-size: 1.1rem; line-height: 1.6;"')
 
         with ui.card().classes('w-full glass-panel p-6 border-white/10'):
             with ui.column().classes('w-full gap-4'):
@@ -183,51 +189,146 @@ def create_page():
             ui.audio(f'/data/audio/{filename}').classes('w-full shadow-inner rounded-lg').props('autoplay')
         refresh_audio_list(selected_filename=filename)
 
-    async def generate():
+    async def process_text():
         if not text_input.value.strip():
-            ui.notify('Please enter some text first', type='warning', color='orange')
+            ui.notify('Please enter text to process', type='warning')
             return
-
-        generate_btn.props('loading')
+        
+        process_btn.props('loading')
         try:
-            ui.notify('Synthesizing speech...', type='info', color='indigo')
-            from nicegui import run
-            wav_metadata = {
-                    'speaker': f'{voice_select.value}/Kokoro TTS',
-                    'comment': VOICES.get(voice_select.value, voice_select.value),
-                    'software': 'TESS',
-                    'date': datetime.now().strftime('%Y-%m-%d'),
-                }
-            audio_bytes = await run.cpu_bound(
-                    tts_service.generate_audio_bytes,
-                    text_input.value,
-                    voice=voice_select.value,
-                    metadata=wav_metadata,
-                )
-            if audio_bytes:
-                # Generate dynamic filename
-                prefix = text_input.value[:32]
-                # Convert spaces and special characters to underscore
-                sanitized = re.sub(r'[^a-zA-Z0-9]+', '_', prefix).strip('_')
-                if not sanitized:
-                    sanitized = "audio"
+            # Load config to get story model
+            with open('config.json', 'r') as f:
+                config = json.load(f)
+            model = config.get('default_models', {}).get('story_processing', 'gemma4:e4b')
+            
+            prompt = f"""Analyze the following story text and identify all speakers, including a "Narrator" for descriptive text. 
+Return the result as a STRICT JSON list of objects, where each object has a 'speaker' field and a 'text' field representing the segment spoken by that speaker. 
+Ensure every part of the input text is assigned to a speaker. Combine consecutive segments of the same speaker.
 
-                # Compact date and time: YYYYMMDDHHMMSS
-                timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-                filename = f"{sanitized}-{timestamp}.wav"
-                filepath = os.path.join(AUDIO_DIR, filename)
-
-                with open(filepath, 'wb') as f:
-                    f.write(audio_bytes)
-
-                refresh_player(filename)
-                ui.notify('Synthesis Finished!', type='positive', color='green')
+Text:
+{text_input.value}
+"""
+            ui.notify(f'Analyzing story with {model}...', color='indigo')
+            response = await client.chat(model=model, messages=[{'role': 'user', 'content': prompt}], stream=False)
+            content = response.get('message', {}).get('content', '')
+            
+            # Extract JSON from markdown if needed
+            json_match = re.search(r'\[\s*\{.*\}\s*\]', content, re.DOTALL)
+            if json_match:
+                segments = json.loads(json_match.group(0))
             else:
-                ui.notify('Generated audio was empty!', type='negative', color='red')
+                # Fallback if model didn't use code blocks or gave raw json
+                segments = json.loads(content)
+            
+            state['segments'] = segments
+            unique_speakers = sorted(list(set(s['speaker'] for s in segments)))
+            
+            # Update UI
+            speaker_settings_container.clear()
+            with speaker_settings_container:
+                ui.label('Assign Voices').classes('text-sm font-medium text-slate-400 uppercase tracking-wider mb-2')
+                for speaker in unique_speakers:
+                    # Default voice assignment logic
+                    default_voice = 'af_heart' if 'narrator' in speaker.lower() else 'af_bella'
+                    state['speaker_voices'][speaker] = default_voice
+                    
+                    with ui.card().classes('w-full p-3 bg-white/5 border border-white/10'):
+                        ui.label(speaker).classes('text-sm font-bold text-indigo-300 mb-1')
+                        ui.select(
+                            options=VOICES,
+                            value=default_voice,
+                            with_input=True,
+                            on_change=lambda e, s=speaker: state['speaker_voices'].update({s: e.value})
+                        ).classes('w-full').props('outlined dense dark')
+            
+            generate_multi_btn.set_visibility(True)
+            ui.notify(f'Identified {len(unique_speakers)} speakers', type='positive')
+            
         except Exception as e:
-            ui.notify(f'Error: {str(e)}', type='negative', color='red')
+            ui.notify(f'Processing error: {str(e)}', type='negative')
+            print(f"Process text error: {e}")
         finally:
-            generate_btn.props(remove='loading')
+            process_btn.props(remove='loading')
+
+    async def generate_multi():
+        if not state['segments']:
+            ui.notify('No segments to generate', type='warning')
+            return
+            
+        generate_multi_btn.props('loading')
+        try:
+            ui.notify('Starting multi-speaker synthesis...', color='indigo')
+            
+            import soundfile as sf
+            import numpy as np
+            import io
+            from nicegui import run
+            
+            all_audio_data = []
+            
+            # Step 1: Generate audio for each segment
+            for i, seg in enumerate(state['segments']):
+                speaker = seg['speaker']
+                text = seg['text']
+                voice = state['speaker_voices'].get(speaker, 'af_heart')
+                
+                ui.notify(f'Synthesizing segment {i+1}/{len(state["segments"])} ({speaker})...', color='indigo', duration=1)
+                
+                # We need raw audio samples to concatenate
+                # Since tts_service doesn't expose raw samples easily, we generate bytes and read them back
+                audio_bytes = await run.cpu_bound(
+                    tts_service.generate_audio_bytes,
+                    text,
+                    voice=voice
+                )
+                
+                if audio_bytes:
+                    buffer = io.BytesIO(audio_bytes)
+                    data, samplerate = sf.read(buffer)
+                    all_audio_data.append(data)
+            
+            if not all_audio_data:
+                ui.notify('No audio was generated!', type='negative')
+                return
+            
+            # Step 2: Concatenate and Save
+            combined = np.concatenate(all_audio_data)
+            
+            # Generate dynamic filename
+            prefix = text_input.value[:32]
+            sanitized = re.sub(r'[^a-zA-Z0-9]+', '_', prefix).strip('_')
+            if not sanitized: sanitized = "story"
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+            filename = f"{sanitized}-{timestamp}.wav"
+            filepath = os.path.join(AUDIO_DIR, filename)
+            
+            # Save combined file
+            final_buffer = io.BytesIO()
+            sf.write(final_buffer, combined, 24000, format='WAV')
+            
+            # Add metadata for the "primary" speaker or a generic one
+            metadata = {
+                'speaker': 'Multi-Speaker Story',
+                'comment': f'Speakers: {", ".join(state["speaker_voices"].keys())}',
+                'software': 'TESS Story Studio',
+                'date': datetime.now().strftime('%Y-%m-%d'),
+            }
+            final_bytes = tts_service._embed_wav_metadata(final_buffer.getvalue(), metadata)
+            
+            with open(filepath, 'wb') as f:
+                f.write(final_bytes)
+                
+            refresh_player(filename)
+            ui.notify('Full story generated!', type='positive')
+            
+        except Exception as e:
+            ui.notify(f'Generation error: {str(e)}', type='negative')
+            print(f"Generate multi error: {e}")
+        finally:
+            generate_multi_btn.props(remove='loading')
+
+    # Remove the old generate function or keep it as a backup?
+    # The user wanted to "remove" the old stuff, so I'll just not use it.
 
     # Initial population of the audio list
     refresh_audio_list()
