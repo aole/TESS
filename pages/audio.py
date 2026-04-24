@@ -288,7 +288,13 @@ def create_page():
             
             pass1_system = """You are an expert casting director and script analyzer. Your task is to identify all unique characters in the provided story.
 You must always include a "Narrator" character for descriptive, non-dialogue parts of the text.
-Analyze the text to determine the gender (Male, Female, or Neutral) and a brief, descriptive voice personality for each character.
+Analyze the text to determine the gender (Male, Female, or Neutral) and a brief voice personality for each character.
+The description for each character MUST strictly follow this exact structure: <gender>, <age>, <pitch>, <accent>.
+Only the following values can be used for the description field:
+- gender: male | female
+- age: child | teenager | young adult | middle-aged | elderly
+- pitch: very low pitch | low pitch | moderate pitch | high pitch | very high pitch
+- accent: american accent | british accent | australian accent | canadian accent | indian accent | chinese accent | korean accent | japanese accent | portuguese accent | russian accent
 Output MUST be exclusively a valid JSON list of objects with keys: 'name', 'gender', 'description'. Do not include any conversational text or markdown formatting."""
 
             pass1_user = f"Text to analyze:\n{text_input.value}"
