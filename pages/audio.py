@@ -363,6 +363,9 @@ CRITICAL RULES:
 3. Assign the correct speaker from the Available Characters list. If a speaker is unknown or not in the list, use 'Narrator'.
 4. Output MUST be exclusively a valid JSON list of objects with keys: 'speaker', 'text'. No conversational text.
 
+Example text to segment:
+'This is weird!' Bob said, looking around. 'Who did this?'
+
 Example format:
 [
   {{"speaker": "Bob", "text": "This is weird!"}},

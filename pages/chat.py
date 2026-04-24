@@ -139,14 +139,22 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 ui.notify(f"Error saving chat: {e}", type='negative')
 
     # --- Sidebar & Navigation ---
-    drawer = ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10')
+    drawer = ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10 flex flex-col flex-nowrap')
     with drawer:
-        chat_list_container = ui_list(
-            heading='History',
-            action_icon='add',
-            action_tooltip='New Chat',
-            on_action=lambda: load_new_chat(),
-        )
+        with ui.column().classes('w-full p-4 gap-1 shrink-0 border-b border-white/5'):
+            ui.label('System Prompt').classes('text-sm font-medium text-gray-400 mb-1')
+            system_prompt = ui.textarea(
+                placeholder='You are a helpful assistant...', 
+                value=app.storage.user.get('system_prompt', '')
+            ).props('dense rows=4 filled flat').classes('w-full text-sm mb-2 bg-white/5 rounded-md').on('blur', lambda e: app.storage.user.update({'system_prompt': e.sender.value}))
+
+        with ui.column().classes('w-full flex-grow min-h-0'):
+            chat_list_container = ui_list(
+                heading='History',
+                action_icon='add',
+                action_tooltip='New Chat',
+                on_action=lambda: load_new_chat(),
+            )
 
     def load_new_chat():
         nonlocal messages, current_chat_id
@@ -261,8 +269,6 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     
                     repeat_penalty_slider = ui.slider(min=0, max=2, step=0.1, value=app.storage.user.get('repeat_penalty', 1.1)).props('label-always')
                     ui.label('Repeat Penalty').classes('text-xs text-muted')
-                    
-                    system_prompt = ui.textarea(label='System Prompt', placeholder='You are a helpful assistant...', value=app.storage.user.get('system_prompt', '')).classes('w-full text-sm').props('rows=3 filled')
                     
              # Sync UI from storage
             def sync_ui_from_storage():
