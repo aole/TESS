@@ -71,7 +71,8 @@ def create_page():
     # State for multi-speaker processing
     state = {
         'segments': [],      # List of {'speaker': ..., 'text': ...}
-        'speaker_voices': {}, # Map of speaker_name -> voice_id
+        'speaker_voices': {'Narrator': 'af_heart'}, # Map of speaker_name -> voice_id
+        'speakers': [{'name': 'Narrator', 'gender': 'Neutral', 'description': 'The storyteller'}],
         'is_processing': False,
         'cancel_processing': False
     }
@@ -202,10 +203,56 @@ def create_page():
             ui.audio(f'/data/audio/{filename}').classes('w-full shadow-inner rounded-lg').props('autoplay')
         refresh_audio_list(selected_filename=filename)
 
+    def render_speakers_ui():
+        speaker_settings_container.clear()
+        with speaker_settings_container:
+            ui.label('Assign Voices').classes('text-sm font-medium text-slate-400 uppercase tracking-wider mb-2')
+            for s in state['speakers']:
+                name = s.get('name', 'Unknown')
+                gender = s.get('gender', 'Neutral')
+                desc = s.get('description', '')
+                
+                if name in state['speaker_voices']:
+                    default_voice = state['speaker_voices'][name]
+                else:
+                    is_female = 'female' in gender.lower()
+                    is_male = 'male' in gender.lower()
+                    
+                    if 'narrator' in name.lower():
+                        default_voice = 'af_heart'
+                    elif is_female:
+                        default_voice = 'af_bella'
+                    elif is_male:
+                        default_voice = 'am_adam'
+                    else:
+                        default_voice = 'af_sky'
+                    
+                    state['speaker_voices'][name] = default_voice
+                
+                with ui.card().classes('w-full p-3 bg-white/5 border border-white/10'):
+                    with ui.row().classes('w-full justify-between items-start'):
+                        ui.label(name).classes('text-sm font-bold text-indigo-300')
+                        ui.badge(gender).classes('bg-indigo-900/50 text-[10px]')
+                    
+                    if desc:
+                        ui.label(desc).classes('text-xs text-slate-400 italic mb-2')
+                        
+                    ui.select(
+                        options=VOICES,
+                        value=default_voice,
+                        with_input=True,
+                        on_change=lambda e, n=name: state['speaker_voices'].update({n: e.value})
+                    ).classes('w-full').props('outlined dense dark')
+
     async def process_text():
         if not text_input.value.strip():
             ui.notify('Please enter text to process', type='warning')
             return
+        
+        # Keep only Narrator before processing
+        state['speakers'] = [{'name': 'Narrator', 'gender': 'Neutral', 'description': 'The storyteller'}]
+        state['speaker_voices'] = {k: v for k, v in state['speaker_voices'].items() if k.lower() == 'narrator'}
+        render_speakers_ui()
         
         state['is_processing'] = True
         state['cancel_processing'] = False
@@ -251,52 +298,14 @@ Text:
                     return []
 
             speakers = extract_json_list(content1)
+            if not any(s.get('name', '').lower() == 'narrator' for s in speakers if isinstance(s, dict)):
+                speakers.insert(0, {'name': 'Narrator', 'gender': 'Neutral', 'description': 'The storyteller'})
             
             state['speakers'] = speakers
             unique_names = [s.get('name', 'Unknown') for s in speakers if isinstance(s, dict)]
             
             # Update UI immediately with speaker cards
-            speaker_settings_container.clear()
-            with speaker_settings_container:
-                ui.label('Assign Voices').classes('text-sm font-medium text-slate-400 uppercase tracking-wider mb-2')
-                for s in speakers:
-                    name = s['name']
-                    gender = s.get('gender', 'Neutral')
-                    desc = s.get('description', '')
-                    
-                    # PERSISTENCE: Check if we already assigned a voice to this speaker in this session
-                    if name in state['speaker_voices']:
-                        default_voice = state['speaker_voices'][name]
-                    else:
-                        # Smart voice assignment
-                        is_female = 'female' in gender.lower()
-                        is_male = 'male' in gender.lower()
-                        
-                        if 'narrator' in name.lower():
-                            default_voice = 'af_heart'
-                        elif is_female:
-                            default_voice = 'af_bella'
-                        elif is_male:
-                            default_voice = 'am_adam'
-                        else:
-                            default_voice = 'af_sky'
-                        
-                        state['speaker_voices'][name] = default_voice
-                    
-                    with ui.card().classes('w-full p-3 bg-white/5 border border-white/10'):
-                        with ui.row().classes('w-full justify-between items-start'):
-                            ui.label(name).classes('text-sm font-bold text-indigo-300')
-                            ui.badge(gender).classes('bg-indigo-900/50 text-[10px]')
-                        
-                        if desc:
-                            ui.label(desc).classes('text-xs text-slate-400 italic mb-2')
-                            
-                        ui.select(
-                            options=VOICES,
-                            value=default_voice,
-                            with_input=True,
-                            on_change=lambda e, n=name: state['speaker_voices'].update({n: e.value})
-                        ).classes('w-full').props('outlined dense dark')
+            render_speakers_ui()
 
             # --- Pass 2: Text Segmentation (Chunked) ---
             status_label.set_text('Pass 2: Segmenting text...')
@@ -477,3 +486,6 @@ SECTION TO SEGMENT:
 
     # Initial population of the audio list
     refresh_audio_list()
+    
+    # Initialize UI
+    render_speakers_ui()
