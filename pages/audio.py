@@ -273,15 +273,17 @@ def create_page():
             status_label.set_text('Pass 1: Identifying characters...')
             progress_bar.set_value(0.1)
             
-            pass1_prompt = f"""Identify all characters in the following story, including a "Narrator" for descriptive parts. 
-For each character, specify their gender (Male, Female, or Neutral) and a brief description of their voice personality.
-Return ONLY a JSON list of objects.
-Example: [{{"name": "Alice", "gender": "Female", "description": "High-pitched and curious"}}, ...]
+            pass1_system = """You are an expert casting director and script analyzer. Your task is to identify all unique characters in the provided story.
+You must always include a "Narrator" character for descriptive, non-dialogue parts of the text.
+Analyze the text to determine the gender (Male, Female, or Neutral) and a brief, descriptive voice personality for each character.
+Output MUST be exclusively a valid JSON list of objects with keys: 'name', 'gender', 'description'. Do not include any conversational text or markdown formatting."""
 
-Text:
-{text_input.value}
-"""
-            resp1 = await client.chat(model=model, messages=[{'role': 'user', 'content': pass1_prompt}], stream=False)
+            pass1_user = f"Text to analyze:\n{text_input.value}"
+
+            resp1 = await client.chat(model=model, messages=[
+                {'role': 'system', 'content': pass1_system},
+                {'role': 'user', 'content': pass1_user}
+            ], stream=False)
             content1 = resp1.get('message', {}).get('content', '')
             
             def extract_json_list(text):
@@ -332,31 +334,31 @@ Text:
                 progress_bar.set_value(chunk_prog)
                 status_label.set_text(f'Segmenting chunk {i+1}/{len(text_chunks)}...')
                 
-                pass2_prompt = f"""You are a script segmenter. 
-Characters: {', '.join(unique_names)}
+                pass2_system = f"""You are a professional script segmenter formatting text for text-to-speech synthesis.
+Your job is to break down the provided text chunk into exact dialogue and narrative segments.
+Available Characters: {', '.join(unique_names)} (Plus 'Narrator').
 
-CONTEXT (Full Story):
-{text_input.value}
+CRITICAL RULES:
+1. Do NOT add, remove, or alter ANY words. You must perfectly preserve the exact text provided in the SECTION TO SEGMENT.
+2. Accurately distinguish spoken dialogue from narrative tags/descriptions.
+3. Assign the correct speaker from the Available Characters list. If a speaker is unknown or not in the list, use 'Narrator'.
+4. Output MUST be exclusively a valid JSON list of objects with keys: 'speaker', 'text'. No conversational text.
 
----
-TASK: Segment the following SECTION into a JSON list of objects.
+Example format:
+[
+  {{"speaker": "Bob", "text": "This is weird!"}},
+  {{"speaker": "Narrator", "text": "Bob said, looking around."}},
+  {{"speaker": "Alice", "text": "Who did this?"}}
+]"""
 
-CRITICAL:
-- Do NOT add, remove, or change any words. Stick strictly to the SECTION text.
-- Distinguish dialogue from narrative tags.
-- Example: "This is weird!" Bob said "Who did this?"
-  Output: [
-    {{"speaker": "Bob", "text": "This is weird!"}},
-    {{"speaker": "Narrator", "text": "Bob said"}},
-    {{"speaker": "Bob", "text": "Who did this?"}}
-  ]
+                pass2_user = f"CONTEXT (Full Story for reference):\n{text_input.value}\n\n---\nSECTION TO SEGMENT:\n{chunk}"
 
-SECTION TO SEGMENT:
-{chunk}
-"""
                 resp2 = await client.chat(
                     model=model, 
-                    messages=[{'role': 'user', 'content': pass2_prompt}], 
+                    messages=[
+                        {'role': 'system', 'content': pass2_system},
+                        {'role': 'user', 'content': pass2_user}
+                    ], 
                     stream=False,
                     keep_alive=0 if i == len(text_chunks) - 1 else None
                 )
