@@ -2,12 +2,17 @@ from nicegui import ui, app
 from utils.ui_components import ui_list, ui_list_item
 from services.tts_service import tts_service, VOICES
 from utils.ollama_client import client
-import base64
 import os
-import time
 import re
+import struct
 import json
+import wave
 from datetime import datetime
+
+import soundfile as sf
+import numpy as np
+import io
+from nicegui import run
 
 AUDIO_DIR = 'data/audio'
 os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -15,44 +20,47 @@ os.makedirs(AUDIO_DIR, exist_ok=True)
 
 def get_wav_duration(filepath: str) -> str:
     """Return a human-readable duration string for a WAV file."""
-    try:
-        import wave
-        with wave.open(filepath, 'rb') as wf:
-            frames = wf.getnframes()
-            rate = wf.getframerate()
-            seconds = frames / rate
-        m, s = divmod(int(seconds), 60)
-        return f'{m}:{s:02d}'
-    except Exception:
-        return ''
+    with wave.open(filepath, 'rb') as wf:
+        frames = wf.getnframes()
+        rate = wf.getframerate()
+        seconds = frames / rate
+    m, s = divmod(int(seconds), 60)
+    return f'{m}:{s:02d}'
 
 
 def get_wav_speaker(filepath: str) -> str:
     """Extract the IART (speaker) field from a WAV RIFF LIST/INFO chunk."""
-    try:
-        import struct
-        with open(filepath, 'rb') as f:
-            data = f.read()
-        # Scan for LIST chunk
-        pos = 12  # skip RIFF header
-        while pos + 8 <= len(data):
-            chunk_id = data[pos:pos+4]
-            chunk_size = struct.unpack_from('<I', data, pos+4)[0]
-            if chunk_id == b'LIST' and data[pos+8:pos+12] == b'INFO':
-                # Walk INFO sub-chunks
-                sub_pos = pos + 12
-                end = pos + 8 + chunk_size
-                while sub_pos + 8 <= end:
-                    sub_id = data[sub_pos:sub_pos+4]
-                    sub_size = struct.unpack_from('<I', data, sub_pos+4)[0]
-                    if sub_id == b'IART':
-                        raw = data[sub_pos+8:sub_pos+8+sub_size]
-                        return raw.rstrip(b'\x00').decode('utf-8', errors='replace')
-                    # sub-chunks are padded to even size
-                    sub_pos += 8 + sub_size + (sub_size % 2)
-            pos += 8 + chunk_size + (chunk_size % 2)
-    except Exception:
-        pass
+    with open(filepath, 'rb') as f:
+        header = f.read(12)
+        if len(header) < 12 or not header.startswith(b'RIFF'):
+            return ''
+        
+        file_size = os.path.getsize(filepath)
+        
+        while f.tell() + 8 <= file_size:
+            chunk_header = f.read(8)
+            if len(chunk_header) < 8:
+                break
+            chunk_id, chunk_size = struct.unpack('<4sI', chunk_header)
+            
+            if chunk_id == b'LIST':
+                list_type = f.read(4)
+                if list_type == b'INFO':
+                    end_pos = f.tell() - 4 + chunk_size
+                    while f.tell() + 8 <= end_pos:
+                        sub_header = f.read(8)
+                        if len(sub_header) < 8:
+                            break
+                        sub_id, sub_size = struct.unpack('<4sI', sub_header)
+                        if sub_id == b'IART':
+                            raw = f.read(sub_size)
+                            return raw.rstrip(b'\x00').decode('utf-8', errors='replace')
+                        f.seek(sub_size + (sub_size % 2), os.SEEK_CUR)
+                    break
+                else:
+                    f.seek(chunk_size - 4 + (chunk_size % 2), os.SEEK_CUR)
+            else:
+                f.seek(chunk_size + (chunk_size % 2), os.SEEK_CUR)
     return ''
 
 
@@ -102,6 +110,11 @@ def create_page():
             .classes('w-full mt-6 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg')
         generate_multi_btn.props('no-caps shadow-lg')
         generate_multi_btn.set_visibility(False)
+
+        gen_status_label = ui.label('').classes('text-xs text-slate-500 italic mt-2 mb-2')
+        gen_status_label.set_visibility(False)
+        gen_progress_bar = ui.linear_progress(value=0, show_value=False).classes('w-full mb-4')
+        gen_progress_bar.set_visibility(False)
 
     # Shared player container reference (will be set below)
     player_state = {'container': None}
@@ -411,17 +424,19 @@ Example format:
             return
             
         generate_multi_btn.props('loading')
+        gen_status_label.set_visibility(True)
+        gen_progress_bar.set_visibility(True)
+        gen_progress_bar.set_value(0)
+        
         try:
             ui.notify('Starting synthesis...', color='indigo')
-            
-            import soundfile as sf
-            import numpy as np
-            import io
-            from nicegui import run
             
             all_audio_data = []
             
             for i, seg in enumerate(segments):
+                gen_status_label.set_text(f'Generating segment {i+1}/{len(segments)} ({seg["speaker"]})...')
+                gen_progress_bar.set_value(i / max(1, len(segments)))
+                
                 speaker = seg['speaker']
                 text = seg['text']
                 if not text: continue
@@ -450,6 +465,9 @@ Example format:
                 ui.notify('No audio was generated!', type='negative')
                 return
             
+            gen_status_label.set_text('Merging audio segments...')
+            gen_progress_bar.set_value(1.0)
+            
             combined = np.concatenate(all_audio_data)
             
             # Use original text (or first 32 chars) for filename
@@ -469,7 +487,7 @@ Example format:
                 'software': 'TESS Story Studio v2',
                 'date': datetime.now().strftime('%Y-%m-%d'),
             }
-            final_bytes = tts_service._embed_wav_metadata(final_buffer.getvalue(), metadata)
+            final_bytes = tts_service.embed_wav_metadata(final_buffer.getvalue(), metadata)
             
             with open(filepath, 'wb') as f:
                 f.write(final_bytes)
@@ -482,6 +500,9 @@ Example format:
             print(f"Generate multi error: {e}")
         finally:
             generate_multi_btn.props(remove='loading')
+            gen_status_label.set_visibility(False)
+            gen_progress_bar.set_visibility(False)
+            gen_status_label.set_text('')
 
     # Remove the old generate function or keep it as a backup?
     # The user wanted to "remove" the old stuff, so I'll just not use it.
