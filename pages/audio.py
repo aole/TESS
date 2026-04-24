@@ -328,52 +328,73 @@ Output MUST be exclusively a valid JSON list of objects with keys: 'name', 'gend
             # Update UI immediately with speaker cards
             render_speakers_ui()
 
-            # --- Pass 2: Text Segmentation (Chunked) ---
-            status_label.set_text('Pass 2: Segmenting text...')
+            # --- Pass 2: Static Pass & Speaker Assignment ---
+            status_label.set_text('Pass 2: Segmenting text and identifying speakers...')
             progress_bar.set_value(0.3)
             
-            # Split text into chunks paragraph by paragraph
-            def get_chunks(text):
-                # Try splitting by double newlines first (standard paragraph separation)
-                chunks = [p.strip() for p in text.split('\n\n') if p.strip()]
-                if len(chunks) <= 1:
-                    # Fallback to single newlines if no double newlines are detected
-                    chunks = [p.strip() for p in text.split('\n') if p.strip()]
-                return chunks
+            def split_dialogue_and_narrative(text):
+                import re
+                pattern = r'("[^"]*"|“[^”]*”|‘.+?’(?!\w)|(?<!\w)\'.+?\'(?!\w))'
+                parts = re.split(pattern, text, flags=re.DOTALL)
+                
+                segments = []
+                for p in parts:
+                    p = p.strip()
+                    if not p:
+                        continue
+                    if (p.startswith('"') and p.endswith('"')) or \
+                       (p.startswith('“') and p.endswith('”')) or \
+                       (p.startswith('‘') and p.endswith('’')) or \
+                       (p.startswith("'") and p.endswith("'")):
+                        segments.append({"type": "dialogue", "text": p})
+                    else:
+                        segments.append({"type": "narrator", "text": p})
+                return segments
 
-            text_chunks = get_chunks(text_input.value)
-            all_segments = []
+            static_segments = split_dialogue_and_narrative(text_input.value)
             
-            for i, chunk in enumerate(text_chunks):
+            all_segments = []
+            dialogue_indices = []
+            
+            for i, seg in enumerate(static_segments):
+                if seg['type'] == 'narrator':
+                    all_segments.append({'speaker': 'Narrator', 'text': seg['text']})
+                else:
+                    all_segments.append({'speaker': 'Unknown', 'text': seg['text']})
+                    dialogue_indices.append(i)
+                    
+            batch_size = 5
+            for i in range(0, len(dialogue_indices), batch_size):
                 if state['cancel_processing']:
                     ui.notify('Processing canceled', type='warning')
                     break
                     
-                chunk_prog = 0.3 + (i / len(text_chunks)) * 0.6
-                progress_bar.set_value(chunk_prog)
-                status_label.set_text(f'Segmenting chunk {i+1}/{len(text_chunks)}...')
+                batch_indices = dialogue_indices[i:i+batch_size]
                 
-                pass2_system = f"""You are a professional script segmenter formatting text for text-to-speech synthesis.
-Your job is to break down the provided text chunk into exact dialogue and narrative segments.
-Available Characters: {', '.join(unique_names)} (Plus 'Narrator').
+                chunk_prog = 0.3 + (i / max(1, len(dialogue_indices))) * 0.6
+                progress_bar.set_value(chunk_prog)
+                status_label.set_text(f'Identifying speakers for lines {i+1} to {min(i+batch_size, len(dialogue_indices))} of {len(dialogue_indices)}...')
+                
+                lines_to_identify = "\n".join([f"{idx+1}. {all_segments[b_idx]['text']}" for idx, b_idx in enumerate(batch_indices)])
+                
+                dialogue_characters = [n for n in unique_names if n.lower() != 'narrator']
+                pass2_system = f"""You are a professional script analyzer. 
+Your task is to identify the speaker for each of the provided dialogue lines based on the story context.
+Available Characters: {', '.join(dialogue_characters)}.
 
 CRITICAL RULES:
-1. Do NOT add, remove, or alter ANY words. You must perfectly preserve the exact text provided in the SECTION TO SEGMENT.
-2. Accurately distinguish spoken dialogue from narrative tags/descriptions.
-3. Assign the correct speaker from the Available Characters list. If a speaker is unknown or not in the list, use 'Narrator'.
-4. Output MUST be exclusively a valid JSON list of objects with keys: 'speaker', 'text'. No conversational text.
+1. Output MUST be exclusively a valid JSON list of objects.
+2. Each object must have exactly two keys: "sentence" (integer) and "speaker" (string).
+3. The "sentence" number must match the numbered prefix of the provided dialogue line.
+4. Assign the correct speaker from the Available Characters list. If a speaker is unknown or not in the list, use 'Unknown'.
 
-Example text to segment:
-'This is weird!' Bob said, looking around. 'Who did this?'
-
-Example format:
+Example Output:
 [
-  {{"speaker": "Bob", "text": "This is weird!"}},
-  {{"speaker": "Narrator", "text": "Bob said, looking around."}},
-  {{"speaker": "Alice", "text": "Who did this?"}}
+  {{"sentence": 1, "speaker": "Alice"}},
+  {{"sentence": 2, "speaker": "Bob"}}
 ]"""
 
-                pass2_user = f"CONTEXT (Full Story for reference):\n{text_input.value}\n\n---\nSECTION TO SEGMENT:\n{chunk}"
+                pass2_user = f"STORY CONTEXT:\n{text_input.value}\n\n---\nDIALOGUE LINES TO IDENTIFY:\n{lines_to_identify}"
 
                 resp2 = await client.chat(
                     model=model, 
@@ -382,11 +403,23 @@ Example format:
                         {'role': 'user', 'content': pass2_user}
                     ], 
                     stream=False,
-                    keep_alive=0 if i == len(text_chunks) - 1 else None
+                    keep_alive=0 if i + batch_size >= len(dialogue_indices) else None
                 )
                 content2 = resp2.get('message', {}).get('content', '')
-                chunk_segments = extract_json_list(content2)
-                all_segments.extend(chunk_segments)
+                identified_segments = extract_json_list(content2)
+                
+                if identified_segments and isinstance(identified_segments, list):
+                    for id_seg in identified_segments:
+                        try:
+                            # Sentence is 1-indexed in the prompt
+                            sentence_idx = int(id_seg.get('sentence', 0)) - 1
+                            speaker = id_seg.get('speaker', 'Unknown')
+                            
+                            if 0 <= sentence_idx < len(batch_indices):
+                                actual_index = batch_indices[sentence_idx]
+                                all_segments[actual_index]['speaker'] = speaker
+                        except (ValueError, TypeError):
+                            continue
             
             status_label.set_text('Finishing up...')
             progress_bar.set_value(1.0)
