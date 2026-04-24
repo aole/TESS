@@ -37,6 +37,17 @@ def generate_omnivoice(target_text, ref_audio, ref_txt):
     )
     return audio[0]
 
+def generate_omnivoice_design(text, instruct, num_step, pos_temp, cls_temp):
+    model = get_omnivoice_model()
+    audio = model.generate(
+        text=text,
+        instruct=instruct,
+        num_step=int(num_step),
+        position_temperature=float(pos_temp),
+        class_temperature=float(cls_temp)
+    )
+    return audio[0]
+
 
 AUDIO_DIR = 'data/audio'
 os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -251,6 +262,146 @@ def create_page():
         except Exception:
             pass
 
+        def open_design_dialog(spk_name, select_ui, desc):
+            with ui.dialog() as dialog, ui.card().classes('w-full max-w-3xl p-6 bg-[#18181b] border border-white/10 text-white'):
+                ui.label(f'Design Voice for {spk_name}').classes('text-xl font-bold mb-4')
+                
+                default_ref_text = """Have you ever wondered what makes a digital voice feel truly alive?
+It’s all about the rhythm! From solving complex problems to sharing a quick laugh, I’m here to make every word count.
+So, shall we get started?"""
+                
+                genders = ['male', 'female']
+                ages = ['child', 'teenager', 'young adult', 'middle-aged', 'elderly']
+                pitches = ['very low pitch', 'low pitch', 'moderate pitch', 'high pitch', 'very high pitch']
+                accents = ['american accent', 'british accent', 'australian accent', 'canadian accent', 'indian accent', 'chinese accent', 'korean accent', 'japanese accent', 'portuguese accent', 'russian accent']
+
+                d_gender, d_age, d_pitch, d_accent = 'female', 'young adult', 'moderate pitch', 'american accent'
+                if desc:
+                    parts = [p.strip().lower() for p in desc.split(',')]
+                    if len(parts) >= 4:
+                        d_gender = parts[0] if parts[0] in genders else 'female'
+                        d_age = parts[1] if parts[1] in ages else 'young adult'
+                        d_pitch = parts[2] if parts[2] in pitches else 'moderate pitch'
+                        d_accent = parts[3] if parts[3] in accents else 'american accent'
+
+                with ui.column().classes('w-full gap-4'):
+                    ref_text_input = ui.textarea('Sample Text', value=default_ref_text).classes('w-full').props('outlined dark')
+                    
+                    with ui.row().classes('w-full gap-4'):
+                        gender_sel = ui.select(genders, value=d_gender, label='Gender').classes('flex-1').props('outlined dark')
+                        age_sel = ui.select(ages, value=d_age, label='Age').classes('flex-1').props('outlined dark')
+                        pitch_sel = ui.select(pitches, value=d_pitch, label='Pitch').classes('flex-1').props('outlined dark')
+                        accent_sel = ui.select(accents, value=d_accent, label='Accent').classes('flex-1').props('outlined dark')
+                        
+                    with ui.row().classes('w-full gap-4'):
+                        num_step_input = ui.number('Num Step', value=48, min=1, max=100).classes('flex-1').props('outlined dark')
+                        pos_temp_input = ui.number('Position Temp', value=10.0).classes('flex-1').props('outlined dark')
+                        cls_temp_input = ui.number('Class Temp', value=1.0).classes('flex-1').props('outlined dark')
+                
+                class DialogState:
+                    audio_data = None
+                    saved_filename = None
+                    playing = False
+                    
+                d_state = DialogState()
+                design_player = ui.audio('').classes('hidden')
+                
+                with ui.row().classes('w-full gap-4 mt-4 justify-end'):
+                    gen_btn = ui.button('Generate', icon='auto_awesome').classes('bg-indigo-600 text-white')
+                    play_pause_btn = ui.button('Play', icon='play_arrow', color='slate').props('disabled')
+                    save_btn = ui.button('Save', icon='save', color='green').props('disabled')
+                    use_btn = ui.button('Use', icon='check_circle', color='blue').props('disabled')
+                    ui.button('Close', on_click=dialog.close, color='red')
+                    
+                async def on_generate():
+                    gen_btn.props('loading')
+                    instruct = f"{gender_sel.value}, {age_sel.value}, {pitch_sel.value}, {accent_sel.value}"
+                    try:
+                        audio_data = await run.cpu_bound(
+                            generate_omnivoice_design,
+                            ref_text_input.value,
+                            instruct,
+                            num_step_input.value,
+                            pos_temp_input.value,
+                            cls_temp_input.value
+                        )
+                        d_state.audio_data = audio_data
+                        d_state.saved_filename = None
+                        
+                        import tempfile, time
+                        temp_path = os.path.join('data/voices', '_temp_design.wav')
+                        sf.write(temp_path, audio_data, 24000)
+                        design_player.set_source(f'/data/voices/_temp_design.wav?t={time.time()}')
+                        
+                        play_pause_btn.props(remove='disabled')
+                        save_btn.props(remove='disabled')
+                        use_btn.props(remove='disabled')
+                        
+                        design_player.play()
+                        d_state.playing = True
+                        play_pause_btn.set_text('Pause')
+                        play_pause_btn.props('icon=pause')
+                        
+                    except Exception as e:
+                        ui.notify(f"Error: {e}", type='negative')
+                    finally:
+                        gen_btn.props(remove='loading')
+                        
+                gen_btn.on_click(on_generate)
+                
+                def on_play_pause():
+                    if d_state.playing:
+                        design_player.pause()
+                        d_state.playing = False
+                        play_pause_btn.set_text('Play')
+                        play_pause_btn.props('icon=play_arrow')
+                    else:
+                        design_player.play()
+                        d_state.playing = True
+                        play_pause_btn.set_text('Pause')
+                        play_pause_btn.props('icon=pause')
+                        
+                design_player.on('ended', lambda e: (setattr(d_state, 'playing', False), play_pause_btn.set_text('Play'), play_pause_btn.props('icon=play_arrow')))
+                play_pause_btn.on_click(on_play_pause)
+                
+                def on_save():
+                    if d_state.audio_data is None: return
+                    instruct_str = f"{gender_sel.value}_{age_sel.value}_{pitch_sel.value}_{accent_sel.value}".replace(' ', '_').replace('-', '_')
+                    import glob
+                    existing = glob.glob(f"data/voices/{instruct_str}_*.wav")
+                    nums = []
+                    for f in existing:
+                        m = re.search(r'_(\d{3})\.wav$', f)
+                        if m: nums.append(int(m.group(1)))
+                    next_num = max(nums) + 1 if nums else 1
+                    filename = f"{instruct_str}_{next_num:03d}.wav"
+                    txt_filename = f"{instruct_str}_{next_num:03d}.txt"
+                    
+                    sf.write(f"data/voices/{filename}", d_state.audio_data, 24000)
+                    with open(f"data/voices/{txt_filename}", "w", encoding="utf-8") as f:
+                        f.write(ref_text_input.value)
+                    
+                    ui.notify(f"Saved {filename}", type='positive')
+                    d_state.saved_filename = filename
+                    
+                    if filename not in select_ui.options:
+                        select_ui.options.append(filename)
+                        select_ui.update()
+                        
+                save_btn.on_click(on_save)
+                
+                def on_use():
+                    if not d_state.saved_filename:
+                        on_save()
+                    select_ui.set_value(d_state.saved_filename)
+                    state['speaker_samples'][spk_name] = d_state.saved_filename
+                    dialog.close()
+                    
+                use_btn.on_click(on_use)
+                
+                dialog.open()
+
+
         with speaker_settings_container:
             ui.label('Assign Voices').classes('text-sm font-medium text-slate-400 uppercase tracking-wider mb-2')
             for s in state['speakers']:
@@ -302,6 +453,8 @@ def create_page():
                         sample_player = ui.audio('').classes('hidden')
                         
                         play_btn = ui.button(icon='play_arrow').classes('bg-indigo-600 hover:bg-indigo-700 text-white shrink-0').props('round dense flat')
+                        design_btn = ui.button(icon='tune', on_click=lambda e, n=name, ui_sel=voice_sample_select, d=desc: open_design_dialog(n, ui_sel, d)).classes('bg-slate-600 hover:bg-slate-700 text-white shrink-0').props('round dense flat')
+
                         
                         class PlayState:
                             playing = False
