@@ -72,14 +72,23 @@ def create_page():
     state = {
         'segments': [],      # List of {'speaker': ..., 'text': ...}
         'speaker_voices': {}, # Map of speaker_name -> voice_id
-        'is_processing': False
+        'is_processing': False,
+        'cancel_processing': False
     }
 
     with right_drawer:
         ui.label('Story Studio').classes('text-xl font-bold text-white mb-4')
         
-        process_btn = ui.button('Process Text', icon='psychology', on_click=lambda: process_text()) \
-            .classes('w-full mb-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg')
+        async def toggle_process():
+            if state['is_processing']:
+                state['cancel_processing'] = True
+                status_label.set_text('Canceling...')
+                process_btn.props('loading')
+            else:
+                await process_text()
+
+        process_btn = ui.button('Process Text', icon='psychology', on_click=toggle_process) \
+            .classes('w-full mb-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors')
         process_btn.props('no-caps')
 
         status_label = ui.label('').classes('text-xs text-slate-500 italic mb-2')
@@ -198,7 +207,12 @@ def create_page():
             ui.notify('Please enter text to process', type='warning')
             return
         
-        process_btn.props('loading')
+        state['is_processing'] = True
+        state['cancel_processing'] = False
+        process_btn.set_text('Cancel Processing')
+        process_btn.props('icon=cancel')
+        process_btn.classes(remove='bg-indigo-600 hover:bg-indigo-700', add='bg-red-600 hover:bg-red-700')
+        
         progress_bar.set_visibility(True)
         progress_bar.set_value(0)
         
@@ -301,6 +315,10 @@ Text:
             all_segments = []
             
             for i, chunk in enumerate(text_chunks):
+                if state['cancel_processing']:
+                    ui.notify('Processing canceled', type='warning')
+                    break
+                    
                 chunk_prog = 0.3 + (i / len(text_chunks)) * 0.6
                 progress_bar.set_value(chunk_prog)
                 status_label.set_text(f'Segmenting chunk {i+1}/{len(text_chunks)}...')
@@ -354,6 +372,11 @@ SECTION TO SEGMENT:
             ui.notify(f'Processing error: {str(e)}', type='negative')
             print(f"Process text error: {e}")
         finally:
+            state['is_processing'] = False
+            state['cancel_processing'] = False
+            process_btn.set_text('Process Text')
+            process_btn.props('icon=psychology')
+            process_btn.classes(remove='bg-red-600 hover:bg-red-700', add='bg-indigo-600 hover:bg-indigo-700')
             process_btn.props(remove='loading')
             progress_bar.set_visibility(False)
             status_label.set_text('')
