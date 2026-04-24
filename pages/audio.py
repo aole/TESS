@@ -1,6 +1,6 @@
 from nicegui import ui, app
 from utils.ui_components import ui_list, ui_list_item
-from services.tts_service import tts_service, VOICES
+from services.tts_service import tts_service
 from utils.ollama_client import client
 import os
 import re
@@ -13,6 +13,30 @@ import soundfile as sf
 import numpy as np
 import io
 from nicegui import run
+import torch
+from omnivoice import OmniVoice
+
+omnivoice_model = None
+
+def get_omnivoice_model():
+    global omnivoice_model
+    if omnivoice_model is None:
+        omnivoice_model = OmniVoice.from_pretrained(
+            "k2-fsa/OmniVoice",
+            device_map="cuda:0",
+            dtype=torch.float16
+        )
+    return omnivoice_model
+
+def generate_omnivoice(target_text, ref_audio, ref_txt):
+    model = get_omnivoice_model()
+    audio = model.generate(
+        text=target_text,
+        ref_audio=ref_audio,
+        ref_text=ref_txt
+    )
+    return audio[0]
+
 
 AUDIO_DIR = 'data/audio'
 os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -80,7 +104,8 @@ def create_page():
     state = {
         'segments': [],      # List of {'speaker': ..., 'text': ...}
         'speaker_voices': {'Narrator': 'af_heart'}, # Map of speaker_name -> voice_id
-        'speakers': [{'name': 'Narrator', 'gender': 'Neutral', 'description': 'The storyteller'}],
+        'speaker_samples': {}, # Map of speaker_name -> sample_filename
+        'speakers': [{'name': 'Narrator', 'gender': 'Male', 'description': 'male, middle-aged, moderate pitch, american accent'}],
         'is_processing': False,
         'cancel_processing': False
     }
@@ -250,6 +275,13 @@ def create_page():
                     
                     state['speaker_voices'][name] = default_voice
                 
+                if name in state['speaker_samples']:
+                    default_sample = state['speaker_samples'][name]
+                else:
+                    default_sample = voice_files[0] if voice_files else None
+                    if default_sample:
+                        state['speaker_samples'][name] = default_sample
+                
                 with ui.card().classes('w-full p-3 bg-white/5 border border-white/10'):
                     with ui.row().classes('w-full justify-between items-start'):
                         ui.label(name).classes('text-sm font-bold text-indigo-300')
@@ -258,19 +290,13 @@ def create_page():
                     if desc:
                         ui.label(desc).classes('text-xs text-slate-400 italic mb-2')
                         
-                    ui.select(
-                        options=VOICES,
-                        value=default_voice,
-                        with_input=True,
-                        on_change=lambda e, n=name: state['speaker_voices'].update({n: e.value})
-                    ).classes('w-full mb-2').props('outlined dense dark')
-                    
                     with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
                         voice_sample_select = ui.select(
                             options=voice_files,
-                            value=voice_files[0] if voice_files else None,
+                            value=default_sample,
                             label='Voice Sample',
-                            with_input=True
+                            with_input=True,
+                            on_change=lambda e, n=name: state['speaker_samples'].update({n: e.value})
                         ).classes('flex-grow w-0').props('outlined dense dark')
                         
                         sample_player = ui.audio('').classes('hidden')
@@ -310,7 +336,7 @@ def create_page():
             return
         
         # Keep only Narrator before processing
-        state['speakers'] = [{'name': 'Narrator', 'gender': 'Neutral', 'description': 'The storyteller'}]
+        state['speakers'] = [{'name': 'Narrator', 'gender': 'Male', 'description': 'male, middle-aged, moderate pitch, american accent'}]
         state['speaker_voices'] = {k: v for k, v in state['speaker_voices'].items() if k.lower() == 'narrator'}
         render_speakers_ui()
         
@@ -367,7 +393,7 @@ Output MUST be exclusively a valid JSON list of objects with keys: 'name', 'gend
 
             speakers = extract_json_list(content1)
             if not any(s.get('name', '').lower() == 'narrator' for s in speakers if isinstance(s, dict)):
-                speakers.insert(0, {'name': 'Narrator', 'gender': 'Neutral', 'description': 'The storyteller'})
+                speakers.insert(0, {'name': 'Narrator', 'gender': 'Male', 'description': 'male, middle-aged, moderate pitch, american accent'})
             
             state['speakers'] = speakers
             unique_names = [s.get('name', 'Unknown') for s in speakers if isinstance(s, dict)]
@@ -530,25 +556,42 @@ Example Output:
                 text = seg['text']
                 if not text: continue
                 
-                # Try to find the voice for this speaker name (case insensitive)
-                voice = 'af_heart'
-                for s_name, s_voice in state['speaker_voices'].items():
-                    if s_name.lower() == speaker.lower():
-                        voice = s_voice
-                        break
+                # Try to find the voice sample for this speaker name (case insensitive)
+                voice_sample = state['speaker_samples'].get(speaker)
+                if not voice_sample:
+                    for s_name, s_sample in state['speaker_samples'].items():
+                        if s_name.lower() == speaker.lower():
+                            voice_sample = s_sample
+                            break
+                            
+                if not voice_sample:
+                    voice_sample = list(state['speaker_samples'].values())[0] if state['speaker_samples'] else None
+                    
+                if not voice_sample:
+                    ui.notify(f"No voice sample selected for {speaker}", type="warning")
+                    continue
                 
                 ui.notify(f'Segment {i+1}/{len(segments)} ({speaker})...', color='indigo', duration=1)
                 
-                audio_bytes = await run.cpu_bound(
-                    tts_service.generate_audio_bytes,
+                ref_text_path = os.path.join('data/voices', voice_sample.replace('.wav', '.txt'))
+                if not os.path.exists(ref_text_path):
+                    ui.notify(f"Reference text not found: {ref_text_path}", type="negative")
+                    continue
+                    
+                with open(ref_text_path, 'r', encoding='utf-8') as f:
+                    ref_text = f.read().strip()
+                
+                ref_audio_path = os.path.join('data/voices', voice_sample)
+                
+                audio_data = await run.cpu_bound(
+                    generate_omnivoice,
                     text,
-                    voice=voice
+                    ref_audio_path,
+                    ref_text
                 )
                 
-                if audio_bytes:
-                    buffer = io.BytesIO(audio_bytes)
-                    data, samplerate = sf.read(buffer)
-                    all_audio_data.append(data)
+                if audio_data is not None:
+                    all_audio_data.append(audio_data)
             
             if not all_audio_data:
                 ui.notify('No audio was generated!', type='negative')
