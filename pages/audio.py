@@ -222,11 +222,24 @@ Text:
 """
             resp1 = await client.chat(model=model, messages=[{'role': 'user', 'content': pass1_prompt}], stream=False)
             content1 = resp1.get('message', {}).get('content', '')
-            match1 = re.search(r'\[\s*\{.*\}\s*\]', content1, re.DOTALL)
-            speakers = json.loads(match1.group(0), strict=False) if match1 else json.loads(content1, strict=False)
+            
+            def extract_json_list(text):
+                start = text.find('[')
+                end = text.rfind(']')
+                if start != -1 and end != -1 and start < end:
+                    try:
+                        return json.loads(text[start:end+1], strict=False)
+                    except Exception:
+                        pass
+                try:
+                    return json.loads(text, strict=False)
+                except Exception:
+                    return []
+
+            speakers = extract_json_list(content1)
             
             state['speakers'] = speakers
-            unique_names = [s['name'] for s in speakers]
+            unique_names = [s.get('name', 'Unknown') for s in speakers if isinstance(s, dict)]
             
             # Update UI immediately with speaker cards
             speaker_settings_container.clear()
@@ -314,10 +327,14 @@ CRITICAL:
 SECTION TO SEGMENT:
 {chunk}
 """
-                resp2 = await client.chat(model=model, messages=[{'role': 'user', 'content': pass2_prompt}], stream=False)
+                resp2 = await client.chat(
+                    model=model, 
+                    messages=[{'role': 'user', 'content': pass2_prompt}], 
+                    stream=False,
+                    keep_alive=0 if i == len(text_chunks) - 1 else None
+                )
                 content2 = resp2.get('message', {}).get('content', '')
-                match2 = re.search(r'\[\s*\{.*\}\s*\]', content2, re.DOTALL)
-                chunk_segments = json.loads(match2.group(0), strict=False) if match2 else json.loads(content2, strict=False)
+                chunk_segments = extract_json_list(content2)
                 all_segments.extend(chunk_segments)
             
             status_label.set_text('Finishing up...')
