@@ -218,6 +218,14 @@ def create_page():
 
     def render_speakers_ui():
         speaker_settings_container.clear()
+        
+        voice_files = []
+        try:
+            if os.path.exists('data/voices'):
+                voice_files = sorted([f for f in os.listdir('data/voices') if f.lower().endswith('.wav')])
+        except Exception:
+            pass
+
         with speaker_settings_container:
             ui.label('Assign Voices').classes('text-sm font-medium text-slate-400 uppercase tracking-wider mb-2')
             for s in state['speakers']:
@@ -255,7 +263,46 @@ def create_page():
                         value=default_voice,
                         with_input=True,
                         on_change=lambda e, n=name: state['speaker_voices'].update({n: e.value})
-                    ).classes('w-full').props('outlined dense dark')
+                    ).classes('w-full mb-2').props('outlined dense dark')
+                    
+                    with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
+                        voice_sample_select = ui.select(
+                            options=voice_files,
+                            value=voice_files[0] if voice_files else None,
+                            label='Voice Sample',
+                            with_input=True
+                        ).classes('flex-grow w-0').props('outlined dense dark')
+                        
+                        sample_player = ui.audio('').classes('hidden')
+                        
+                        play_btn = ui.button(icon='play_arrow').classes('bg-indigo-600 hover:bg-indigo-700 text-white shrink-0').props('round dense flat')
+                        
+                        class PlayState:
+                            playing = False
+                            
+                        def setup_player(btn, player, sel):
+                            st = PlayState()
+                            
+                            def toggle(e):
+                                if st.playing:
+                                    player.pause()
+                                    btn.props('icon=play_arrow')
+                                    st.playing = False
+                                else:
+                                    if sel.value:
+                                        player.set_source(f'/data/voices/{sel.value}')
+                                        player.play()
+                                        btn.props('icon=stop')
+                                        st.playing = True
+                                        
+                            def reset(e):
+                                btn.props('icon=play_arrow')
+                                st.playing = False
+                                
+                            btn.on_click(toggle)
+                            player.on('ended', reset)
+                            
+                        setup_player(play_btn, sample_player, voice_sample_select)
 
     async def process_text():
         if not text_input.value.strip():
