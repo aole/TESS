@@ -170,7 +170,7 @@ def create_page():
             return
         container.clear()
         with container:
-            ui.audio(f'/data/audio/{filename}').classes('w-full shadow-inner rounded-lg').props('autoplay')
+            ui.audio(f'/data/audio/{filename}').classes('w-full shadow-inner rounded-lg').props('autoplay id=main_player')
 
     def delete_audio_file(filename: str):
         """Delete an audio file from disk and refresh the list."""
@@ -186,7 +186,7 @@ def create_page():
         if container is not None:
             container.clear()
             with container:
-                ui.audio('').classes('w-full shadow-inner rounded-lg')
+                ui.audio('').classes('w-full shadow-inner rounded-lg').props('id=main_player')
         refresh_audio_list()
 
     def refresh_audio_list(selected_filename: str = None):
@@ -253,13 +253,14 @@ def create_page():
                 player_container = ui.element('div').classes('w-full')
                 player_state['container'] = player_container
                 with player_container:
-                    ui.audio('').classes('w-full shadow-inner rounded-lg')
+                    ui.audio('').classes('w-full shadow-inner rounded-lg').props('id=main_player')
 
     def refresh_player(filename: str):
         player_state['container'].clear()
         from utils.config import config_manager
+        import time
         with player_state['container']:
-            audio_el = ui.audio(f'/data/audio/{filename}').classes('w-full shadow-inner rounded-lg')
+            audio_el = ui.audio(f'/data/audio/{filename}?t={time.time()}').classes('w-full shadow-inner rounded-lg').props('id=main_player')
             if config_manager.get_auto_start_audio():
                 audio_el.props('autoplay')
         refresh_audio_list(selected_filename=filename)
@@ -715,6 +716,14 @@ Example Output:
         try:
             ui.notify('Starting synthesis...', color='indigo')
             
+            # Use original text (or first 32 chars) for filename
+            clean_prefix = re.sub(r'\[[^\]]+\]', '', raw_text[:64]).strip()
+            sanitized = re.sub(r'[^a-zA-Z0-9]+', '_', clean_prefix[:32]).strip('_')
+            if not sanitized: sanitized = "story"
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+            filename = f"{sanitized}-{timestamp}.wav"
+            filepath = os.path.join(AUDIO_DIR, filename)
+            
             all_audio_data = []
             
             for i, seg in enumerate(segments):
@@ -764,38 +773,49 @@ Example Output:
                 
                 if audio_data is not None:
                     all_audio_data.append(audio_data)
+                    
+                    # Update file incrementally
+                    combined = np.concatenate(all_audio_data)
+                    final_buffer = io.BytesIO()
+                    sf.write(final_buffer, combined, 24000, format='WAV')
+                    
+                    metadata = {
+                        'speaker': 'Annotated Story',
+                        'comment': f'Segments: {len(segments)}',
+                        'software': 'TESS Story Studio v2',
+                        'date': datetime.now().strftime('%Y-%m-%d'),
+                    }
+                    final_bytes = tts_service.embed_wav_metadata(final_buffer.getvalue(), metadata)
+                    
+                    with open(filepath, 'wb') as f:
+                        f.write(final_bytes)
+                        
+                    if len(all_audio_data) == 1:
+                        refresh_player(filename)
+                    else:
+                        import time
+                        new_src = f"/data/audio/{filename}?t={time.time()}"
+                        ui.run_javascript(f'''
+                            const audio = document.getElementById("main_player");
+                            if (audio) {{
+                                const isPaused = audio.paused;
+                                const currentTime = audio.currentTime;
+                                audio.onloadedmetadata = function() {{
+                                    audio.currentTime = currentTime;
+                                    if (!isPaused) audio.play();
+                                }};
+                                audio.src = "{new_src}";
+                                audio.load();
+                            }}
+                        ''')
+                        refresh_audio_list(selected_filename=filename)
             
             if not all_audio_data:
                 ui.notify('No audio was generated!', type='negative')
                 return
             
-            gen_status_label.set_text('Merging audio segments...')
+            gen_status_label.set_text('Finished generating audio segments.')
             gen_progress_bar.set_value(1.0)
-            
-            combined = np.concatenate(all_audio_data)
-            
-            # Use original text (or first 32 chars) for filename
-            clean_prefix = re.sub(r'\[[^\]]+\]', '', raw_text[:64]).strip()
-            sanitized = re.sub(r'[^a-zA-Z0-9]+', '_', clean_prefix[:32]).strip('_')
-            if not sanitized: sanitized = "story"
-            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-            filename = f"{sanitized}-{timestamp}.wav"
-            filepath = os.path.join(AUDIO_DIR, filename)
-            
-            final_buffer = io.BytesIO()
-            sf.write(final_buffer, combined, 24000, format='WAV')
-            
-            metadata = {
-                'speaker': 'Annotated Story',
-                'comment': f'Segments: {len(segments)}',
-                'software': 'TESS Story Studio v2',
-                'date': datetime.now().strftime('%Y-%m-%d'),
-            }
-            final_bytes = tts_service.embed_wav_metadata(final_buffer.getvalue(), metadata)
-            
-            with open(filepath, 'wb') as f:
-                f.write(final_bytes)
-                
             refresh_player(filename)
             ui.notify('Audio generated from script!', type='positive')
             
