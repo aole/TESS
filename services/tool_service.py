@@ -1,13 +1,12 @@
 import os
 import ast
 import glob
-import re
 from dataclasses import dataclass, asdict
 from typing import List, Optional
 
-TOOLS_DIR = 'data/tools'
-
 from utils.config import config_manager
+
+TOOLS_DIR = 'data/tools'
 
 @dataclass
 class Tool:

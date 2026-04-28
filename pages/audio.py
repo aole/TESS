@@ -1,13 +1,53 @@
 from nicegui import ui, app
 from utils.ui_components import ui_list, ui_list_item
-from services.tts_service import tts_service, VOICES
+from services.tts_service import tts_service
 from utils.ollama_client import client
-import base64
 import os
-import time
 import re
+import struct
 import json
+import wave
 from datetime import datetime
+
+import soundfile as sf
+import numpy as np
+import io
+from nicegui import run
+import torch
+from omnivoice import OmniVoice
+
+omnivoice_model = None
+
+def get_omnivoice_model():
+    global omnivoice_model
+    if omnivoice_model is None:
+        omnivoice_model = OmniVoice.from_pretrained(
+            "k2-fsa/OmniVoice",
+            device_map="cuda:0",
+            dtype=torch.float16
+        )
+    return omnivoice_model
+
+def generate_omnivoice(target_text, ref_audio, ref_txt):
+    model = get_omnivoice_model()
+    audio = model.generate(
+        text=target_text,
+        ref_audio=ref_audio,
+        ref_text=ref_txt
+    )
+    return audio[0]
+
+def generate_omnivoice_design(text, instruct, num_step, pos_temp, cls_temp):
+    model = get_omnivoice_model()
+    audio = model.generate(
+        text=text,
+        instruct=instruct,
+        num_step=int(num_step),
+        position_temperature=float(pos_temp),
+        class_temperature=float(cls_temp)
+    )
+    return audio[0]
+
 
 AUDIO_DIR = 'data/audio'
 os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -15,44 +55,47 @@ os.makedirs(AUDIO_DIR, exist_ok=True)
 
 def get_wav_duration(filepath: str) -> str:
     """Return a human-readable duration string for a WAV file."""
-    try:
-        import wave
-        with wave.open(filepath, 'rb') as wf:
-            frames = wf.getnframes()
-            rate = wf.getframerate()
-            seconds = frames / rate
-        m, s = divmod(int(seconds), 60)
-        return f'{m}:{s:02d}'
-    except Exception:
-        return ''
+    with wave.open(filepath, 'rb') as wf:
+        frames = wf.getnframes()
+        rate = wf.getframerate()
+        seconds = frames / rate
+    m, s = divmod(int(seconds), 60)
+    return f'{m}:{s:02d}'
 
 
 def get_wav_speaker(filepath: str) -> str:
     """Extract the IART (speaker) field from a WAV RIFF LIST/INFO chunk."""
-    try:
-        import struct
-        with open(filepath, 'rb') as f:
-            data = f.read()
-        # Scan for LIST chunk
-        pos = 12  # skip RIFF header
-        while pos + 8 <= len(data):
-            chunk_id = data[pos:pos+4]
-            chunk_size = struct.unpack_from('<I', data, pos+4)[0]
-            if chunk_id == b'LIST' and data[pos+8:pos+12] == b'INFO':
-                # Walk INFO sub-chunks
-                sub_pos = pos + 12
-                end = pos + 8 + chunk_size
-                while sub_pos + 8 <= end:
-                    sub_id = data[sub_pos:sub_pos+4]
-                    sub_size = struct.unpack_from('<I', data, sub_pos+4)[0]
-                    if sub_id == b'IART':
-                        raw = data[sub_pos+8:sub_pos+8+sub_size]
-                        return raw.rstrip(b'\x00').decode('utf-8', errors='replace')
-                    # sub-chunks are padded to even size
-                    sub_pos += 8 + sub_size + (sub_size % 2)
-            pos += 8 + chunk_size + (chunk_size % 2)
-    except Exception:
-        pass
+    with open(filepath, 'rb') as f:
+        header = f.read(12)
+        if len(header) < 12 or not header.startswith(b'RIFF'):
+            return ''
+        
+        file_size = os.path.getsize(filepath)
+        
+        while f.tell() + 8 <= file_size:
+            chunk_header = f.read(8)
+            if len(chunk_header) < 8:
+                break
+            chunk_id, chunk_size = struct.unpack('<4sI', chunk_header)
+            
+            if chunk_id == b'LIST':
+                list_type = f.read(4)
+                if list_type == b'INFO':
+                    end_pos = f.tell() - 4 + chunk_size
+                    while f.tell() + 8 <= end_pos:
+                        sub_header = f.read(8)
+                        if len(sub_header) < 8:
+                            break
+                        sub_id, sub_size = struct.unpack('<4sI', sub_header)
+                        if sub_id == b'IART':
+                            raw = f.read(sub_size)
+                            return raw.rstrip(b'\x00').decode('utf-8', errors='replace')
+                        f.seek(sub_size + (sub_size % 2), os.SEEK_CUR)
+                    break
+                else:
+                    f.seek(chunk_size - 4 + (chunk_size % 2), os.SEEK_CUR)
+            else:
+                f.seek(chunk_size + (chunk_size % 2), os.SEEK_CUR)
     return ''
 
 
@@ -71,15 +114,36 @@ def create_page():
     # State for multi-speaker processing
     state = {
         'segments': [],      # List of {'speaker': ..., 'text': ...}
-        'speaker_voices': {}, # Map of speaker_name -> voice_id
-        'is_processing': False
+        'speaker_voices': {'Narrator': 'af_heart'}, # Map of speaker_name -> voice_id
+        'speaker_samples': {}, # Map of speaker_name -> sample_filename
+        'speakers': [{'name': 'Narrator', 'gender': 'Male', 'description': 'male, middle-aged, moderate pitch, american accent'}],
+        'is_processing': False,
+        'cancel_processing': False,
+        'is_generating': False,
+        'cancel_generating': False
     }
 
     with right_drawer:
         ui.label('Story Studio').classes('text-xl font-bold text-white mb-4')
         
-        process_btn = ui.button('Process Text', icon='psychology', on_click=lambda: process_text()) \
-            .classes('w-full mb-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg')
+        async def toggle_process():
+            if state['is_processing']:
+                state['cancel_processing'] = True
+                status_label.set_text('Canceling...')
+                process_btn.props('loading')
+            else:
+                await process_text()
+
+        async def toggle_generate():
+            if state['is_generating']:
+                state['cancel_generating'] = True
+                gen_status_label.set_text('Canceling generation...')
+                generate_multi_btn.props('loading')
+            else:
+                await generate_multi()
+
+        process_btn = ui.button('Process Text', icon='psychology', on_click=toggle_process) \
+            .classes('w-full mb-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors')
         process_btn.props('no-caps')
 
         status_label = ui.label('').classes('text-xs text-slate-500 italic mb-2')
@@ -88,10 +152,15 @@ def create_page():
 
         speaker_settings_container = ui.column().classes('w-full gap-4')
         
-        generate_multi_btn = ui.button('Generate Full Audio', icon='auto_awesome', on_click=lambda: generate_multi()) \
+        generate_multi_btn = ui.button('Generate Full Audio', icon='auto_awesome', on_click=toggle_generate) \
             .classes('w-full mt-6 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg')
         generate_multi_btn.props('no-caps shadow-lg')
         generate_multi_btn.set_visibility(False)
+
+        gen_status_label = ui.label('').classes('text-xs text-slate-500 italic mt-2 mb-2')
+        gen_status_label.set_visibility(False)
+        gen_progress_bar = ui.linear_progress(value=0, show_value=False).classes('w-full mb-4')
+        gen_progress_bar.set_visibility(False)
 
     # Shared player container reference (will be set below)
     player_state = {'container': None}
@@ -189,16 +258,260 @@ def create_page():
 
     def refresh_player(filename: str):
         player_state['container'].clear()
+        from utils.config import config_manager
         with player_state['container']:
-            ui.audio(f'/data/audio/{filename}').classes('w-full shadow-inner rounded-lg').props('autoplay')
+            audio_el = ui.audio(f'/data/audio/{filename}').classes('w-full shadow-inner rounded-lg')
+            if config_manager.get_auto_start_audio():
+                audio_el.props('autoplay')
         refresh_audio_list(selected_filename=filename)
+
+    def render_speakers_ui():
+        speaker_settings_container.clear()
+        
+        voice_files = []
+        try:
+            if os.path.exists('data/voices'):
+                voice_files = sorted([f for f in os.listdir('data/voices') if f.lower().endswith('.wav')])
+        except Exception:
+            pass
+
+        def open_design_dialog(spk_name, select_ui, desc):
+            with ui.dialog() as dialog, ui.card().classes('w-full max-w-3xl p-6 bg-[#18181b] border border-white/10 text-white'):
+                ui.label(f'Design Voice for {spk_name}').classes('text-xl font-bold mb-4')
+                
+                default_ref_text = """Have you ever wondered what makes a digital voice feel truly alive?
+It’s all about the rhythm! From solving complex problems to sharing a quick laugh, I’m here to make every word count.
+So, shall we get started?"""
+                
+                genders = ['male', 'female']
+                ages = ['child', 'teenager', 'young adult', 'middle-aged', 'elderly']
+                pitches = ['very low pitch', 'low pitch', 'moderate pitch', 'high pitch', 'very high pitch']
+                accents = ['american accent', 'british accent', 'australian accent', 'canadian accent', 'indian accent', 'chinese accent', 'korean accent', 'japanese accent', 'portuguese accent', 'russian accent']
+
+                d_gender, d_age, d_pitch, d_accent = 'female', 'young adult', 'moderate pitch', 'american accent'
+                if desc:
+                    parts = [p.strip().lower() for p in desc.split(',')]
+                    if len(parts) >= 4:
+                        d_gender = parts[0] if parts[0] in genders else 'female'
+                        d_age = parts[1] if parts[1] in ages else 'young adult'
+                        d_pitch = parts[2] if parts[2] in pitches else 'moderate pitch'
+                        d_accent = parts[3] if parts[3] in accents else 'american accent'
+
+                with ui.column().classes('w-full gap-4'):
+                    ref_text_input = ui.textarea('Sample Text', value=default_ref_text).classes('w-full').props('outlined dark')
+                    
+                    with ui.row().classes('w-full gap-4'):
+                        gender_sel = ui.select(genders, value=d_gender, label='Gender').classes('flex-1').props('outlined dark')
+                        age_sel = ui.select(ages, value=d_age, label='Age').classes('flex-1').props('outlined dark')
+                        pitch_sel = ui.select(pitches, value=d_pitch, label='Pitch').classes('flex-1').props('outlined dark')
+                        accent_sel = ui.select(accents, value=d_accent, label='Accent').classes('flex-1').props('outlined dark')
+                        
+                    with ui.row().classes('w-full gap-4'):
+                        num_step_input = ui.number('Num Step', value=48, min=1, max=100).classes('flex-1').props('outlined dark')
+                        pos_temp_input = ui.number('Position Temp', value=10.0).classes('flex-1').props('outlined dark')
+                        cls_temp_input = ui.number('Class Temp', value=1.0).classes('flex-1').props('outlined dark')
+                
+                class DialogState:
+                    audio_data = None
+                    saved_filename = None
+                    playing = False
+                    
+                d_state = DialogState()
+                design_player = ui.audio('').classes('hidden')
+                
+                with ui.row().classes('w-full gap-4 mt-4 justify-end'):
+                    gen_btn = ui.button('Generate', icon='auto_awesome').classes('bg-indigo-600 text-white')
+                    play_pause_btn = ui.button('Play', icon='play_arrow', color='slate').props('disabled')
+                    save_btn = ui.button('Save', icon='save', color='green').props('disabled')
+                    use_btn = ui.button('Use', icon='check_circle', color='blue').props('disabled')
+                    ui.button('Close', on_click=dialog.close, color='red')
+                    
+                async def on_generate():
+                    gen_btn.props('loading')
+                    instruct = f"{gender_sel.value}, {age_sel.value}, {pitch_sel.value}, {accent_sel.value}"
+                    try:
+                        audio_data = await run.cpu_bound(
+                            generate_omnivoice_design,
+                            ref_text_input.value,
+                            instruct,
+                            num_step_input.value,
+                            pos_temp_input.value,
+                            cls_temp_input.value
+                        )
+                        d_state.audio_data = audio_data
+                        d_state.saved_filename = None
+                        
+                        import tempfile, time
+                        temp_path = os.path.join('data/voices', '_temp_design.wav')
+                        sf.write(temp_path, audio_data, 24000)
+                        design_player.set_source(f'/data/voices/_temp_design.wav?t={time.time()}')
+                        
+                        play_pause_btn.props(remove='disabled')
+                        save_btn.props(remove='disabled')
+                        use_btn.props(remove='disabled')
+                        
+                        design_player.play()
+                        d_state.playing = True
+                        play_pause_btn.set_text('Pause')
+                        play_pause_btn.props('icon=pause')
+                        
+                    except Exception as e:
+                        ui.notify(f"Error: {e}", type='negative')
+                    finally:
+                        gen_btn.props(remove='loading')
+                        
+                gen_btn.on_click(on_generate)
+                
+                def on_play_pause():
+                    if d_state.playing:
+                        design_player.pause()
+                        d_state.playing = False
+                        play_pause_btn.set_text('Play')
+                        play_pause_btn.props('icon=play_arrow')
+                    else:
+                        design_player.play()
+                        d_state.playing = True
+                        play_pause_btn.set_text('Pause')
+                        play_pause_btn.props('icon=pause')
+                        
+                design_player.on('ended', lambda e: (setattr(d_state, 'playing', False), play_pause_btn.set_text('Play'), play_pause_btn.props('icon=play_arrow')))
+                play_pause_btn.on_click(on_play_pause)
+                
+                def on_save():
+                    if d_state.audio_data is None: return
+                    instruct_str = f"{gender_sel.value}_{age_sel.value}_{pitch_sel.value}_{accent_sel.value}".replace(' ', '_').replace('-', '_')
+                    import glob
+                    existing = glob.glob(f"data/voices/{instruct_str}_*.wav")
+                    nums = []
+                    for f in existing:
+                        m = re.search(r'_(\d{3})\.wav$', f)
+                        if m: nums.append(int(m.group(1)))
+                    next_num = max(nums) + 1 if nums else 1
+                    filename = f"{instruct_str}_{next_num:03d}.wav"
+                    txt_filename = f"{instruct_str}_{next_num:03d}.txt"
+                    
+                    sf.write(f"data/voices/{filename}", d_state.audio_data, 24000)
+                    with open(f"data/voices/{txt_filename}", "w", encoding="utf-8") as f:
+                        f.write(ref_text_input.value)
+                    
+                    ui.notify(f"Saved {filename}", type='positive')
+                    d_state.saved_filename = filename
+                    
+                    if filename not in select_ui.options:
+                        select_ui.options.append(filename)
+                        select_ui.update()
+                        
+                save_btn.on_click(on_save)
+                
+                def on_use():
+                    if not d_state.saved_filename:
+                        on_save()
+                    select_ui.set_value(d_state.saved_filename)
+                    state['speaker_samples'][spk_name] = d_state.saved_filename
+                    dialog.close()
+                    
+                use_btn.on_click(on_use)
+                
+                dialog.open()
+
+
+        with speaker_settings_container:
+            ui.label('Assign Voices').classes('text-sm font-medium text-slate-400 uppercase tracking-wider mb-2')
+            for s in state['speakers']:
+                name = s.get('name', 'Unknown')
+                gender = s.get('gender', 'Neutral')
+                desc = s.get('description', '')
+                
+                if name in state['speaker_voices']:
+                    default_voice = state['speaker_voices'][name]
+                else:
+                    is_female = 'female' in gender.lower()
+                    is_male = 'male' in gender.lower()
+                    
+                    if 'narrator' in name.lower():
+                        default_voice = 'af_heart'
+                    elif is_female:
+                        default_voice = 'af_bella'
+                    elif is_male:
+                        default_voice = 'am_adam'
+                    else:
+                        default_voice = 'af_sky'
+                    
+                    state['speaker_voices'][name] = default_voice
+                
+                if name in state['speaker_samples']:
+                    default_sample = state['speaker_samples'][name]
+                else:
+                    default_sample = voice_files[0] if voice_files else None
+                    if default_sample:
+                        state['speaker_samples'][name] = default_sample
+                
+                with ui.card().classes('w-full p-3 bg-white/5 border border-white/10'):
+                    with ui.row().classes('w-full justify-between items-start'):
+                        ui.label(name).classes('text-sm font-bold text-indigo-300')
+                        ui.badge(gender).classes('bg-indigo-900/50 text-[10px]')
+                    
+                    if desc:
+                        ui.label(desc).classes('text-xs text-slate-400 italic mb-2')
+                        
+                    with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
+                        voice_sample_select = ui.select(
+                            options=voice_files,
+                            value=default_sample,
+                            label='Voice Sample',
+                            with_input=True,
+                            on_change=lambda e, n=name: state['speaker_samples'].update({n: e.value})
+                        ).classes('flex-grow w-0').props('outlined dense dark')
+                        
+                        sample_player = ui.audio('').classes('hidden')
+                        
+                        play_btn = ui.button(icon='play_arrow').classes('bg-indigo-600 hover:bg-indigo-700 text-white shrink-0').props('round dense flat')
+                        design_btn = ui.button(icon='tune', on_click=lambda e, n=name, ui_sel=voice_sample_select, d=desc: open_design_dialog(n, ui_sel, d)).classes('bg-slate-600 hover:bg-slate-700 text-white shrink-0').props('round dense flat')
+
+                        
+                        class PlayState:
+                            playing = False
+                            
+                        def setup_player(btn, player, sel):
+                            st = PlayState()
+                            
+                            def toggle(e):
+                                if st.playing:
+                                    player.pause()
+                                    btn.props('icon=play_arrow')
+                                    st.playing = False
+                                else:
+                                    if sel.value:
+                                        player.set_source(f'/data/voices/{sel.value}')
+                                        player.play()
+                                        btn.props('icon=stop')
+                                        st.playing = True
+                                        
+                            def reset(e):
+                                btn.props('icon=play_arrow')
+                                st.playing = False
+                                
+                            btn.on_click(toggle)
+                            player.on('ended', reset)
+                            
+                        setup_player(play_btn, sample_player, voice_sample_select)
 
     async def process_text():
         if not text_input.value.strip():
             ui.notify('Please enter text to process', type='warning')
             return
         
-        process_btn.props('loading')
+        # Keep only Narrator before processing
+        state['speakers'] = [{'name': 'Narrator', 'gender': 'Male', 'description': 'male, middle-aged, moderate pitch, american accent'}]
+        state['speaker_voices'] = {k: v for k, v in state['speaker_voices'].items() if k.lower() == 'narrator'}
+        render_speakers_ui()
+        
+        state['is_processing'] = True
+        state['cancel_processing'] = False
+        process_btn.set_text('Cancel Processing')
+        process_btn.props('icon=cancel')
+        process_btn.classes(remove='bg-indigo-600 hover:bg-indigo-700', add='bg-red-600 hover:bg-red-700')
+        
         progress_bar.set_visibility(True)
         progress_bar.set_value(0)
         
@@ -212,113 +525,140 @@ def create_page():
             status_label.set_text('Pass 1: Identifying characters...')
             progress_bar.set_value(0.1)
             
-            pass1_prompt = f"""Identify all characters in the following story, including a "Narrator" for descriptive parts. 
-For each character, specify their gender (Male, Female, or Neutral) and a brief description of their voice personality.
-Return ONLY a JSON list of objects.
-Example: [{{"name": "Alice", "gender": "Female", "description": "High-pitched and curious"}}, ...]
+            pass1_system = """You are an expert casting director and script analyzer. Your task is to identify all unique characters in the provided story.
+You must always include a "Narrator" character for descriptive, non-dialogue parts of the text.
+Analyze the text to determine the gender (Male, Female, or Neutral) and a brief voice personality for each character.
+The description for each character MUST strictly follow this exact structure: <gender>, <age>, <pitch>, <accent>.
+Only the following values can be used for the description field:
+- gender: male | female
+- age: child | teenager | young adult | middle-aged | elderly
+- pitch: very low pitch | low pitch | moderate pitch | high pitch | very high pitch
+- accent: american accent | british accent | australian accent | canadian accent | indian accent | chinese accent | korean accent | japanese accent | portuguese accent | russian accent
+Output MUST be exclusively a valid JSON list of objects with keys: 'name', 'gender', 'description'. Do not include any conversational text or markdown formatting."""
 
-Text:
-{text_input.value}
-"""
-            resp1 = await client.chat(model=model, messages=[{'role': 'user', 'content': pass1_prompt}], stream=False)
+            pass1_user = f"Text to analyze:\n{text_input.value}"
+
+            resp1 = await client.chat(model=model, messages=[
+                {'role': 'system', 'content': pass1_system},
+                {'role': 'user', 'content': pass1_user}
+            ], stream=False)
             content1 = resp1.get('message', {}).get('content', '')
-            match1 = re.search(r'\[\s*\{.*\}\s*\]', content1, re.DOTALL)
-            speakers = json.loads(match1.group(0), strict=False) if match1 else json.loads(content1, strict=False)
+            
+            def extract_json_list(text):
+                start = text.find('[')
+                end = text.rfind(']')
+                if start != -1 and end != -1 and start < end:
+                    try:
+                        return json.loads(text[start:end+1], strict=False)
+                    except Exception:
+                        pass
+                try:
+                    return json.loads(text, strict=False)
+                except Exception:
+                    return []
+
+            speakers = extract_json_list(content1)
+            if not any(s.get('name', '').lower() == 'narrator' for s in speakers if isinstance(s, dict)):
+                speakers.insert(0, {'name': 'Narrator', 'gender': 'Male', 'description': 'male, middle-aged, moderate pitch, american accent'})
             
             state['speakers'] = speakers
-            unique_names = [s['name'] for s in speakers]
+            unique_names = [s.get('name', 'Unknown') for s in speakers if isinstance(s, dict)]
             
             # Update UI immediately with speaker cards
-            speaker_settings_container.clear()
-            with speaker_settings_container:
-                ui.label('Assign Voices').classes('text-sm font-medium text-slate-400 uppercase tracking-wider mb-2')
-                for s in speakers:
-                    name = s['name']
-                    gender = s.get('gender', 'Neutral')
-                    desc = s.get('description', '')
-                    
-                    # PERSISTENCE: Check if we already assigned a voice to this speaker in this session
-                    if name in state['speaker_voices']:
-                        default_voice = state['speaker_voices'][name]
-                    else:
-                        # Smart voice assignment
-                        is_female = 'female' in gender.lower()
-                        is_male = 'male' in gender.lower()
-                        
-                        if 'narrator' in name.lower():
-                            default_voice = 'af_heart'
-                        elif is_female:
-                            default_voice = 'af_bella'
-                        elif is_male:
-                            default_voice = 'am_adam'
-                        else:
-                            default_voice = 'af_sky'
-                        
-                        state['speaker_voices'][name] = default_voice
-                    
-                    with ui.card().classes('w-full p-3 bg-white/5 border border-white/10'):
-                        with ui.row().classes('w-full justify-between items-start'):
-                            ui.label(name).classes('text-sm font-bold text-indigo-300')
-                            ui.badge(gender).classes('bg-indigo-900/50 text-[10px]')
-                        
-                        if desc:
-                            ui.label(desc).classes('text-xs text-slate-400 italic mb-2')
-                            
-                        ui.select(
-                            options=VOICES,
-                            value=default_voice,
-                            with_input=True,
-                            on_change=lambda e, n=name: state['speaker_voices'].update({n: e.value})
-                        ).classes('w-full').props('outlined dense dark')
+            render_speakers_ui()
 
-            # --- Pass 2: Text Segmentation (Chunked) ---
-            status_label.set_text('Pass 2: Segmenting text...')
+            # --- Pass 2: Static Pass & Speaker Assignment ---
+            status_label.set_text('Pass 2: Segmenting text and identifying speakers...')
             progress_bar.set_value(0.3)
             
-            # Split text into chunks paragraph by paragraph
-            def get_chunks(text):
-                # Try splitting by double newlines first (standard paragraph separation)
-                chunks = [p.strip() for p in text.split('\n\n') if p.strip()]
-                if len(chunks) <= 1:
-                    # Fallback to single newlines if no double newlines are detected
-                    chunks = [p.strip() for p in text.split('\n') if p.strip()]
-                return chunks
-
-            text_chunks = get_chunks(text_input.value)
-            all_segments = []
-            
-            for i, chunk in enumerate(text_chunks):
-                chunk_prog = 0.3 + (i / len(text_chunks)) * 0.6
-                progress_bar.set_value(chunk_prog)
-                status_label.set_text(f'Segmenting chunk {i+1}/{len(text_chunks)}...')
+            def split_dialogue_and_narrative(text):
+                import re
+                pattern = r'("[^"]*"|“[^”]*”|‘.+?’(?!\w)|(?<!\w)\'.+?\'(?!\w))'
+                parts = re.split(pattern, text, flags=re.DOTALL)
                 
-                pass2_prompt = f"""You are a script segmenter. 
-Characters: {', '.join(unique_names)}
+                segments = []
+                for p in parts:
+                    p = p.strip()
+                    if not p:
+                        continue
+                    if (p.startswith('"') and p.endswith('"')) or \
+                       (p.startswith('“') and p.endswith('”')) or \
+                       (p.startswith('‘') and p.endswith('’')) or \
+                       (p.startswith("'") and p.endswith("'")):
+                        segments.append({"type": "dialogue", "text": p})
+                    else:
+                        segments.append({"type": "narrator", "text": p})
+                return segments
 
-CONTEXT (Full Story):
-{text_input.value}
+            static_segments = split_dialogue_and_narrative(text_input.value)
+            
+            all_segments = []
+            dialogue_indices = []
+            
+            for i, seg in enumerate(static_segments):
+                if seg['type'] == 'narrator':
+                    all_segments.append({'speaker': 'Narrator', 'text': seg['text']})
+                else:
+                    all_segments.append({'speaker': 'Unknown', 'text': seg['text']})
+                    dialogue_indices.append(i)
+                    
+            batch_size = 5
+            for i in range(0, len(dialogue_indices), batch_size):
+                if state['cancel_processing']:
+                    ui.notify('Processing canceled', type='warning')
+                    break
+                    
+                batch_indices = dialogue_indices[i:i+batch_size]
+                
+                chunk_prog = 0.3 + (i / max(1, len(dialogue_indices))) * 0.6
+                progress_bar.set_value(chunk_prog)
+                status_label.set_text(f'Identifying speakers for lines {i+1} to {min(i+batch_size, len(dialogue_indices))} of {len(dialogue_indices)}...')
+                
+                lines_to_identify = "\n".join([f"{idx+1}. {all_segments[b_idx]['text']}" for idx, b_idx in enumerate(batch_indices)])
+                
+                dialogue_characters = [n for n in unique_names if n.lower() != 'narrator']
+                pass2_system = f"""You are a professional script analyzer. 
+Your task is to identify the speaker for each of the provided dialogue lines based on the story context.
+Available Characters: {', '.join(dialogue_characters)}.
 
----
-TASK: Segment the following SECTION into a JSON list of objects.
+CRITICAL RULES:
+1. Output MUST be exclusively a valid JSON list of objects.
+2. Each object must have exactly two keys: "sentence" (integer) and "speaker" (string).
+3. The "sentence" number must match the numbered prefix of the provided dialogue line.
+4. Assign the correct speaker from the Available Characters list. If a speaker is unknown or not in the list, use 'Unknown'.
 
-CRITICAL:
-- Do NOT add, remove, or change any words. Stick strictly to the SECTION text.
-- Distinguish dialogue from narrative tags.
-- Example: "This is weird!" Bob said "Who did this?"
-  Output: [
-    {{"speaker": "Bob", "text": "This is weird!"}},
-    {{"speaker": "Narrator", "text": "Bob said"}},
-    {{"speaker": "Bob", "text": "Who did this?"}}
-  ]
+Example Output:
+[
+  {{"sentence": 1, "speaker": "Alice"}},
+  {{"sentence": 2, "speaker": "Bob"}}
+]"""
 
-SECTION TO SEGMENT:
-{chunk}
-"""
-                resp2 = await client.chat(model=model, messages=[{'role': 'user', 'content': pass2_prompt}], stream=False)
+                pass2_user = f"STORY CONTEXT:\n{text_input.value}\n\n---\nDIALOGUE LINES TO IDENTIFY:\n{lines_to_identify}"
+
+                resp2 = await client.chat(
+                    model=model, 
+                    messages=[
+                        {'role': 'system', 'content': pass2_system},
+                        {'role': 'user', 'content': pass2_user}
+                    ], 
+                    stream=False,
+                    keep_alive=0 if i + batch_size >= len(dialogue_indices) else None
+                )
                 content2 = resp2.get('message', {}).get('content', '')
-                match2 = re.search(r'\[\s*\{.*\}\s*\]', content2, re.DOTALL)
-                chunk_segments = json.loads(match2.group(0), strict=False) if match2 else json.loads(content2, strict=False)
-                all_segments.extend(chunk_segments)
+                identified_segments = extract_json_list(content2)
+                
+                if identified_segments and isinstance(identified_segments, list):
+                    for id_seg in identified_segments:
+                        try:
+                            # Sentence is 1-indexed in the prompt
+                            sentence_idx = int(id_seg.get('sentence', 0)) - 1
+                            speaker = id_seg.get('speaker', 'Unknown')
+                            
+                            if 0 <= sentence_idx < len(batch_indices):
+                                actual_index = batch_indices[sentence_idx]
+                                all_segments[actual_index]['speaker'] = speaker
+                        except (ValueError, TypeError):
+                            continue
             
             status_label.set_text('Finishing up...')
             progress_bar.set_value(1.0)
@@ -337,6 +677,11 @@ SECTION TO SEGMENT:
             ui.notify(f'Processing error: {str(e)}', type='negative')
             print(f"Process text error: {e}")
         finally:
+            state['is_processing'] = False
+            state['cancel_processing'] = False
+            process_btn.set_text('Process Text')
+            process_btn.props('icon=psychology')
+            process_btn.classes(remove='bg-red-600 hover:bg-red-700', add='bg-indigo-600 hover:bg-indigo-700')
             process_btn.props(remove='loading')
             progress_bar.set_visibility(False)
             status_label.set_text('')
@@ -359,45 +704,75 @@ SECTION TO SEGMENT:
             ui.notify('No valid segments found. Use [Speaker Name] format.', type='warning')
             return
             
-        generate_multi_btn.props('loading')
+        state['is_generating'] = True
+        state['cancel_generating'] = False
+        generate_multi_btn.set_text('Cancel Generation')
+        generate_multi_btn.props('icon=cancel')
+        generate_multi_btn.classes(remove='from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700', add='from-red-600 to-red-800 hover:from-red-700 hover:to-red-900')
+        
+        gen_status_label.set_visibility(True)
+        gen_progress_bar.set_visibility(True)
+        gen_progress_bar.set_value(0)
+        
         try:
             ui.notify('Starting synthesis...', color='indigo')
-            
-            import soundfile as sf
-            import numpy as np
-            import io
-            from nicegui import run
             
             all_audio_data = []
             
             for i, seg in enumerate(segments):
+                if state['cancel_generating']:
+                    ui.notify('Generation canceled', type='warning')
+                    break
+                    
+                gen_status_label.set_text(f'Generating segment {i+1}/{len(segments)} ({seg["speaker"]})...')
+                gen_progress_bar.set_value(i / max(1, len(segments)))
+                
                 speaker = seg['speaker']
                 text = seg['text']
                 if not text: continue
                 
-                # Try to find the voice for this speaker name (case insensitive)
-                voice = 'af_heart'
-                for s_name, s_voice in state['speaker_voices'].items():
-                    if s_name.lower() == speaker.lower():
-                        voice = s_voice
-                        break
+                # Try to find the voice sample for this speaker name (case insensitive)
+                voice_sample = state['speaker_samples'].get(speaker)
+                if not voice_sample:
+                    for s_name, s_sample in state['speaker_samples'].items():
+                        if s_name.lower() == speaker.lower():
+                            voice_sample = s_sample
+                            break
+                            
+                if not voice_sample:
+                    voice_sample = list(state['speaker_samples'].values())[0] if state['speaker_samples'] else None
+                    
+                if not voice_sample:
+                    ui.notify(f"No voice sample selected for {speaker}", type="warning")
+                    continue
                 
                 ui.notify(f'Segment {i+1}/{len(segments)} ({speaker})...', color='indigo', duration=1)
                 
-                audio_bytes = await run.cpu_bound(
-                    tts_service.generate_audio_bytes,
+                ref_text_path = os.path.join('data/voices', voice_sample.replace('.wav', '.txt'))
+                if not os.path.exists(ref_text_path):
+                    raise FileNotFoundError(f"Reference text not found: {ref_text_path}")
+                    
+                with open(ref_text_path, 'r', encoding='utf-8') as f:
+                    ref_text = f.read().strip()
+                
+                ref_audio_path = os.path.join('data/voices', voice_sample)
+                
+                audio_data = await run.cpu_bound(
+                    generate_omnivoice,
                     text,
-                    voice=voice
+                    ref_audio_path,
+                    ref_text
                 )
                 
-                if audio_bytes:
-                    buffer = io.BytesIO(audio_bytes)
-                    data, samplerate = sf.read(buffer)
-                    all_audio_data.append(data)
+                if audio_data is not None:
+                    all_audio_data.append(audio_data)
             
             if not all_audio_data:
                 ui.notify('No audio was generated!', type='negative')
                 return
+            
+            gen_status_label.set_text('Merging audio segments...')
+            gen_progress_bar.set_value(1.0)
             
             combined = np.concatenate(all_audio_data)
             
@@ -418,7 +793,7 @@ SECTION TO SEGMENT:
                 'software': 'TESS Story Studio v2',
                 'date': datetime.now().strftime('%Y-%m-%d'),
             }
-            final_bytes = tts_service._embed_wav_metadata(final_buffer.getvalue(), metadata)
+            final_bytes = tts_service.embed_wav_metadata(final_buffer.getvalue(), metadata)
             
             with open(filepath, 'wb') as f:
                 f.write(final_bytes)
@@ -430,10 +805,21 @@ SECTION TO SEGMENT:
             ui.notify(f'Generation error: {str(e)}', type='negative')
             print(f"Generate multi error: {e}")
         finally:
+            state['is_generating'] = False
+            state['cancel_generating'] = False
+            generate_multi_btn.set_text('Generate Full Audio')
+            generate_multi_btn.props('icon=auto_awesome')
+            generate_multi_btn.classes(remove='from-red-600 to-red-800 hover:from-red-700 hover:to-red-900', add='from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700')
             generate_multi_btn.props(remove='loading')
+            gen_status_label.set_visibility(False)
+            gen_progress_bar.set_visibility(False)
+            gen_status_label.set_text('')
 
     # Remove the old generate function or keep it as a backup?
     # The user wanted to "remove" the old stuff, so I'll just not use it.
 
     # Initial population of the audio list
     refresh_audio_list()
+    
+    # Initialize UI
+    render_speakers_ui()

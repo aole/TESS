@@ -9,6 +9,9 @@ DEFAULT_CONFIG = {
         "chat": True,
         "arena": True,
         "batch": True
+    },
+    "audio": {
+        "auto_start": True
     }
 }
 
@@ -114,6 +117,15 @@ class ConfigManager:
         if "default_models" not in self.config:
             self.config["default_models"] = {}
         self.config["default_models"][key] = model_name
+        self._save_config(self.config)
+
+    def get_auto_start_audio(self) -> bool:
+        return self.config.get("audio", {}).get("auto_start", True)
+
+    def set_auto_start_audio(self, auto_start: bool):
+        if "audio" not in self.config:
+            self.config["audio"] = {}
+        self.config["audio"]["auto_start"] = auto_start
         self._save_config(self.config)
 
 config_manager = ConfigManager()

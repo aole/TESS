@@ -12,10 +12,21 @@ dependencies = [
     "cryptography>=46.0.4",
     "kokoro>=0.9.4",
     "soundfile",
-    "torch",
     "ordered-set>=4.1.0",
     "pypinyin>=0.55.0",
     "cn2an>=0.5.23",
     "misaki[zh]>=0.9.4",
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+    "torch==2.8.0+cu128",
+    "torchaudio==2.8.0+cu128",
+    "omnivoice",
 ]
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch" }
+torchaudio = { index = "pytorch" }

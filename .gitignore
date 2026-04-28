@@ -22,6 +22,7 @@ data/ratings.json
 data/notes.json
 data/chats/
 data/audio/
+data/voices/
 config.json
 
 # Google Auth

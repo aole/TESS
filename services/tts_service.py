@@ -139,7 +139,7 @@ class TTSService:
             return []
 
     @staticmethod
-    def _embed_wav_metadata(wav_bytes: bytes, metadata: Dict[str, str]) -> bytes:
+    def embed_wav_metadata(wav_bytes: bytes, metadata: Dict[str, str]) -> bytes:
         """Append a RIFF LIST/INFO chunk with metadata to raw WAV bytes.
 
         Supported keys map to standard INFO chunk IDs:
@@ -204,7 +204,7 @@ class TTSService:
             wav_bytes = buffer.getvalue()
 
             if metadata:
-                wav_bytes = self._embed_wav_metadata(wav_bytes, metadata)
+                wav_bytes = self.embed_wav_metadata(wav_bytes, metadata)
 
             return wav_bytes
         except Exception as e:

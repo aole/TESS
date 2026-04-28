@@ -90,10 +90,14 @@ class OllamaClient:
             # Construct arguments for client.create
             create_args = {'model': model, 'stream': True}
             
-            if from_: create_args['from_'] = from_
-            if system: create_args['system'] = system
-            if template: create_args['template'] = template
-            if parameters: create_args['parameters'] = parameters
+            if from_:
+                create_args['from_'] = from_
+            if system:
+                create_args['system'] = system
+            if template: 
+                create_args['template'] = template
+            if parameters: 
+                create_args['parameters'] = parameters
 
             # Use the python client directly
             # stream=True yields progress updates
@@ -133,14 +137,15 @@ class OllamaClient:
                     self._log('generate_response', data.get('response'), model)
                 return data
         except Exception as e:
+            error_message = str(e)
             if log_requests:
-                self._log('generate_error', str(e), model)
-            print(f"Error generating response: {e}")
+                self._log('generate_error', error_message, model)
+            print(f"Error generating response: {error_message}")
             if stream:
                 async def error_gen():
-                    yield {'response': f"Error: {str(e)}"}
+                    yield {'response': f"Error: {error_message}"}
                 return error_gen()
-            return {'response': f"Error: {str(e)}"}
+            return {'response': f"Error: {error_message}"}
 
     async def chat(self, model: str, messages: List[Dict[str, str]], stream: bool = True, options: Dict[str, Any] = None, tools: List[Any] = None, keep_alive: Any = None, log_requests: bool = True):
         """Chat with a model."""
@@ -193,14 +198,15 @@ class OllamaClient:
                     self._log('chat_response', data.get('message'), model)
                 return data
         except Exception as e:
+            error_message = str(e)
             if log_requests:
-                self._log('chat_error', str(e), model)
-            print(f"Error chatting with model: {e}")
+                self._log('chat_error', error_message, model)
+            print(f"Error chatting with model: {error_message}")
             if stream:
                 async def error_gen():
-                    yield {'message': {'content': f"Error: {str(e)}"}}
+                    yield {'message': {'content': f"Error: {error_message}"}}
                 return error_gen()
-            return {'message': {'content': f"Error: {str(e)}"}}
+            return {'message': {'content': f"Error: {error_message}"}}
 
     async def get_model_parameters(self, model_name: str) -> Dict[str, Any]:
         """Get default parameters and system prompt for a model."""
