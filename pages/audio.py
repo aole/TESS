@@ -602,7 +602,7 @@ Output MUST be exclusively a valid JSON list of objects with keys: 'name', 'gend
                     all_segments.append({'speaker': 'Unknown', 'text': seg['text']})
                     dialogue_indices.append(i)
                     
-            batch_size = 5
+            batch_size = 10
             for i in range(0, len(dialogue_indices), batch_size):
                 if state['cancel_processing']:
                     ui.notify('Processing canceled', type='warning')
