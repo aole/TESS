@@ -155,7 +155,6 @@ def create_page():
         generate_multi_btn = ui.button('Generate Full Audio', icon='auto_awesome', on_click=toggle_generate) \
             .classes('w-full mt-6 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg')
         generate_multi_btn.props('no-caps shadow-lg')
-        generate_multi_btn.set_visibility(False)
 
         gen_status_label = ui.label('').classes('text-xs text-slate-500 italic mt-2 mb-2')
         gen_status_label.set_visibility(False)
@@ -670,7 +669,6 @@ Example Output:
             
             text_input.set_value(annotated_text.strip())
             state['segments'] = all_segments
-            generate_multi_btn.set_visibility(True)
             ui.notify(f'Script generated with {len(all_segments)} segments', type='positive')
             
         except Exception as e:
@@ -701,9 +699,9 @@ Example Output:
         segments = [{'speaker': m[0].strip(), 'text': m[1].strip()} for m in matches]
         
         if not segments:
-            ui.notify('No valid segments found. Use [Speaker Name] format.', type='warning')
-            return
+            segments = [{'speaker': 'Narrator', 'text': raw_text}]
             
+
         state['is_generating'] = True
         state['cancel_generating'] = False
         generate_multi_btn.set_text('Cancel Generation')
