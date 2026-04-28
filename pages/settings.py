@@ -279,3 +279,10 @@ def create_page():
                     on_change=lambda e: config_manager.set_default_model('story_processing', e.value)
                 ).classes('w-full')
                 ui.timer(0.1, load_models_for_setting, once=True)
+
+            # ── Audio ─────────────────────────────────────────────────────────
+            with ui_card(heading="Audio Settings", heading_icon="volume_up", heading_color="pink"):
+                with ui.column().classes('gap-4'):
+                    ui.checkbox('Auto Start Audio After Generation',
+                                value=config_manager.get_auto_start_audio(),
+                                on_change=lambda e: config_manager.set_auto_start_audio(e.value)).classes('text-gray-300')

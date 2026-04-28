@@ -258,8 +258,11 @@ def create_page():
 
     def refresh_player(filename: str):
         player_state['container'].clear()
+        from utils.config import config_manager
         with player_state['container']:
-            ui.audio(f'/data/audio/{filename}').classes('w-full shadow-inner rounded-lg').props('autoplay')
+            audio_el = ui.audio(f'/data/audio/{filename}').classes('w-full shadow-inner rounded-lg')
+            if config_manager.get_auto_start_audio():
+                audio_el.props('autoplay')
         refresh_audio_list(selected_filename=filename)
 
     def render_speakers_ui():
