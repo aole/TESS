@@ -118,7 +118,9 @@ def create_page():
         'speaker_samples': {}, # Map of speaker_name -> sample_filename
         'speakers': [{'name': 'Narrator', 'gender': 'Male', 'description': 'male, middle-aged, moderate pitch, american accent'}],
         'is_processing': False,
-        'cancel_processing': False
+        'cancel_processing': False,
+        'is_generating': False,
+        'cancel_generating': False
     }
 
     with right_drawer:
@@ -132,6 +134,14 @@ def create_page():
             else:
                 await process_text()
 
+        async def toggle_generate():
+            if state['is_generating']:
+                state['cancel_generating'] = True
+                gen_status_label.set_text('Canceling generation...')
+                generate_multi_btn.props('loading')
+            else:
+                await generate_multi()
+
         process_btn = ui.button('Process Text', icon='psychology', on_click=toggle_process) \
             .classes('w-full mb-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors')
         process_btn.props('no-caps')
@@ -142,7 +152,7 @@ def create_page():
 
         speaker_settings_container = ui.column().classes('w-full gap-4')
         
-        generate_multi_btn = ui.button('Generate Full Audio', icon='auto_awesome', on_click=lambda: generate_multi()) \
+        generate_multi_btn = ui.button('Generate Full Audio', icon='auto_awesome', on_click=toggle_generate) \
             .classes('w-full mt-6 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg')
         generate_multi_btn.props('no-caps shadow-lg')
         generate_multi_btn.set_visibility(False)
@@ -691,7 +701,12 @@ Example Output:
             ui.notify('No valid segments found. Use [Speaker Name] format.', type='warning')
             return
             
-        generate_multi_btn.props('loading')
+        state['is_generating'] = True
+        state['cancel_generating'] = False
+        generate_multi_btn.set_text('Cancel Generation')
+        generate_multi_btn.props('icon=cancel')
+        generate_multi_btn.classes(remove='from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700', add='from-red-600 to-red-800 hover:from-red-700 hover:to-red-900')
+        
         gen_status_label.set_visibility(True)
         gen_progress_bar.set_visibility(True)
         gen_progress_bar.set_value(0)
@@ -702,6 +717,10 @@ Example Output:
             all_audio_data = []
             
             for i, seg in enumerate(segments):
+                if state['cancel_generating']:
+                    ui.notify('Generation canceled', type='warning')
+                    break
+                    
                 gen_status_label.set_text(f'Generating segment {i+1}/{len(segments)} ({seg["speaker"]})...')
                 gen_progress_bar.set_value(i / max(1, len(segments)))
                 
@@ -784,6 +803,11 @@ Example Output:
             ui.notify(f'Generation error: {str(e)}', type='negative')
             print(f"Generate multi error: {e}")
         finally:
+            state['is_generating'] = False
+            state['cancel_generating'] = False
+            generate_multi_btn.set_text('Generate Full Audio')
+            generate_multi_btn.props('icon=auto_awesome')
+            generate_multi_btn.classes(remove='from-red-600 to-red-800 hover:from-red-700 hover:to-red-900', add='from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700')
             generate_multi_btn.props(remove='loading')
             gen_status_label.set_visibility(False)
             gen_progress_bar.set_visibility(False)
