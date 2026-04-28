@@ -747,8 +747,7 @@ Example Output:
                 
                 ref_text_path = os.path.join('data/voices', voice_sample.replace('.wav', '.txt'))
                 if not os.path.exists(ref_text_path):
-                    ui.notify(f"Reference text not found: {ref_text_path}", type="negative")
-                    continue
+                    raise FileNotFoundError(f"Reference text not found: {ref_text_path}")
                     
                 with open(ref_text_path, 'r', encoding='utf-8') as f:
                     ref_text = f.read().strip()
