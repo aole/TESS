@@ -265,15 +265,39 @@ def create_page():
                 audio_el.props('autoplay')
         refresh_audio_list(selected_filename=filename)
 
+    def refresh_speakers_from_text():
+        raw_text = text_input.value.strip()
+        import re
+        pattern = r'\[([^\]]+)\]'
+        matches = re.findall(pattern, raw_text)
+        found_speakers = []
+        for m in matches:
+            name = m.strip()
+            if name and name not in found_speakers:
+                found_speakers.append(name)
+        
+        existing_speakers = {s.get('name', 'Unknown'): s for s in state['speakers']}
+        new_speakers = []
+        
+        if 'Narrator' not in found_speakers:
+            found_speakers.insert(0, 'Narrator')
+            
+        for name in found_speakers:
+            if name in existing_speakers:
+                new_speakers.append(existing_speakers[name])
+            else:
+                new_speakers.append({'name': name, 'gender': 'Neutral', 'description': ''})
+                
+        state['speakers'] = new_speakers
+        render_speakers_ui()
+        ui.notify('Speaker list updated from text', type='positive')
+
     def render_speakers_ui():
         speaker_settings_container.clear()
         
         voice_files = []
-        try:
-            if os.path.exists('data/voices'):
-                voice_files = sorted([f for f in os.listdir('data/voices') if f.lower().endswith('.wav')])
-        except Exception:
-            pass
+        if os.path.exists('data/voices'):
+            voice_files = sorted([f for f in os.listdir('data/voices') if f.lower().endswith('.wav')])
 
         def open_design_dialog(spk_name, select_ui, desc):
             with ui.dialog() as dialog, ui.card().classes('w-full max-w-3xl p-6 bg-[#18181b] border border-white/10 text-white'):
@@ -416,7 +440,9 @@ So, shall we get started?"""
 
 
         with speaker_settings_container:
-            ui.label('Assign Voices').classes('text-sm font-medium text-slate-400 uppercase tracking-wider mb-2')
+            with ui.row().classes('w-full justify-between items-center mb-2'):
+                ui.label('Assign Voices').classes('text-sm font-medium text-slate-400 uppercase tracking-wider')
+                ui.button(icon='refresh', on_click=refresh_speakers_from_text).props('round dense flat size=sm').classes('text-slate-400 hover:text-white').tooltip('Update list from text tags')
             for s in state['speakers']:
                 name = s.get('name', 'Unknown')
                 gender = s.get('gender', 'Neutral')
@@ -525,7 +551,7 @@ So, shall we get started?"""
             status_label.set_text('Pass 1: Identifying characters...')
             progress_bar.set_value(0.1)
             
-            pass1_system = """You are an expert casting director and script analyzer. Your task is to identify all unique characters in the provided story.
+            pass1_system = """You are an expert casting director and script analyzer. Your task is to identify all unique characters that have spoken lines (dialogue) in the provided story. Do not include characters that are only mentioned but do not speak.
 You must always include a "Narrator" character for descriptive, non-dialogue parts of the text.
 Analyze the text to determine the gender (Male, Female, or Neutral) and a brief voice personality for each character.
 The description for each character MUST strictly follow this exact structure: <gender>, <age>, <pitch>, <accent>.
