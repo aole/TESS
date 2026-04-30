@@ -289,8 +289,8 @@ def create_page():
                 new_speakers.append({'name': name, 'gender': 'Neutral', 'description': ''})
                 
         state['speakers'] = new_speakers
-        render_speakers_ui()
         ui.notify('Speaker list updated from text', type='positive')
+        render_speakers_ui()
 
     def render_speakers_ui():
         speaker_settings_container.clear()
