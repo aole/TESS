@@ -49,8 +49,8 @@ def generate():
 
     # 3. INFERENCE
     # Anima requires 'score_9' for high-quality results
-    prompt = "year 2025, newest, normal quality, score_5, highres, safe, 1girl, oomuro sakurako, yuru yuri, @nnn yryr, smile, brown hair, hat, solo, fur-trimmed gloves, open mouth, long hair, gift box, fang, skirt, red gloves, blunt bangs, gloves, one eye closed, shirt, brown eyes, santa costume, red hat, skin fang, twitter username, white background, holding bag, fur trim, simple background, brown skirt, bag, gift bag, looking at viewer, santa hat, ;d, red shirt, box, gift, fur-trimmed headwear, holding, red capelet, holding box, capelet"
-    negative_prompt = "worst quality, low quality, blurry, text, watermark, nsfw"
+    prompt = "masterpiece, best quality, score_7, safe, 1boy, wizard robes, holding a staff, swirling nebula energy, constellations in hair, dark forest, mystical lighting, cinematic rim light"
+    negative_prompt = "worst quality, low quality, score_1, score_2, score_3, artist name, nsfw"
 
     print("Generating image...")
     with torch.no_grad():
