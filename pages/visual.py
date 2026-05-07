@@ -2,7 +2,7 @@ import os
 import torch
 import gc
 import asyncio
-from nicegui import ui, run
+from nicegui import ui, run, app
 from diffsynth.pipelines.anima_image import AnimaImagePipeline, ModelConfig
 
 # 1. ENVIRONMENT SETUP
@@ -16,7 +16,7 @@ def flush():
     gc.collect()
     torch.cuda.empty_cache()
 
-def generate_image_task(prompt: str, negative_prompt: str) -> str:
+def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, width: int = 1024, height: int = 1024) -> str:
     # Calculate VRAM limit for an 8GB card (leaving a small buffer)
     vram_limit = torch.cuda.mem_get_info("cuda")[1] / (1024 ** 3) - 0.5
     print(f"--- Initializing Anima Preview 3 on {vram_limit:.2f}GB VRAM ---")
@@ -50,12 +50,15 @@ def generate_image_task(prompt: str, negative_prompt: str) -> str:
         image = pipe(
             prompt, 
             negative_prompt=negative_prompt,
-            num_inference_steps=30,
-            width=1024,
-            height=1024
+            num_inference_steps=steps,
+            width=width,
+            height=height
         )
     
-    output_path = "anima_preview3_final.png"
+    import datetime
+    os.makedirs("data/visual", exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = f"data/visual/tess_{timestamp}.png"
     image.save(output_path)
     print(f"Success: saved as {output_path}")
     
@@ -66,22 +69,53 @@ def generate_image_task(prompt: str, negative_prompt: str) -> str:
     return output_path
 
 def create_page():
+    if 'visual_positive_prompt' not in app.storage.user:
+        app.storage.user['visual_positive_prompt'] = "masterpiece, best quality, score_7, safe, abandoned cathedral, nature reclaiming architecture, vines and flowers, shafts of sunlight, dust particles, tranquil atmosphere, Studio Ghibli inspired"
+    if 'visual_negative_prompt' not in app.storage.user:
+        app.storage.user['visual_negative_prompt'] = "worst quality, low quality, score_1, score_2, score_3, artist name, blurry, jpeg artifacts, sepia"
+    if 'visual_image_size' not in app.storage.user:
+        app.storage.user['visual_image_size'] = '1024x1024'
+    if 'visual_inference_steps' not in app.storage.user:
+        app.storage.user['visual_inference_steps'] = 30
+
     ui.label('Visual Generation').classes('text-2xl font-bold mb-4')
     
-    with ui.column().classes('w-full max-w-4xl mx-auto gap-4 p-4'):
-        # Large textbox for positive prompt
-        prompt = ui.textarea('Positive Prompt', placeholder='masterpiece, best quality, ...').classes('w-full text-lg').props('outlined rows="4"')
-        prompt.value = "masterpiece, best quality, score_7, safe, 1boy, wizard robes, holding a staff, swirling nebula energy, constellations in hair, dark forest, mystical lighting, cinematic rim light"
-        
-        # Negative prompt and generate button
-        with ui.row().classes('w-full items-start gap-4'):
-            negative_prompt = ui.textarea('Negative Prompt', placeholder='worst quality, low quality, ...').classes('flex-grow').props('outlined rows="2"')
-            negative_prompt.value = "worst quality, low quality, score_1, score_2, score_3, artist name, nsfw"
+    with ui.row().classes('w-full max-w-screen-2xl mx-auto gap-6 p-4 flex-nowrap items-start'):
+        # Left column (Image - 70%)
+        with ui.column().classes('rounded-lg border border-white/10 overflow-hidden bg-black/20 items-center justify-center relative').style('flex: 7; min-height: 768px;') as image_container:
+            last_image = app.storage.user.get('visual_last_image')
+            if last_image and os.path.exists(last_image):
+                ui.image(f"/{last_image}").classes('w-full h-full object-contain rounded-lg shadow-xl')
+            else:
+                ui.icon('image', size='64px').classes('text-white/10 mb-4')
+                ui.label('Generated image will appear here').classes('text-white/30 text-lg')
             
-            generate_btn = ui.button('Generate', icon='brush').classes('h-[72px] px-8 py-4 text-lg bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 shadow-lg')
-        
-        # Image container
-        image_container = ui.column().classes('w-full items-center justify-center mt-8 min-h-[512px] bg-black/20 rounded-lg border border-white/10 overflow-hidden')
+        # Right column (Settings - 30%)
+        with ui.column().classes('gap-6').style('flex: 3;'):
+            # Large textbox for positive prompt
+            prompt = ui.textarea('Positive Prompt', placeholder='masterpiece, best quality, ...').classes('w-full text-lg').props('outlined rows="10"').bind_value(app.storage.user, 'visual_positive_prompt')
+            
+            # Negative prompt
+            negative_prompt = ui.textarea('Negative Prompt', placeholder='worst quality, low quality, ...').classes('w-full').props('outlined rows="4"').bind_value(app.storage.user, 'visual_negative_prompt')
+            
+            # Image Size
+            with ui.column().classes('w-full gap-1'):
+                ui.label('Image Size').classes('text-sm text-gray-400')
+                image_size = ui.select(
+                    options={'1024x1024': '1024 x 1024 (1:1)', '896x1152': '896 x 1152 (3:4)', '1152x896': '1152 x 896 (4:3)'}
+                ).classes('w-full').bind_value(app.storage.user, 'visual_image_size')
+                
+            # Inference steps slider
+            with ui.column().classes('w-full gap-1'):
+                with ui.row().classes('w-full justify-between items-center'):
+                    ui.label('Inference Steps').classes('text-sm text-gray-400')
+                    steps_label = ui.label(str(app.storage.user['visual_inference_steps'])).classes('text-sm text-gray-300 font-mono')
+                steps = ui.slider(min=1, max=50, on_change=lambda e: steps_label.set_text(str(int(e.value)))).classes('w-full').bind_value(app.storage.user, 'visual_inference_steps')
+            
+            # Buttons
+            with ui.row().classes('w-full gap-4 mt-2 flex-nowrap'):
+                generate_btn = ui.button('Generate', icon='brush').classes('flex-grow h-16 text-xl bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 shadow-lg')
+                clear_btn = ui.button(icon='delete').classes('w-16 h-16 bg-red-500/20 text-red-400 hover:bg-red-500/40 shadow-lg').tooltip('Clear Image')
         
         async def on_generate():
             if not prompt.value:
@@ -97,14 +131,14 @@ def create_page():
             
             try:
                 # Run the generation task in a separate thread to not block the UI
-                output_path = await run.io_bound(generate_image_task, prompt.value, negative_prompt.value)
+                w_str, h_str = image_size.value.split('x')
+                output_path = await run.io_bound(generate_image_task, prompt.value, negative_prompt.value, int(steps.value), int(w_str), int(h_str))
                 
                 # Update UI
+                app.storage.user['visual_last_image'] = output_path
                 image_container.clear()
                 with image_container:
-                    # Append a timestamp to prevent caching issues
-                    import time
-                    ui.image(f"/output/{output_path}?t={time.time()}").classes('max-w-full rounded-lg shadow-xl')
+                    ui.image(f"/{output_path}").classes('w-full h-full object-contain rounded-lg shadow-xl')
                 ui.notify('Image generated successfully!', type='positive')
             except Exception as e:
                 import traceback
@@ -116,4 +150,12 @@ def create_page():
             finally:
                 generate_btn.enable()
         
+        def on_clear():
+            app.storage.user['visual_last_image'] = None
+            image_container.clear()
+            with image_container:
+                ui.icon('image', size='64px').classes('text-white/10 mb-4')
+                ui.label('Generated image will appear here').classes('text-white/30 text-lg')
+                
         generate_btn.on('click', on_generate)
+        clear_btn.on('click', on_clear)
