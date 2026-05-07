@@ -78,8 +78,6 @@ def create_page():
     if 'visual_inference_steps' not in app.storage.user:
         app.storage.user['visual_inference_steps'] = 30
 
-    ui.label('Visual Generation').classes('text-2xl font-bold mb-4')
-    
     with ui.row().classes('w-full max-w-screen-2xl mx-auto gap-6 p-4 flex-nowrap items-start'):
         # Left column (Image - 70%)
         with ui.column().classes('rounded-lg border border-white/10 overflow-hidden bg-black/20 items-center justify-center relative').style('flex: 7; min-height: 768px;') as image_container:
