@@ -921,6 +921,13 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                                 func = load_tool_function(name, tool_options[name].code)
                                 if func:
                                     tool_funcs_map[func.__name__] = func
+                                    
+                    if app.storage.user.get('web_search_enabled', False):
+                        try:
+                            from utils.web_search_tool import web_search
+                            tool_funcs_map['web_search'] = web_search
+                        except ImportError:
+                            pass
                     
                     if not current_chat_id:
                          # Should have been created by send_message or save_current_chat
@@ -1035,6 +1042,15 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     tts_btn.on('click', toggle_tts)
                     if app.storage.user.get('tts_enabled', False):
                         tts_btn.props("icon=volume_up color=primary")
+                        
+                    web_search_btn = ui.button(icon='public_off').props('flat round color=grey').tooltip('Toggle Web Search')
+                    def toggle_web_search():
+                        app.storage.user['web_search_enabled'] = not app.storage.user.get('web_search_enabled', False)
+                        is_on = app.storage.user['web_search_enabled']
+                        web_search_btn.props(f"icon={'public' if is_on else 'public_off'} color={'primary' if is_on else 'grey'}")
+                    web_search_btn.on('click', toggle_web_search)
+                    if app.storage.user.get('web_search_enabled', False):
+                        web_search_btn.props("icon=public color=primary")
                         
                     model_select.on_value_change(lambda e: update_params())
                     # Trigger initial update
