@@ -261,5 +261,22 @@ class OllamaClient:
             print(f"Error getting parameters for {model_name}: {e}")
             return {}
 
+    async def unload_all_models(self) -> bool:
+        """Unload all currently loaded models from memory."""
+        try:
+            ps_res = await self.client.ps()
+            models = ps_res.get('models', [])
+            for m in models:
+                model_name = m.get('name') or m.get('model')
+                if model_name:
+                    print(f"Unloading LLM: {model_name}")
+                    self._log('unload_model', f"Unloading {model_name}", model_name)
+                    await self.client.generate(model=model_name, keep_alive=0)
+            return True
+        except Exception as e:
+            print(f"Error unloading models: {e}")
+            self._log('unload_error', str(e))
+            return False
+
 # Singleton instance
 client = OllamaClient()

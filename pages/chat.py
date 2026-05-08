@@ -929,6 +929,13 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                             tool_funcs_map['extract_url'] = extract_url
                         except ImportError:
                             pass
+                            
+                    if app.storage.user.get('visual_enabled', False):
+                        try:
+                            from utils.visual_tool import generate_image
+                            tool_funcs_map['generate_image'] = generate_image
+                        except ImportError:
+                            pass
                     
                     if not current_chat_id:
                          # Should have been created by send_message or save_current_chat
@@ -1052,6 +1059,15 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     web_search_btn.on('click', toggle_web_search)
                     if app.storage.user.get('web_search_enabled', False):
                         web_search_btn.props("icon=public color=primary")
+                        
+                    visual_btn = ui.button(icon='brush').props('flat round color=grey').tooltip('Toggle Image Generation')
+                    def toggle_visual():
+                        app.storage.user['visual_enabled'] = not app.storage.user.get('visual_enabled', False)
+                        is_on = app.storage.user['visual_enabled']
+                        visual_btn.props(f"color={'primary' if is_on else 'grey'}")
+                    visual_btn.on('click', toggle_visual)
+                    if app.storage.user.get('visual_enabled', False):
+                        visual_btn.props("color=primary")
                         
                     model_select.on_value_change(lambda e: update_params())
                     # Trigger initial update
