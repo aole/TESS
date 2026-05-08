@@ -21,6 +21,7 @@ dependencies = [
     "torchaudio==2.8.0+cu128",
     "omnivoice",
     "diffsynth",
+    "ddgs>=9.14.2",
 ]
 
 [[tool.uv.index]]
