@@ -193,7 +193,7 @@ class ConversationRenderer:
         except:
              args = '...'
         ui.label(f"🔧 Call: {fname}").classes('text-xs font-mono text-orange-300 font-bold')
-        ui.label(str(args)).classes('text-xs font-mono text-orange-200/70 truncate pl-4')
+        ui.label(str(args)).classes('text-xs font-mono text-orange-200/70 pl-4 whitespace-pre-wrap break-all')
 
     def _render_ratings(self, msg: Dict):
         ratings = self.get_ratings(msg['id'])

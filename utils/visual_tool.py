@@ -1,6 +1,6 @@
 from nicegui import run
 
-async def generate_image(prompt: str, negative_prompt: str = "worst quality, low quality, blurry, ugly", steps: int = 30) -> str:
+async def generate_image(prompt: str) -> str:
     """
     Generates an image using the Anima diffusion model. This model is specialized in producing high-quality anime-style images and illustrations. It does NOT generate good realistic or photographic images.
     Use this tool when the user asks to generate, create, or draw an image. You must adapt the user's request into a detailed anime-style prompt.
@@ -9,12 +9,13 @@ async def generate_image(prompt: str, negative_prompt: str = "worst quality, low
         prompt: A detailed description of the image to generate. Ensure it's highly descriptive and includes anime style keywords.
                 Example keywords: "masterpiece, best quality, ultra-detailed, anime style, 2d illustration, vibrant colors".
                 Example prompt: "masterpiece, best quality, 1girl, solo, magical glowing forest, floating lights, anime style, highly detailed, beautiful eyes".
-        negative_prompt: What not to include in the image. Defaults to standard negative terms. For anime, consider adding: "realistic, photorealistic, 3d, ugly, blurry, worst quality".
-        steps: Number of inference steps (1-50). Default is 30. Higher is better quality but slower.
 
     Returns:
         A markdown string containing the generated image path, which will render directly in chat.
     """
+    negative_prompt = "worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, sepia"
+    steps = 30
+
     try:
         from utils.ollama_client import client
         # Unload loaded LLMs to free up VRAM for image generation
