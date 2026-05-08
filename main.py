@@ -1,5 +1,5 @@
 from nicegui import ui, app
-from pages import models, chat, arena, batch, tools, create, settings, notes, google, playground, audio
+from pages import models, chat, arena, batch, tools, create, settings, notes, google, playground, audio, visual
 
 # Page styling and configuration
 # Page styling and configuration
@@ -77,6 +77,7 @@ def layout(page_path: str = ''):
             nav_link('Batch', '/batch')
             nav_link('Notes', '/notes')
             nav_link('Google', '/google')
+            nav_link('Visual', '/visual')
             ui.element('div').classes('h-4 w-px bg-white/20 mx-2')
             nav_link('Settings', '/settings')
 
@@ -135,8 +136,14 @@ def settings_page():
     layout('/settings')
     settings.create_page()
 
+@ui.page('/visual')
+def visual_page():
+    layout('/visual')
+    visual.create_page()
+
 if __name__ in {"__main__", "__mp_main__"}:
     app.add_static_files('/data', 'data')
+    app.add_static_files('/output', '.')
     ui.run(
         title='TESS',
         dark=True,

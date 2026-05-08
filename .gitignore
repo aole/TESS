@@ -23,6 +23,8 @@ data/notes.json
 data/chats/
 data/audio/
 data/voices/
+data/visual/
+models/
 config.json
 
 # Google Auth
