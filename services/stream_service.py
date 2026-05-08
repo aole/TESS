@@ -79,17 +79,21 @@ class StreamService:
 
     async def _process_stream(self, stream_id, messages, model, temperature, top_p, repeat_penalty, system_prompt, tool_funcs_map, log_requests, persist_callback, listener=None, keep_alive="5m"):
         try:
+            import time
+            from datetime import datetime
+            
             # Prepare API messages
             api_messages = []
-            sys_content = system_prompt or ""
+            sys_content = system_prompt or "You are a helpful assistant."
+            
+            tz = time.tzname[time.daylight]
+            current_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            sys_content += f"\n\nCurrent System Date and Time: {current_time_str} {tz}"
             
             if tool_funcs_map:
                  sys_content += "\n\nIMPORTANT: When generating tool calls, ensure strictly valid JSON. Do not use invalid escape sequences like '\\?' inside strings. Only escape backslashes and double quotes."
-                 if not system_prompt:
-                     sys_content = "You are a helpful assistant.\n" + sys_content
             
-            if sys_content:
-                api_messages.append({'role': 'system', 'content': sys_content})
+            api_messages.append({'role': 'system', 'content': sys_content})
                 
             for msg in messages:
                 if msg['role'] in ['user', 'assistant', 'tool']:

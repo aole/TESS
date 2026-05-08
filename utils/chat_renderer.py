@@ -153,8 +153,9 @@ class ConversationRenderer:
         content_markdown = None
         
         if role == 'tool':
-            ui.label(f"Tool Output: {msg.get('name', 'unknown')}").classes('text-xs text-gray-500 font-bold')
-            ui.label(content).classes('text-xs font-mono bg-white/5 p-2 rounded text-gray-300 whitespace-pre-wrap')
+            tool_name = msg.get('name', 'unknown')
+            with ui.expansion(f"Tool Output: {tool_name}", icon='build').classes('w-full bg-white/5 rounded-md border-l-2 border-gray-500 mb-2'):
+                ui.label(content).classes('text-xs font-mono p-2 text-gray-300 whitespace-pre-wrap w-full break-words')
         elif role == 'assistant':
             # Always use markdown for assistant to ensure streaming updates work correctly with correct styling
             # Escaping < to prevent HTML injection (style/script) while keeping markdown functional
@@ -192,7 +193,7 @@ class ConversationRenderer:
         except:
              args = '...'
         ui.label(f"🔧 Call: {fname}").classes('text-xs font-mono text-orange-300 font-bold')
-        ui.label(str(args)).classes('text-xs font-mono text-orange-200/70 truncate pl-4')
+        ui.label(str(args)).classes('text-xs font-mono text-orange-200/70 pl-4 whitespace-pre-wrap break-all')
 
     def _render_ratings(self, msg: Dict):
         ratings = self.get_ratings(msg['id'])
