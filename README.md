@@ -3,14 +3,18 @@
 **TESS** is a comprehensive local AI workspace built on top of [Ollama](https://ollama.com). It provides a powerful, unified interface for managing, testing, and interacting with your local large language models.
 
 ![TESS Screenshot](Screenshot01.png)
+![TESS Screenshot](Screenshot02.png)
 
 ## Key Features
 
-*   **Chat**: A robust chat interface with history, model selection, and parameter tuning.
+*   **Chat**: A robust chat interface with history, model selection, parameter tuning, and dynamic context injection.
 *   **Arena**: Compare models side-by-side to evaluate performance and reasoning.
 *   **Batch**: Run prompts across multiple models simultaneously to compare outputs.
 *   **Story Studio**: High-fidelity, multi-speaker audio synthesis with voice cloning and dynamic character identification, using Omnivoice and Kokoro TTS.
+*   **Voice Designer**: Craft custom synthetic voices by adjusting parameters like gender, age, pitch, and accent.
+*   **Visual Generation**: Create stunning images using the Anima pipeline in a dedicated workspace or via integrated chat tools.
 *   **Tools & Agents**: Automate workflows by seamlessly running tools directly through your local models.
+*   **Web Search**: Equip your local models with real-time web access via integrated DuckDuckGo search and URL extraction.
 *   **Google Integration**: Connect your Google Workspace to analyze and synthesize documents.
 *   **Notes**: A space to store thoughts, drafts, and synthesized information.
 *   **Model Management**: Easily pull, delete, and manage your local Ollama models.
