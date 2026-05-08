@@ -924,8 +924,9 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                                     
                     if app.storage.user.get('web_search_enabled', False):
                         try:
-                            from utils.web_search_tool import web_search
+                            from utils.web_search_tool import web_search, extract_url
                             tool_funcs_map['web_search'] = web_search
+                            tool_funcs_map['extract_url'] = extract_url
                         except ImportError:
                             pass
                     
