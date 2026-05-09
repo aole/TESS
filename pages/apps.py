@@ -32,7 +32,6 @@ def create_page():
     with ui.row().classes('w-full h-[calc(100vh-3rem)] flex-nowrap m-0 p-0'):
         # Left panel: App list
         with ui.column().classes('w-64 h-full border-r border-white/10 p-4 glass-panel shrink-0'):
-            ui.label('Apps').classes('text-xl font-bold mb-4 text-indigo-400')
             app_container = ui.column().classes('w-full gap-2')
             
         # Right panel: App content
