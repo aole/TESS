@@ -17,11 +17,27 @@ This page demonstrates how to create and integrate custom apps into the system.
 
 ```python
 from nicegui import ui
+from apps.utils import load_app_data, save_app_data
 
 def render():
     ui.label('Hello from my custom app!').classes('text-2xl font-bold')
     ui.button('Click me', on_click=lambda: ui.notify('Button clicked!'))
 ```
+
+### Storing Data
+
+If your custom app needs to save user data, you should use the provided utilities to ensure it is gitignored and centralized:
+
+```python
+from apps.utils import load_app_data, save_app_data
+
+# Load data (creates file with default if it doesn't exist)
+data = load_app_data('my_app_name', 'data.json', default_data={"key": "value"})
+
+# Save data
+save_app_data('my_app_name', 'data.json', data)
+```
+Data will be stored safely in `data/apps/my_app_name/`.
 
 ### How it Works
 

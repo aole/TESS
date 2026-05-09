@@ -26,8 +26,8 @@ def create_page():
     apps_dir = os.path.join(os.getcwd(), 'apps')
     os.makedirs(apps_dir, exist_ok=True)
     
-    # Get all subdirectories in the apps folder
-    apps_list = [d for d in os.listdir(apps_dir) if os.path.isdir(os.path.join(apps_dir, d))]
+    # Get all subdirectories in the apps folder, excluding internal ones
+    apps_list = [d for d in os.listdir(apps_dir) if os.path.isdir(os.path.join(apps_dir, d)) and d not in ('__pycache__', 'data')]
     
     with ui.row().classes('w-full h-[calc(100vh-3rem)] flex-nowrap m-0 p-0'):
         # Left panel: App list

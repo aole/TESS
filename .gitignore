@@ -20,6 +20,7 @@ inspect_model_output.py
 # User files
 data/ratings.json
 data/notes.json
+data/apps/
 data/chats/
 data/audio/
 data/voices/

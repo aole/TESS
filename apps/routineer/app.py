@@ -3,8 +3,7 @@ import json
 import uuid
 from datetime import datetime, timedelta
 from nicegui import ui
-
-DATA_FILE = os.path.join(os.path.dirname(__file__), 'routineer.json')
+from apps.utils import load_app_data, save_app_data
 
 DEFAULT_DATA = {
     "routines": [
@@ -34,16 +33,10 @@ DEFAULT_DATA = {
 }
 
 def load_data():
-    if not os.path.exists(DATA_FILE):
-        save_data(DEFAULT_DATA)
-        return DEFAULT_DATA
-    with open(DATA_FILE, 'r') as f:
-        return json.load(f)
+    return load_app_data('routineer', 'routineer.json', DEFAULT_DATA)
 
 def save_data(data):
-    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    with open(DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
+    save_app_data('routineer', 'routineer.json', data)
 
 def is_due_today(routine, today_str):
     freq = routine.get('frequency', 'daily')
