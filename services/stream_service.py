@@ -91,7 +91,7 @@ class StreamService:
             sys_content += f"\n\nCurrent System Date and Time: {current_time_str} {tz}"
             
             if tool_funcs_map:
-                 sys_content += "\n\nIMPORTANT: When generating tool calls, ensure strictly valid JSON. Do not use invalid escape sequences like '\\?' inside strings. Only escape backslashes and double quotes."
+                 sys_content += "\n\nIMPORTANT: When generating tool calls, ensure strictly valid JSON. Do not use invalid escape sequences like '\\?' inside strings. Only escape backslashes and double quotes. Note that the tool content/result is NOT displayed to the user, so you must interpret the tool content and provide the user a response based on it."
             
             api_messages.append({'role': 'system', 'content': sys_content})
                 

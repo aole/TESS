@@ -11,8 +11,9 @@ async def generate_image(prompt: str) -> str:
                 Example prompt: "masterpiece, best quality, 1girl, solo, magical glowing forest, floating lights, anime style, highly detailed, beautiful eyes".
 
     Returns:
-        A markdown string containing the generated image path, which will render directly in chat.
+        The file path to the generated image. You MUST show this image to the user in your markdown response using inline syntax: '![Generated Image](/{path})'
     """
+
     negative_prompt = "worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, sepia"
     steps = 30
 
@@ -27,6 +28,6 @@ async def generate_image(prompt: str) -> str:
         from services.visual_service import generate_image_task
         print(f"Generating image with prompt: {prompt}")
         output_path = await run.io_bound(generate_image_task, prompt, negative_prompt, steps, 1024, 1024)
-        return f"Image successfully generated:\n\n![Generated Image](/{output_path})"
+        return f"Image successfully generated. Display the image using the following syntax:\n\n![Generated Image](/{output_path})"
     except Exception as e:
         return f"Failed to generate image: {str(e)}"
