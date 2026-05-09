@@ -3,7 +3,7 @@ import json
 import uuid
 from datetime import datetime, timedelta
 from nicegui import ui
-from apps.utils import load_app_data, save_app_data
+from apps.utils import load_app_data, save_app_data, set_app_badge
 
 DEFAULT_DATA = {
     "routines": [
@@ -163,12 +163,20 @@ def render():
             })
         save_data(data)
         refresh_stats()
+        
+        # Update badge
+        due_routines = [r for r in data['routines'] if is_due_today(r, today_str)]
+        left_count = sum(1 for r in due_routines if not any(h['routine_id'] == r['id'] and h['date'] == today_str and h['status'] == 'done' for h in data['history']))
+        set_app_badge('routineer', left_count)
 
     def refresh_ui():
         today_container.clear()
         routines_container.clear()
         
         due_routines = [r for r in data['routines'] if is_due_today(r, today_str)]
+        
+        left_count = sum(1 for r in due_routines if not any(h['routine_id'] == r['id'] and h['date'] == today_str and h['status'] == 'done' for h in data['history']))
+        set_app_badge('routineer', left_count)
         
         with today_container:
             if not due_routines:

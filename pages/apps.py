@@ -54,11 +54,25 @@ def create_page():
                     ui.label(f'App {app_name} is missing a valid app.py with a render() function').classes('text-red-400')
                     
         # Populate app list
-        with app_container:
+        from apps.utils import get_app_badge, register_badge_update_callback
+        
+        @ui.refreshable
+        def render_app_list():
             for app_name in apps_list:
                 display_name = app_name.replace('_', ' ').title()
-                ui.button(display_name, on_click=lambda a=app_name: select_app(a)).classes('w-full justify-start').props('no-caps')
+                badge_count = get_app_badge(app_name)
                 
+                with ui.button(on_click=lambda a=app_name: select_app(a)).classes('w-full justify-start relative px-4 py-2').props('no-caps flat'):
+                    ui.label(display_name)
+                    if badge_count and int(badge_count) > 0:
+                        ui.badge(str(badge_count), color='red').classes('absolute right-2 top-1/2 -translate-y-1/2')
+                        
+        with app_container:
+            render_app_list()
+            
+        # Refresh badges in real-time when updated
+        register_badge_update_callback(render_app_list.refresh)
+
         # Load default app
         if 'custom_app_tutorial' in apps_list:
             select_app('custom_app_tutorial')

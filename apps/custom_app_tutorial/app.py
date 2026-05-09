@@ -39,6 +39,20 @@ save_app_data('my_app_name', 'data.json', data)
 ```
 Data will be stored safely in `data/apps/my_app_name/`.
 
+### App Badges
+
+You can display a real-time notification badge (a small red number) next to your app's name in the sidebar. This is useful for things like "tasks left today" or "unread messages".
+
+```python
+from apps.utils import set_app_badge, get_app_badge
+
+# Set a badge count for your app (this instantly updates the sidebar)
+set_app_badge('my_app_name', 3)
+
+# Retrieve the current badge count
+current_count = get_app_badge('my_app_name')
+```
+
 ### How it Works
 
 The system automatically scans the `apps` folder. Each folder is treated as a separate application. When you click an app on the left panel, the system dynamically loads the `app.py` from that app's folder and executes its `render()` function to display the content.
