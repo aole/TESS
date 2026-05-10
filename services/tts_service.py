@@ -104,6 +104,25 @@ class TTSService:
         # The first character of the voice name corresponds to the lang_code
         # af_ -> a, bf_ -> b, jf_ -> j, etc.
         return voice[0].lower()
+
+    def clean_text(self, text: str) -> str:
+        import re
+        # Remove asterisks
+        text = text.replace('*', '')
+        # Remove emojis
+        emoji_pattern = re.compile(
+            r'['
+            r'\U0001F600-\U0001F64F'  # Emoticons
+            r'\U0001F300-\U0001F5FF'  # Misc Symbols and Pictographs
+            r'\U0001F680-\U0001F6FF'  # Transport and Map
+            r'\U0001F1E0-\U0001F1FF'  # Regional country flags
+            r'\u2702-\u27B0'    # Dingbats
+            r'\U0001F900-\U0001F9FF'  # Supplemental Symbols and Pictographs
+            r'\U0001FA70-\U0001FAFF'  # Symbols and Pictographs Extended-A
+            r'\u2600-\u26FF'    # Misc symbols
+            r']+', flags=re.UNICODE)
+        text = emoji_pattern.sub('', text)
+        return text
                 
     def warmup(self):
         lang_code = 'a'
@@ -116,6 +135,7 @@ class TTSService:
                 pass
                 
     def generate_audio_b64(self, text: str, voice: str = 'af_heart') -> List[str]:
+        text = self.clean_text(text)
         lang_code = self.get_lang_code(voice)
         pipeline = self.ensure_pipeline(lang_code)
             
@@ -179,6 +199,7 @@ class TTSService:
 
     def generate_audio_bytes(self, text: str, voice: str = 'af_heart',
                              metadata: Optional[Dict[str, str]] = None) -> bytes:
+        text = self.clean_text(text)
         lang_code = self.get_lang_code(voice)
         pipeline = self.ensure_pipeline(lang_code)
             
