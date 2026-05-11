@@ -23,6 +23,7 @@ data/notes.json
 data/apps/
 data/chats/
 data/audio/
+data/python/
 data/voices/
 data/visual/
 models/

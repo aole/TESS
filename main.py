@@ -1,5 +1,5 @@
 from nicegui import ui, app
-from pages import models, chat, arena, batch, tools, create, settings, notes, google, playground, audio, visual, apps
+from pages import models, chat, arena, batch, tools, create, settings, notes, google, playground, audio, visual, apps, python_page
 
 # Page styling and configuration
 def layout(page_path: str = ''):
@@ -70,6 +70,7 @@ def layout(page_path: str = ''):
             nav_link('Models', '/')
             nav_link('Create', '/create')
             nav_link('Playground', '/playground')
+            nav_link('Python', '/python')
             nav_link('Audio', '/audio')
             nav_link('Visual', '/visual')
             nav_link('Tools', '/tools')
@@ -126,6 +127,11 @@ def playground_page():
     layout('/playground')
     playground.create_page()
 
+@ui.page('/python')
+def python_ide_page():
+    layout('/python')
+    python_page.create_page()
+
 @ui.page('/audio')
 def audio_page():
     layout('/audio')
@@ -156,4 +162,5 @@ if __name__ in {"__main__", "__mp_main__"}:
         reload=True,
         port=8080,
         storage_secret='ollama_manager_secret',
+        uvicorn_reload_excludes='.*, .py[cod], .sw.*, ~*, data/python/*',
     )
