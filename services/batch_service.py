@@ -4,7 +4,7 @@ import time
 from typing import Dict, List, Optional, Any
 from services.stream_service import stream_service
 from utils.config import config_manager
-from utils.ollama_client import client
+from utils.llm_client import client
 
 class BatchService:
     def __init__(self):

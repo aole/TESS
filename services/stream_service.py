@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 from typing import Dict, Any, List, Callable, Optional
-from utils.ollama_client import client
+from utils.llm_client import client
 
 class StreamService:
     def __init__(self):

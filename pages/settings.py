@@ -258,7 +258,7 @@ def create_page():
             # ── Playground ────────────────────────────────────────────────────
             with ui_card(heading="Default Models", heading_icon="psychology", heading_color="indigo"):
                 async def load_models_for_setting():
-                    from utils.ollama_client import client
+                    from utils.llm_client import client
                     try:
                         models_list = await client.list_models()
                         options = [m['model'] for m in models_list]

@@ -1,5 +1,5 @@
 from nicegui import ui, app
-from utils.ollama_client import client
+from utils.llm_client import client
 from utils.config import config_manager
 from services.tool_service import tool_service
 from services.rating_service import rating_service

@@ -3,8 +3,9 @@ from typing import List, Dict, Any, AsyncGenerator
 import json
 import os
 from datetime import datetime
+from utils.base_llm_client import BaseLLMClient
 
-class OllamaClient:
+class OllamaClient(BaseLLMClient):
     def __init__(self):
         self.client = ollama.AsyncClient()
         self.log_path = os.path.join(os.getcwd(), 'logs', 'llm_debug.log')
@@ -278,5 +279,4 @@ class OllamaClient:
             self._log('unload_error', str(e))
             return False
 
-# Singleton instance
-client = OllamaClient()
+# Removed singleton instance to utils/llm_client.py

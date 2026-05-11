@@ -1,6 +1,6 @@
 from nicegui import ui
 from services.tool_service import tool_service, Tool
-from utils.ollama_client import client
+from utils.llm_client import client
 import asyncio
 
 def create_page():

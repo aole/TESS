@@ -18,7 +18,7 @@ async def generate_image(prompt: str) -> str:
     steps = 30
 
     try:
-        from utils.ollama_client import client
+        from utils.llm_client import client
         # Unload loaded LLMs to free up VRAM for image generation
         await client.unload_all_models()
     except Exception as e:

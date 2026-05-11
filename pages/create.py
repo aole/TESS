@@ -1,5 +1,5 @@
 from nicegui import ui
-from utils.ollama_client import client
+from utils.llm_client import client
 import asyncio
 from typing import Optional
 

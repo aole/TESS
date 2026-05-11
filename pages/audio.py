@@ -1,7 +1,7 @@
 from nicegui import ui, app
 from utils.ui_components import ui_list, ui_list_item
 from services.tts_service import tts_service
-from utils.ollama_client import client
+from utils.llm_client import client
 import os
 import re
 import struct

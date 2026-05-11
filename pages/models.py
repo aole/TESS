@@ -1,6 +1,6 @@
 from typing import Callable, Optional
 from nicegui import ui
-from utils.ollama_client import client
+from utils.llm_client import client
 from services.rating_service import rating_service
 import asyncio
 from dataclasses import dataclass
