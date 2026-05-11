@@ -153,13 +153,34 @@ def render():
         refresh_ui()
         ui.notify('Routine deleted', type='info')
 
-    def toggle_today(routine_id, checked):
-        data['history'] = [h for h in data['history'] if not (h['routine_id'] == routine_id and h['date'] == today_str)]
-        if checked:
+    def save_comment(routine_id, comment_text):
+        found = False
+        for h in data['history']:
+            if h['routine_id'] == routine_id and h['date'] == today_str:
+                h['comment'] = comment_text
+                found = True
+                break
+        if not found:
             data['history'].append({
                 "routine_id": routine_id,
                 "date": today_str,
-                "status": "done"
+                "status": "pending",
+                "comment": comment_text
+            })
+        save_data(data)
+
+    def toggle_today(routine_id, checked):
+        found = False
+        for h in data['history']:
+            if h['routine_id'] == routine_id and h['date'] == today_str:
+                h['status'] = 'done' if checked else 'pending'
+                found = True
+                break
+        if not found:
+            data['history'].append({
+                "routine_id": routine_id,
+                "date": today_str,
+                "status": "done" if checked else "pending"
             })
         save_data(data)
         refresh_stats()
@@ -184,12 +205,16 @@ def render():
             else:
                 for r in due_routines:
                     is_done = any(h['routine_id'] == r['id'] and h['date'] == today_str and h['status'] == 'done' for h in data['history'])
-                    with ui.row().classes('w-full flex-nowrap items-center justify-between p-3 rounded-xl bg-white/5 hover:bg-white/10 transition'):
-                        with ui.column().classes('gap-0 flex-1 min-w-0 pr-4'):
-                            ui.label(r['name']).classes(f'text-lg font-semibold {"line-through text-gray-500" if is_done else "text-white"}')
-                            if r.get('description'):
-                                ui.label(r['description']).classes('text-sm text-gray-400')
-                        ui.checkbox(value=is_done, on_change=lambda e, rid=r['id']: toggle_today(rid, e.value)).classes('scale-125 ml-4')
+                    with ui.column().classes('w-full p-3 rounded-xl bg-white/5 hover:bg-white/10 transition gap-2'):
+                        with ui.row().classes('w-full flex-nowrap items-center justify-between'):
+                            with ui.column().classes('gap-0 flex-1 min-w-0 pr-4'):
+                                ui.label(r['name']).classes(f'text-lg font-semibold {"line-through text-gray-500" if is_done else "text-white"}')
+                                if r.get('description'):
+                                    ui.label(r['description']).classes('text-sm text-gray-400')
+                            ui.checkbox(value=is_done, on_change=lambda e, rid=r['id']: toggle_today(rid, e.value)).classes('scale-125 ml-4')
+                        
+                        existing_comment = next((h.get('comment', '') for h in data['history'] if h['routine_id'] == r['id'] and h['date'] == today_str), '')
+                        ui.input(value=existing_comment, placeholder='Add a comment...', on_change=lambda e, rid=r['id']: save_comment(rid, e.value)).classes('w-full text-sm').props('dense outlined')
 
         with routines_container:
             if not data['routines']:
