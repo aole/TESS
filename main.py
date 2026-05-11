@@ -142,9 +142,10 @@ def settings_page():
     settings.create_page()
 
 @ui.page('/apps')
-def apps_route():
+@ui.page('/apps/{app_name}')
+def apps_route(app_name: str = None):
     layout('/apps')
-    apps.create_page()
+    apps.create_page(app_name)
 
 if __name__ in {"__main__", "__mp_main__"}:
     app.add_static_files('/data', 'data')

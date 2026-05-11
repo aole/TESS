@@ -22,7 +22,7 @@ def load_app_module(app_path):
         print(f"Error loading app {app_name}: {e}")
         return None
 
-def create_page():
+def create_page(initial_app: str = None):
     apps_dir = os.path.join(os.getcwd(), 'apps')
     os.makedirs(apps_dir, exist_ok=True)
     
@@ -39,6 +39,7 @@ def create_page():
             ui.label('Select an app from the menu').classes('text-gray-400 m-auto text-lg')
             
         def select_app(app_name):
+            ui.run_javascript(f'window.history.pushState(null, "", "/apps/{app_name}");')
             content_container.clear()
             app_path = os.path.join(apps_dir, app_name)
             module = load_app_module(app_path)
@@ -73,7 +74,9 @@ def create_page():
         register_badge_update_callback(render_app_list.refresh)
 
         # Load default app
-        if 'custom_app_tutorial' in apps_list:
+        if initial_app and initial_app in apps_list:
+            select_app(initial_app)
+        elif 'custom_app_tutorial' in apps_list:
             select_app('custom_app_tutorial')
         elif apps_list:
             select_app(apps_list[0])
