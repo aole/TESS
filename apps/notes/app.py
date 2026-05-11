@@ -3,7 +3,7 @@ from services.note_service import note_service
 from utils.config import config_manager
 from datetime import datetime
 
-def create_page():
+def render():
     # Page Container
     with ui.column().classes('w-full max-w-[1000px] mx-auto p-6 gap-6'):
         
@@ -102,11 +102,7 @@ def create_page():
                 try:
                     note_service.add_note(content, category=cat_select.value)
                     note_input.value = ''
-                    # Refresh UI immediately - reusing async refresh logic by scheduling it or just running if we make refresh sync?
-                    # Let's make refresh_notes async wrapper but logic sync if possible? 
-                    # Actually, since I changed refresh_notes signature above to async, I must await it or call it properly.
-                    # But wait, I'm replacing the whole block.
-                    # I will make refresh_notes sync again since IO is fast.
+                    # Refresh UI immediately
                     refresh_notes()
                     ui.notify(f'Note saved to {cat_select.value}', type='positive')
                 except Exception as e:

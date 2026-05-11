@@ -1,5 +1,5 @@
 from nicegui import ui, app
-from pages import models, chat, arena, batch, tools, create, settings, notes, google, playground, audio, visual, apps, python_page
+from pages import models, chat, arena, batch, tools, create, settings, google, playground, audio, visual, apps, python_page
 
 # Page styling and configuration
 def layout(page_path: str = ''):
@@ -76,7 +76,6 @@ def layout(page_path: str = ''):
             nav_link('Tools', '/tools')
             nav_link('Arena', '/arena')
             nav_link('Batch', '/batch')
-            nav_link('Notes', '/notes')
             nav_link('Google', '/google')
             nav_link('Apps', '/apps')
             ui.element('div').classes('h-4 w-px bg-white/20 mx-2')
@@ -102,10 +101,6 @@ async def batch_page():
     layout('/batch')
     await batch.create_page()
 
-@ui.page('/notes')
-def notes_page():
-    layout('/notes')
-    notes.create_page()
 
 @ui.page('/google')
 def google_page():
