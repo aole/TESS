@@ -1030,8 +1030,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     sync_ui_from_storage()
                     settings_dialog.open()
 
-                with ui.row().classes('gap-1 items-center'):
-                    send_btn = ui.button(icon='send', on_click=send_message).props('flat round color=primary')
+                with ui.row().classes('w-full gap-1 items-center'):
                     ui.button(icon='settings', on_click=open_settings).props('flat round color=grey')
 
                     model_select = ui.select(
@@ -1068,6 +1067,9 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     visual_btn.on('click', toggle_visual)
                     if app.storage.user.get('visual_enabled', False):
                         visual_btn.props("color=primary")
+
+                    ui.space()
+                    send_btn = ui.button(icon='send', on_click=send_message).props('flat round color=primary')
                         
                     model_select.on_value_change(lambda e: update_params())
                     # Trigger initial update
