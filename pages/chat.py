@@ -1017,9 +1017,9 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     content = user_input.value.strip()
                     if not content or not model_select.value: return
 
-                    attachment_names = []
+                    attachments_data = []
                     if attached_files:
-                        attachment_names = [f['name'] for f in attached_files]
+                        attachments_data = [{'name': f['name'], 'content': f['content']} for f in attached_files]
                         docs_text = "### Available Documents:\n"
                         for i, f in enumerate(attached_files, 1):
                             docs_text += f"{i}. **Filename:** `{f['name']}` | **ID:** FILE_{i:02d}\n"
@@ -1042,7 +1042,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         'role': 'user', 
                         'content': content, 
                         'id': str(uuid.uuid4()),
-                        'attachments': attachment_names
+                        'attachments': attachments_data
                     }
                     messages.append(user_msg)
                     app.storage.user['messages'] = messages

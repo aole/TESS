@@ -153,19 +153,36 @@ class ConversationRenderer:
         display_content = content
         attachments = msg.get('attachments', [])
         
-        # If there are attachments, we want to show badges and hide the raw content block
+        # If there are attachments, we want to show them in a collapsible section
         if attachments:
             import re
-            # Pattern matches from "### Available Documents:" to the last "</FILE_XX>\n\n"
-            pattern = r'^### Available Documents:.*?<\/FILE_\d+>\n\n'
+            # Pattern matches from "### Available Documents:" to the last "</FILE_XX>" block
+            pattern = r'^### Available Documents:.*<\/FILE_\d+>\n*'
             display_content = re.sub(pattern, '', content, flags=re.DOTALL).strip()
             
-            with ui.row().classes('w-full gap-2 mb-2 items-center px-2 py-1 rounded bg-white/5 border border-white/10'):
-                ui.icon('attachment', size='16px').classes('text-blue-400')
-                ui.label(f"{len(attachments)} Files Attached:").classes('text-[10px] font-bold text-gray-400 uppercase tracking-wider')
-                with ui.row().classes('gap-1'):
-                    for name in attachments:
-                        ui.badge(name, color='blue-6').props('outline').classes('text-[10px] px-2 py-0.5')
+            # Collapsible section for attachments
+            with ui.expansion('', icon='attachment').classes('w-full bg-white/5 rounded-md border border-white/10 mb-2 group/exp') as exp:
+                # Custom header with badges
+                with exp.add_slot('header'):
+                    with ui.row().classes('items-center gap-2 flex-grow'):
+                        ui.icon('attachment', size='20px').classes('text-blue-400')
+                        ui.label(f"{len(attachments)} Files Attached").classes('text-[11px] font-bold text-gray-300 uppercase tracking-wider')
+                        ui.space()
+                        with ui.row().classes('gap-1'):
+                            for att in attachments:
+                                name = att['name'] if isinstance(att, dict) else str(att)
+                                ui.badge(name, color='blue-6').props('outline').classes('text-[10px] px-2 py-0.5')
+                
+                # Content area showing file contents
+                with ui.column().classes('w-full p-2 gap-2 bg-black/20'):
+                    for att in attachments:
+                        if isinstance(att, dict) and 'content' in att:
+                            with ui.expansion(att['name'], icon='description').classes('w-full bg-white/5 rounded border border-white/5').props('dense'):
+                                with ui.scroll_area().classes('h-48 w-full bg-black/40 rounded p-2'):
+                                    ui.label(att['content']).classes('text-xs font-mono text-gray-300 whitespace-pre-wrap')
+                        else:
+                            # Fallback for old messages with only names
+                            ui.label(f"Content for {att} is embedded in message context.").classes('text-xs italic text-gray-500 p-2')
 
         content_markdown = None
         
