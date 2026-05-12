@@ -9,6 +9,7 @@ from services.stream_service import stream_service
 from services.batch_service import batch_service
 from services.tts_service import tts_service, VOICES
 from utils.ui_components import ui_list, ui_list_item
+from utils.audio_player import AudioPlayer
 import asyncio
 import uuid
 
@@ -70,7 +71,13 @@ async def create_page(model_param: str = None, new_chat: bool = False):
         if 'id' not in msg:
             msg['id'] = str(uuid.uuid4())
     
-    state = {'processing': False, 'stopping': False, 'tts_cursors': {}, 'last_update_msg_id': None, 'playing_tts_id': None, 'tts_generation_complete': False, 'has_attachments': False}
+    state = {'processing': False, 'stopping': False, 'last_update_msg_id': None, 'has_attachments': False}
+    
+    # Initialize Audio Player
+    audio_player = AudioPlayer(
+        page_client=page_client,
+        on_state_change=lambda: chat_renderer.render_messages(messages)
+    )
 
     # Model Selection Logic (Prep)
     try:
@@ -452,9 +459,9 @@ async def create_page(model_param: str = None, new_chat: bool = False):
 
 
     # Layout (just chat area now)
-    with ui.row().classes('w-full max-w-[1200px] mx-auto h-[calc(100vh-3rem)] pt-14 px-4 items-stretch flex-nowrap'):
+    with ui.row().classes('w-full max-w-[1200px] mx-auto h-[calc(100vh-3rem)] pt-4 px-4 items-stretch flex-nowrap'):
         # --- Right Area (Chat) ---
-        with ui.column().classes('flex-grow h-full gap-2 relative min-w-0'):
+        with ui.column().classes('flex-grow h-full gap-1 relative min-w-0'):
             chat_container = ui.column().classes('w-full flex-grow overflow-y-auto p-4 gap-4 rounded-lg bg-black/20 border border-white/5').props('id=chat-scroll-area')
             
             async def scroll_to_bottom(check_position=False):
@@ -538,131 +545,13 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 on_delete=handle_delete,
                 on_rate=handle_rate,
                 on_delete_rating=handle_delete_rating,
-                on_play_tts=lambda msg: asyncio.create_task(handle_play_tts(msg)),
-                get_playing_tts_id=lambda: state.get('playing_tts_id'),
+                on_play_tts=lambda msg: asyncio.create_task(audio_player.play_message(msg)),
+                get_playing_tts_id=lambda: audio_player.playing_tts_id,
                 get_ratings=get_msg_ratings,
                 available_tags=config_manager.get_rating_tags(),
                 on_save_and_respond=None # Will be set later
             )
-            async def play_audio_js(b64_str):
-                await ui.run_javascript(f"""
-                    if (!window.audioQueue) {{
-                        window.audioQueue = [];
-                        window.isPlayingAudio = false;
-                        window.currentAudioObj = null;
-                        
-                        window.stopAudio = function() {{
-                            window.audioQueue = [];
-                            if (window.currentAudioObj) {{
-                                window.currentAudioObj.pause();
-                                window.currentAudioObj = null;
-                            }}
-                            window.isPlayingAudio = false;
-                        }};
-                        
-                        window.playNextAudio = function() {{
-                            if (window.audioQueue.length > 0 && !window.isPlayingAudio) {{
-                                window.isPlayingAudio = true;
-                                let src = window.audioQueue.shift();
-                                window.currentAudioObj = new Audio('data:audio/wav;base64,' + src);
-                                window.currentAudioObj.onended = function() {{
-                                    window.isPlayingAudio = false;
-                                    window.playNextAudio();
-                                }};
-                                window.currentAudioObj.play().catch(e => {{
-                                    console.error("Audio play error", e);
-                                    window.isPlayingAudio = false;
-                                    window.playNextAudio();
-                                }});
-                            }}
-                        }};
-                    }}
-                    window.audioQueue.push('{b64_str}');
-                    window.playNextAudio();
-                """)
-                
-            async def stop_playback():
-                with page_client:
-                    await ui.run_javascript("if(window.stopAudio) window.stopAudio();")
-                state['playing_tts_id'] = None
-                state['tts_generation_complete'] = False
-                
-            async def handle_play_tts(msg):
-                if state.get('playing_tts_id') == msg['id']:
-                    await stop_playback()
-                    with page_client:
-                        chat_renderer.render_messages(messages)
-                    return
-                    
-                await stop_playback()
-                state['playing_tts_id'] = msg['id']
-                state['tts_generation_complete'] = False
-                with page_client:
-                    chat_renderer.render_messages(messages)
-                
-                content = msg.get('content', '')
-                import re
-                boundary_pattern = (
-                    r'(?<!\bMr)(?<!\bMrs)(?<!\bMs)(?<!\bDr)(?<!\bProf)'
-                    r'(?<!\bSr)(?<!\bJr)(?<!\bSt)(?<!\bCapt)(?<!\bCol)'
-                    r'(?<!\bGen)(?<!\bLt)(?<!\bSgt)(?<!\b[A-Za-z])'
-                    r'([.!?\n]+)(\s*)'
-                )
-                
-                # Split and keep delimiters
-                parts = re.split(boundary_pattern, content, flags=re.IGNORECASE)
-                sentences = []
-                current_s = ""
-                for i in range(0, len(parts), 3):
-                    current_s += parts[i]
-                    if i + 1 < len(parts): current_s += parts[i+1] # delim
-                    if i + 2 < len(parts): current_s += parts[i+2] # space
-                    
-                    if current_s.strip():
-                        sentences.append(current_s)
-                        current_s = ""
-                if current_s.strip():
-                    sentences.append(current_s)
-                    
-                for s in sentences:
-                    if state.get('playing_tts_id') != msg['id']:
-                        break
-                    await play_tts(s, is_manual_playback_id=msg['id'])
-                    
-                if state.get('playing_tts_id') == msg['id']:
-                    state['tts_generation_complete'] = True
-
-            async def sync_tts_state():
-                if state.get('playing_tts_id') and state.get('tts_generation_complete'):
-                    with page_client:
-                        try:
-                            is_playing = await ui.run_javascript('return !!(window.isPlayingAudio || (window.audioQueue && window.audioQueue.length > 0));')
-                            if not is_playing:
-                                state['playing_tts_id'] = None
-                                state['tts_generation_complete'] = False
-                                chat_renderer.render_messages(messages)
-                        except Exception:
-                            pass
-            
-            ui.timer(1.0, sync_tts_state)
-
-            tts_lock = asyncio.Lock()
-            async def play_tts(text_chunk, is_manual_playback_id=None):
-                if is_manual_playback_id and state.get('playing_tts_id') != is_manual_playback_id:
-                    return
-                async with tts_lock:
-                    if is_manual_playback_id and state.get('playing_tts_id') != is_manual_playback_id:
-                        return
-                    try:
-                        voice = app.storage.user.get('tts_voice', 'af_heart')
-                        b64_list = await asyncio.to_thread(tts_service.generate_audio_b64, text_chunk, voice=voice)
-                        if is_manual_playback_id and state.get('playing_tts_id') != is_manual_playback_id:
-                            return
-                        for b64 in b64_list:
-                            with page_client:
-                                await play_audio_js(b64)
-                    except Exception as e:
-                        print(f"TTS Error: {e}")
+            ui.timer(1.0, audio_player.sync_tts_state)
             
             async def on_stream_event(event_type, *args):
                 with page_client:
@@ -688,37 +577,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         
                         state['last_update_msg_id'] = msg_id
                         if app.storage.user.get('tts_enabled', False):
-                            if msg_id not in state['tts_cursors']:
-                                state['tts_cursors'][msg_id] = 0
-                                
-                                if state.get('playing_tts_id') != msg_id:
-                                    await stop_playback()
-                                    state['playing_tts_id'] = msg_id
-                                    state['tts_generation_complete'] = False
-                                    chat_renderer.render_messages(messages)
-                            
-                            spoken = state['tts_cursors'][msg_id]
-                            unspoken = content[spoken:]
-                            import re
-                            
-                            # Prevent splitting on common abbreviations and single-letter initials
-                            boundary_pattern = (
-                                r'(?<!\bMr)(?<!\bMrs)(?<!\bMs)(?<!\bDr)(?<!\bProf)'
-                                r'(?<!\bSr)(?<!\bJr)(?<!\bSt)(?<!\bCapt)(?<!\bCol)'
-                                r'(?<!\bGen)(?<!\bLt)(?<!\bSgt)(?<!\b[A-Za-z])'
-                                r'([.!?\n]+)(\s+)'
-                            )
-                            
-                            matches = list(re.finditer(boundary_pattern, unspoken, re.IGNORECASE))
-                            
-                            flush_end_pos = None
-                            if matches:
-                                flush_end_pos = matches[0].end()
-                                    
-                            if flush_end_pos is not None:
-                                sentence = unspoken[:flush_end_pos]
-                                state['tts_cursors'][msg_id] += flush_end_pos
-                                asyncio.create_task(play_tts(sentence, is_manual_playback_id=msg_id))
+                            await audio_player.process_stream_chunk(msg_id, content)
                                 
                     elif event_type == 'done':
                         state['processing'] = False
@@ -728,17 +587,10 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         # handle trailing text for TTS
                         last_id = state.get('last_update_msg_id')
                         if last_id and app.storage.user.get('tts_enabled', False):
-                            spoken = state['tts_cursors'].get(last_id, 0)
                             for m in messages:
                                 if m.get('id') == last_id:
-                                    final_unspoken = m.get('content', '')[spoken:]
-                                    if final_unspoken.strip():
-                                        state['tts_cursors'][last_id] += len(final_unspoken)
-                                        asyncio.create_task(play_tts(final_unspoken, is_manual_playback_id=last_id))
+                                    await audio_player.process_stream_chunk(last_id, m.get('content', ''), is_done=True)
                                     break
-                                    
-                        if last_id and state.get('playing_tts_id') == last_id:
-                            state['tts_generation_complete'] = True
                                     
                         # Refresh to ensure consistency
                         try:
@@ -1014,6 +866,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     if state['processing'] or stream_service.any_active() or batch_service.any_active():
                         stream_service.stop_all()
                         batch_service.stop_all()
+                        await audio_player.stop()
                         state['stopping'] = True
                         update_button_state()
                         return
