@@ -14,6 +14,7 @@ class Tool:
     description: str
     code: str
     active: bool = True
+    is_builtin: bool = False
 
     def to_dict(self):
         return asdict(self)
@@ -60,9 +61,43 @@ class ToolService:
             tool = self._parse_tool_file(file_path)
             if tool:
                 tools.append(tool)
+        
+        # Add builtin tools
+        tools.extend(self.get_builtin_tools())
+        
         return tools
 
+    def get_builtin_tools(self) -> List[Tool]:
+        builtin = []
+        
+        # Visual Tool
+        visual_desc = "Generates an image using the Anima diffusion model. This model is specialized in producing high-quality anime-style images and illustrations."
+        builtin.append(Tool(
+            name="visual_tool",
+            description=visual_desc,
+            code="# Builtin Tool: visual_tool\n# (Implementation is in utils/visual_tool.py)",
+            active=config_manager.is_tool_active("visual_tool"),
+            is_builtin=True
+        ))
+        
+        # Web Search Tool
+        search_desc = "Search the web for a given query and return a cleaned summary. Also extract content from specific URLs."
+        builtin.append(Tool(
+            name="web_search_tool",
+            description=search_desc,
+            code="# Builtin Tool: web_search_tool\n# (Implementation is in utils/web_search_tool.py)",
+            active=config_manager.is_tool_active("web_search_tool"),
+            is_builtin=True
+        ))
+        
+        return builtin
+
     def get_tool(self, name: str) -> Optional[Tool]:
+        # Check builtin first
+        for t in self.get_builtin_tools():
+            if t.name == name:
+                return t
+        
         file_path = os.path.join(TOOLS_DIR, f"{name}.py")
         if os.path.exists(file_path):
             return self._parse_tool_file(file_path)

@@ -13,6 +13,9 @@ def create_page():
     # Create/Edit Dialog
     async def open_tool_dialog(tool: Tool = None):
         is_edit = tool is not None
+        if is_edit and tool.is_builtin:
+            ui.notify('Builtin tools cannot be edited', type='warning')
+            return
         dialog_title = 'Edit Tool' if is_edit else 'Create Tool'
         
         # Initial values
@@ -106,6 +109,9 @@ def create_page():
 
     # Delete Action
     async def delete_tool_action(row):
+        if row.get('is_builtin'):
+            ui.notify('Builtin tools cannot be deleted', type='warning')
+            return
         with ui.dialog() as dialog, ui.card():
             ui.label(f"Delete {row['name']}?").classes('font-bold')
             with ui.row().classes('justify-end w-full'):
@@ -133,9 +139,10 @@ def create_page():
 
         # Table
         columns = [
-            {'name': 'name', 'label': 'Name', 'field': 'name', 'align': 'left', 'sortable': True, 'classes': 'font-bold text-indigo-300'},
-            {'name': 'description', 'label': 'Description', 'field': 'description', 'align': 'left'},
             {'name': 'active', 'label': 'Active', 'field': 'active', 'align': 'center'},
+            {'name': 'name', 'label': 'Name', 'field': 'name', 'align': 'left', 'sortable': True},
+            {'name': 'description', 'label': 'Description', 'field': 'description', 'align': 'left'},
+            {'name': 'is_builtin', 'label': 'Type', 'field': 'is_builtin', 'align': 'center'},
             {'name': 'actions', 'label': '', 'field': 'actions', 'align': 'right'},
         ]
 
@@ -153,10 +160,17 @@ def create_page():
             </q-td>
         ''')
 
+        table.add_slot('body-cell-is_builtin', r'''
+            <q-td key="is_builtin" :props="props">
+                <q-badge v-if="props.row.is_builtin" color="indigo-10" text-color="indigo-2" label="Builtin" />
+                <q-badge v-else color="teal-10" text-color="teal-2" label="Custom" />
+            </q-td>
+        ''')
+
         table.add_slot('body-cell-actions', r'''
             <q-td key="actions" :props="props" class="flex gap-2 justify-end">
-                <q-btn flat round color="warning" icon="edit" size="sm" @click="$parent.$emit('edit', props.row)" />
-                <q-btn flat round color="negative" icon="delete" size="sm" @click="$parent.$emit('delete', props.row)" />
+                <q-btn v-if="!props.row.is_builtin" flat round color="warning" icon="edit" size="sm" @click="$parent.$emit('edit', props.row)" />
+                <q-btn v-if="!props.row.is_builtin" flat round color="negative" icon="delete" size="sm" @click="$parent.$emit('delete', props.row)" />
             </q-td>
         ''')
 

@@ -603,14 +603,14 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                             func = load_tool_function(name, tool_options[name].code)
                             if func: tool_funcs_map[func.__name__] = func
                                     
-                    if app.storage.user.get('web_search_enabled', False):
+                    if app.storage.user.get('web_search_enabled', False) and config_manager.is_tool_active('web_search_tool'):
                         try:
                             from utils.web_search_tool import web_search, extract_url
                             tool_funcs_map['web_search'] = web_search
                             tool_funcs_map['extract_url'] = extract_url
                         except ImportError: pass
                             
-                    if app.storage.user.get('visual_enabled', False):
+                    if app.storage.user.get('visual_enabled', False) and config_manager.is_tool_active('visual_tool'):
                         try:
                             from utils.visual_tool import generate_image
                             tool_funcs_map['generate_image'] = generate_image
@@ -724,6 +724,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
 
                         
                     web_search_btn = ui.button(icon='public_off').props('flat round color=grey').tooltip('Toggle Web Search')
+                    if not config_manager.is_tool_active('web_search_tool'):
+                        web_search_btn.classes('hidden')
                     def toggle_web_search():
                         app.storage.user['web_search_enabled'] = not app.storage.user.get('web_search_enabled', False)
                         is_on = app.storage.user['web_search_enabled']
@@ -732,6 +734,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     if app.storage.user.get('web_search_enabled', False): web_search_btn.props("icon=public color=primary")
                         
                     visual_btn = ui.button(icon='brush').props('flat round color=grey').tooltip('Toggle Image Generation')
+                    if not config_manager.is_tool_active('visual_tool'):
+                        visual_btn.classes('hidden')
                     def toggle_visual():
                         app.storage.user['visual_enabled'] = not app.storage.user.get('visual_enabled', False)
                         is_on = app.storage.user['visual_enabled']
