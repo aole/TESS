@@ -119,13 +119,22 @@ class ConfigManager:
         self.config["default_models"][key] = model_name
         self._save_config(self.config)
 
-    def get_auto_start_audio(self) -> bool:
-        return self.config.get("audio", {}).get("auto_start", True)
+    def get_tts_voice(self) -> str:
+        return self.config.get("audio", {}).get("voice", "af_heart")
 
-    def set_auto_start_audio(self, auto_start: bool):
+    def set_tts_voice(self, voice: str):
         if "audio" not in self.config:
             self.config["audio"] = {}
-        self.config["audio"]["auto_start"] = auto_start
+        self.config["audio"]["voice"] = voice
+        self._save_config(self.config)
+
+    def is_tts_enabled(self) -> bool:
+        return self.config.get("audio", {}).get("enabled", False)
+
+    def set_tts_enabled(self, enabled: bool):
+        if "audio" not in self.config:
+            self.config["audio"] = {}
+        self.config["audio"]["enabled"] = enabled
         self._save_config(self.config)
 
 config_manager = ConfigManager()

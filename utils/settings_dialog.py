@@ -7,7 +7,6 @@ from utils.llm_client import client
 from services.tool_service import tool_service
 from services.rating_service import rating_service
 from services.chat_service import chat_service
-from services.tts_service import VOICES
 
 class SettingsDialog:
     def __init__(self, 
@@ -31,7 +30,6 @@ class SettingsDialog:
         self.repeat_penalty_slider = None
         self.system_prompt = None
         self.tool_checks = {}
-        self.voice_select = None
         
         # Security Buttons (references to be set during build)
         self.settings_encrypt_btn = None
@@ -87,19 +85,6 @@ class SettingsDialog:
                                     is_checked = t.name in saved_tools
                                     self.tool_checks[t.name] = ui.checkbox(t.name, value=is_checked, on_change=update_tool_storage).classes('text-sm text-gray-300')
 
-                # TTS Voice Selection
-                with ui.expansion('Audio (TTS)', icon='volume_up').classes('w-full bg-white/5 rounded-lg').props('dense'):
-                    with ui.column().classes('w-full p-2 gap-2'):
-                        ui.label('Select Voice').classes('text-xs text-gray-400')
-                        def update_voice_storage():
-                            app.storage.user['tts_voice'] = self.voice_select.value
-                        
-                        self.voice_select = ui.select(
-                            options=VOICES, 
-                            value=app.storage.user.get('tts_voice', 'af_heart'),
-                            with_input=True,
-                            on_change=update_voice_storage
-                        ).classes('w-full').props('outlined dense dark')
 
                 # Security (Encryption)
                 with ui.expansion('Security', icon='security').classes('w-full bg-white/5 rounded-lg').props('dense'):

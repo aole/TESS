@@ -1,4 +1,5 @@
 from nicegui import ui, app
+from utils.config import config_manager
 import asyncio
 import re
 from services.tts_service import tts_service
@@ -118,7 +119,7 @@ class AudioPlayer:
             return
         
         try:
-            voice = app.storage.user.get('tts_voice', 'af_heart')
+            voice = config_manager.get_tts_voice()
             b64_list = await asyncio.to_thread(tts_service.generate_audio_b64, text_chunk, voice=voice)
             if self.playing_tts_id != msg_id:
                 return
@@ -144,7 +145,7 @@ class AudioPlayer:
 
     async def process_stream_chunk(self, msg_id, content, is_done=False):
         """Handles streaming text by chunking it into sentences for real-time TTS."""
-        if not app.storage.user.get('tts_enabled', False):
+        if not config_manager.is_tts_enabled():
             return
 
         if msg_id not in self.tts_cursors:

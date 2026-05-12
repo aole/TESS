@@ -458,7 +458,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         await scroll_to_bottom(check_position=True)
                         
                         state['last_update_msg_id'] = msg_id
-                        if app.storage.user.get('tts_enabled', False):
+                        if config_manager.is_tts_enabled():
                             await audio_player.process_stream_chunk(msg_id, content)
                                 
                     elif event_type == 'done':
@@ -468,7 +468,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         
                         # handle trailing text for TTS
                         last_id = state.get('last_update_msg_id')
-                        if last_id and app.storage.user.get('tts_enabled', False):
+                        if last_id and config_manager.is_tts_enabled():
                             for m in messages:
                                 if m.get('id') == last_id:
                                     await audio_player.process_stream_chunk(last_id, m.get('content', ''), is_done=True)
@@ -646,7 +646,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         update_button_state()
 
                 async def save_and_respond(msg, new_content):
-                    if app.storage.user.get('tts_enabled', False):
+                    if config_manager.is_tts_enabled():
                         asyncio.create_task(asyncio.to_thread(tts_service.warmup))
                     msg['content'] = new_content
                     msg['editing'] = False
@@ -691,7 +691,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         state['has_attachments'] = False
                     
                     user_input.value = ''
-                    if app.storage.user.get('tts_enabled', False):
+                    if config_manager.is_tts_enabled():
                         asyncio.create_task(asyncio.to_thread(tts_service.warmup))
                     
                     user_msg = {
@@ -713,14 +713,15 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     ui.button(icon='add', on_click=lambda: uploader.run_method('pickFiles')).props('flat round color=primary').tooltip('Attach text files')
                     ui.button(icon='settings', on_click=open_settings).props('flat round color=grey')
 
-                    tts_btn = ui.button(icon='volume_off').props('flat round color=grey').tooltip('Toggle Text-to-Speech')
+                    tts_btn = ui.button(icon='volume_off').props('flat round color=grey').tooltip('Toggle Automatic Text-to-Speech')
                     def toggle_tts():
-                        app.storage.user['tts_enabled'] = not app.storage.user.get('tts_enabled', False)
-                        is_on = app.storage.user['tts_enabled']
+                        is_on = not config_manager.is_tts_enabled()
+                        config_manager.set_tts_enabled(is_on)
                         tts_btn.props(f"icon={'volume_up' if is_on else 'volume_off'} color={'primary' if is_on else 'grey'}")
                         if is_on: asyncio.create_task(asyncio.to_thread(tts_service.warmup))
                     tts_btn.on('click', toggle_tts)
-                    if app.storage.user.get('tts_enabled', False): tts_btn.props("icon=volume_up color=primary")
+                    if config_manager.is_tts_enabled(): tts_btn.props("icon=volume_up color=primary")
+
                         
                     web_search_btn = ui.button(icon='public_off').props('flat round color=grey').tooltip('Toggle Web Search')
                     def toggle_web_search():

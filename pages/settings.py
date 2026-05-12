@@ -2,6 +2,7 @@ from nicegui import ui, app, run
 from utils.config import config_manager
 from utils.ui_components import ui_card, ui_info_card
 from services.note_service import note_service
+from services.tts_service import VOICES
 
 # ── Storage key used to persist system info for the session ──────────────────
 _SYS_INFO_KEY = "system_info_cache"
@@ -282,7 +283,11 @@ def create_page():
 
             # ── Audio ─────────────────────────────────────────────────────────
             with ui_card(heading="Audio Settings", heading_icon="volume_up", heading_color="pink"):
-                with ui.column().classes('gap-4'):
-                    ui.checkbox('Auto Start Audio After Generation',
-                                value=config_manager.get_auto_start_audio(),
-                                on_change=lambda e: config_manager.set_auto_start_audio(e.value)).classes('text-gray-300')
+                with ui.column().classes('gap-4 w-full'):
+                    with ui.column().classes('gap-1 w-full'):
+                        ui.label('Chat Audio Voice').classes('text-sm font-bold text-gray-400')
+                        ui.select(
+                            options=VOICES,
+                            value=config_manager.get_tts_voice(),
+                            on_change=lambda e: config_manager.set_tts_voice(e.value)
+                        ).classes('w-full').props('outlined dense dark')
