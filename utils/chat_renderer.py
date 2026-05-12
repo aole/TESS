@@ -150,28 +150,44 @@ class ConversationRenderer:
 
         # 3. Content
         content = msg.get('content', '')
+        display_content = content
+        attachments = msg.get('attachments', [])
+        
+        # If there are attachments, we want to show badges and hide the raw content block
+        if attachments:
+            import re
+            # Pattern matches from "### Available Documents:" to the last "</FILE_XX>\n\n"
+            pattern = r'^### Available Documents:.*?<\/FILE_\d+>\n\n'
+            display_content = re.sub(pattern, '', content, flags=re.DOTALL).strip()
+            
+            with ui.row().classes('w-full gap-2 mb-2 items-center px-2 py-1 rounded bg-white/5 border border-white/10'):
+                ui.icon('attachment', size='16px').classes('text-blue-400')
+                ui.label(f"{len(attachments)} Files Attached:").classes('text-[10px] font-bold text-gray-400 uppercase tracking-wider')
+                with ui.row().classes('gap-1'):
+                    for name in attachments:
+                        ui.badge(name, color='blue-6').props('outline').classes('text-[10px] px-2 py-0.5')
+
         content_markdown = None
         
         if role == 'tool':
             tool_name = msg.get('name', 'unknown')
             with ui.expansion(f"Tool Output: {tool_name}", icon='build').classes('w-full bg-white/5 rounded-md border-l-2 border-gray-500 mb-2'):
-                ui.label(content).classes('text-xs font-mono p-2 text-gray-300 whitespace-pre-wrap w-full break-words')
+                ui.label(display_content).classes('text-xs font-mono p-2 text-gray-300 whitespace-pre-wrap w-full break-words')
         elif role == 'assistant':
-            # Always use markdown for assistant to ensure streaming updates work correctly with correct styling
-            # Escaping < to prevent HTML injection (style/script) while keeping markdown functional
-            safe_content = content.replace('<', '&lt;')
+            # Always use markdown for assistant
+            safe_content = display_content.replace('<', '&lt;')
             content_markdown = ui.markdown(safe_content).classes('w-full prose dark:prose-invert text-gray-100 min-h-[1.5em] break-words')
         else:
-            if not content and not thinking and not tool_calls:
+            if not display_content and not thinking and not tool_calls:
                  # Init placeholder
                  content_markdown = ui.label('...').classes('text-gray-500 italic')
             else:
                 # Regular content styling
                 if role == 'user':
-                    ui.label(content).classes('text-base px-5 py-3 rounded-2xl bg-[#27272a] text-white max-w-full break-words whitespace-pre-wrap')
+                    ui.label(display_content).classes('text-base px-5 py-3 rounded-2xl bg-[#27272a] text-white max-w-full break-words whitespace-pre-wrap')
                 else:
                     # Fallback
-                    safe_content = content.replace('<', '&lt;')
+                    safe_content = display_content.replace('<', '&lt;')
                     content_markdown = ui.markdown(safe_content).classes('w-full prose dark:prose-invert text-gray-100')
 
         # 4. Ratings (Assistant only)

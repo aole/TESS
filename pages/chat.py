@@ -70,7 +70,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
         if 'id' not in msg:
             msg['id'] = str(uuid.uuid4())
     
-    state = {'processing': False, 'stopping': False, 'tts_cursors': {}, 'last_update_msg_id': None, 'playing_tts_id': None, 'tts_generation_complete': False}
+    state = {'processing': False, 'stopping': False, 'tts_cursors': {}, 'last_update_msg_id': None, 'playing_tts_id': None, 'tts_generation_complete': False, 'has_attachments': False}
 
     # Model Selection Logic (Prep)
     try:
@@ -831,18 +831,49 @@ async def create_page(model_param: str = None, new_chat: bool = False):
             settings_unlock_btn.on('click', prompt_unlock)
             settings_lock_btn.on('click', do_lock)
 
-            # Input Area
-            with ui.row().classes('w-full items-end gap-2 p-2 glass-panel rounded-lg'):
+            # --- Input Area ---
+            with ui.column().classes('w-full gap-1 p-2 glass-panel rounded-lg'):
                 user_input = ui.textarea(placeholder='Type a message...').classes('w-full flex-grow').props('autogrow bg-color=transparent borderless dense rows=1')
                 
                 # Forward declaration for button
                 send_btn = None
+                attached_files = []
+
+                def open_settings():
+                    sync_ui_from_storage()
+                    settings_dialog.open()
+
+                # --- File Attachment Logic ---
+                async def handle_upload(e):
+                    try:
+                        content_bytes = await e.file.read()
+                        content = content_bytes.decode('utf-8')
+                        attached_files.append({'name': e.file.name, 'content': content})
+                        ui.notify(f'Attached {e.file.name}', type='positive')
+                        refresh_attachments_ui()
+                    except Exception as ex:
+                        filename = getattr(getattr(e, 'file', None), 'name', 'Unknown file')
+                        ui.notify(f'Error reading {filename}: {ex}', type='negative')
+
+                def remove_attachment(index):
+                    if 0 <= index < len(attached_files):
+                        attached_files.pop(index)
+                        refresh_attachments_ui()
+
+                def refresh_attachments_ui():
+                    attachment_container.clear()
+                    with attachment_container:
+                        for i, f in enumerate(attached_files):
+                            with ui.badge(f.get('name', 'Unknown'), color='blue-6').classes('cursor-pointer px-2 py-1 items-center'):
+                                ui.label(f.get('name', 'Unknown'))
+                                ui.icon('close', size='12px').classes('ml-1').on('click', lambda i=i: remove_attachment(i))
+
+                attachment_container = ui.row().classes('w-full gap-2 px-2 pb-1')
+                uploader = ui.upload(on_upload=handle_upload, multiple=True, auto_upload=True).props('accept=".txt,.md,.csv,.py,.js,.json,.html,.css,.sql,.yaml,.yml"').classes('hidden')
 
                 def update_button_state():
                     if not send_btn: return
-                    
                     is_streaming = stream_service.any_active() or batch_service.any_active()
-                    
                     if state['processing'] or is_streaming:
                         if state['stopping']:
                             send_btn.props('icon=hourglass_empty color=warning')
@@ -851,7 +882,6 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     else:
                         send_btn.props('icon=send color=primary')
                 
-                # Poll for global updates
                 ui.timer(1.0, update_button_state)
 
                 def update_encryption_ui():
@@ -901,53 +931,41 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                             if send_btn: send_btn.props('disable=false')
 
                 update_encryption_ui()
-                # Run periodically just in case
                 ui.timer(2.0, update_encryption_ui)
 
                 # --- Core Generation Logic ---
                 async def generate_response():
                     if state['processing'] and not state['stopping']:
                          return
-
                     state['processing'] = True
                     state['stopping'] = False
                     update_button_state()
 
-                    # Prepare functions map
                     tool_funcs_map = {}
                     if available_tools:
                         for name, checkbox in tool_checks.items():
                             if checkbox.value and name in tool_options:
                                 func = load_tool_function(name, tool_options[name].code)
-                                if func:
-                                    tool_funcs_map[func.__name__] = func
+                                if func: tool_funcs_map[func.__name__] = func
                                     
                     if app.storage.user.get('web_search_enabled', False):
                         try:
                             from utils.web_search_tool import web_search, extract_url
                             tool_funcs_map['web_search'] = web_search
                             tool_funcs_map['extract_url'] = extract_url
-                        except ImportError:
-                            pass
+                        except ImportError: pass
                             
                     if app.storage.user.get('visual_enabled', False):
                         try:
                             from utils.visual_tool import generate_image
                             tool_funcs_map['generate_image'] = generate_image
-                        except ImportError:
-                            pass
+                        except ImportError: pass
                     
-                    if not current_chat_id:
-                         # Should have been created by send_message or save_current_chat
-                         await save_current_chat()
+                    if not current_chat_id: await save_current_chat()
                     
                     if current_chat_id:
-                        # Register listener if not already (safeguard)
                         stream_service.register_listener(current_chat_id, on_stream_event)
-                        
-                        # Define persistence callback
                         async def persist_chat(updated_messages):
-                            # The messages list is updated in place, but we need to ensure the chat object is saved
                             if current_chat_id:
                                 chat = chat_service.load_chat(current_chat_id)
                                 if chat:
@@ -961,7 +979,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                             temperature=temp_slider.value,
                             top_p=top_p_slider.value,
                             repeat_penalty=repeat_penalty_slider.value,
-                            system_prompt=system_prompt.value,
+                            system_prompt=system_prompt.value + ("\n\nYou have been provided with external documents. Always prioritize information found in the <file_attachment> tags over your general training data if there is a conflict. If the answer isn't in the file, explicitly state that." if state.get('has_attachments') else ""),
                             tool_funcs_map=tool_funcs_map,
                             log_requests=config_manager.is_logging_enabled('chat'),
                             persist_callback=persist_chat,
@@ -972,19 +990,15 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         state['processing'] = False
                         update_button_state()
 
-                # --- User Action Handlers ---
                 async def save_and_respond(msg, new_content):
                     if app.storage.user.get('tts_enabled', False):
                         asyncio.create_task(asyncio.to_thread(tts_service.warmup))
                     msg['content'] = new_content
                     msg['editing'] = False
-                    
                     try:
                         idx = messages.index(msg)
                         del messages[idx+1:]
-                    except ValueError:
-                        pass
-                    
+                    except ValueError: pass
                     app.storage.user['messages'] = list(messages)
                     refresh_chat_ui()
                     asyncio.create_task(save_current_chat())
@@ -993,7 +1007,6 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 chat_renderer.on_save_and_respond = save_and_respond
 
                 async def send_message():
-                    # Global Stop Check
                     if state['processing'] or stream_service.any_active() or batch_service.any_active():
                         stream_service.stop_all()
                         batch_service.stop_all()
@@ -1003,52 +1016,58 @@ async def create_page(model_param: str = None, new_chat: bool = False):
 
                     content = user_input.value.strip()
                     if not content or not model_select.value: return
+
+                    attachment_names = []
+                    if attached_files:
+                        attachment_names = [f['name'] for f in attached_files]
+                        docs_text = "### Available Documents:\n"
+                        for i, f in enumerate(attached_files, 1):
+                            docs_text += f"{i}. **Filename:** `{f['name']}` | **ID:** FILE_{i:02d}\n"
+                        docs_text += "\n"
+                        for i, f in enumerate(attached_files, 1):
+                            file_id = f"FILE_{i:02d}"
+                            docs_text += f"<{file_id}>\n{f['content']}\n</{file_id}>\n\n"
+                        content = f"{docs_text}\n{content}"
+                        state['has_attachments'] = True
+                        attached_files.clear()
+                        refresh_attachments_ui()
+                    else:
+                        state['has_attachments'] = False
                     
                     user_input.value = ''
-                    
                     if app.storage.user.get('tts_enabled', False):
                         asyncio.create_task(asyncio.to_thread(tts_service.warmup))
                     
-                    user_msg = {'role': 'user', 'content': content, 'id': str(uuid.uuid4())}
+                    user_msg = {
+                        'role': 'user', 
+                        'content': content, 
+                        'id': str(uuid.uuid4()),
+                        'attachments': attachment_names
+                    }
                     messages.append(user_msg)
                     app.storage.user['messages'] = messages
-                    
-                    with chat_container:
-                        chat_renderer.render_message(user_msg)
-                        
+                    with chat_container: chat_renderer.render_message(user_msg)
                     await scroll_to_bottom()
                     asyncio.create_task(save_current_chat())
-                    
                     await generate_response()
                 
-                user_input.on('keydown.enter.exact',
-                    lambda e: send_message() if not e.args['shiftKey'] else None, 
-                    args=['shiftKey']
-                )
-
-                def open_settings():
-                    sync_ui_from_storage()
-                    settings_dialog.open()
+                user_input.on('keydown.enter.exact', lambda e: send_message() if not e.args['shiftKey'] else None, args=['shiftKey'])
 
                 with ui.row().classes('w-full gap-1 items-center'):
+                    ui.button(icon='add', on_click=lambda: uploader.run_method('pickFiles')).props('flat round color=primary').tooltip('Attach text files')
                     ui.button(icon='settings', on_click=open_settings).props('flat round color=grey')
 
-                    model_select = ui.select(
-                        options=model_options,
-                        value=default_model,
-                    ).props('dense options-dense borderless').classes('w-48 text-sm text-gray-400')
+                    model_select = ui.select(options=model_options, value=default_model).props('dense options-dense borderless').classes('w-48 text-sm text-gray-400')
+                    model_select.on_value_change(lambda e: update_params())
                     
                     tts_btn = ui.button(icon='volume_off').props('flat round color=grey').tooltip('Toggle Text-to-Speech')
                     def toggle_tts():
                         app.storage.user['tts_enabled'] = not app.storage.user.get('tts_enabled', False)
                         is_on = app.storage.user['tts_enabled']
                         tts_btn.props(f"icon={'volume_up' if is_on else 'volume_off'} color={'primary' if is_on else 'grey'}")
-                        if is_on:
-                            # Preload pipeline and warm up on first click
-                            asyncio.create_task(asyncio.to_thread(tts_service.warmup))
+                        if is_on: asyncio.create_task(asyncio.to_thread(tts_service.warmup))
                     tts_btn.on('click', toggle_tts)
-                    if app.storage.user.get('tts_enabled', False):
-                        tts_btn.props("icon=volume_up color=primary")
+                    if app.storage.user.get('tts_enabled', False): tts_btn.props("icon=volume_up color=primary")
                         
                     web_search_btn = ui.button(icon='public_off').props('flat round color=grey').tooltip('Toggle Web Search')
                     def toggle_web_search():
@@ -1056,8 +1075,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         is_on = app.storage.user['web_search_enabled']
                         web_search_btn.props(f"icon={'public' if is_on else 'public_off'} color={'primary' if is_on else 'grey'}")
                     web_search_btn.on('click', toggle_web_search)
-                    if app.storage.user.get('web_search_enabled', False):
-                        web_search_btn.props("icon=public color=primary")
+                    if app.storage.user.get('web_search_enabled', False): web_search_btn.props("icon=public color=primary")
                         
                     visual_btn = ui.button(icon='brush').props('flat round color=grey').tooltip('Toggle Image Generation')
                     def toggle_visual():
@@ -1065,16 +1083,12 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         is_on = app.storage.user['visual_enabled']
                         visual_btn.props(f"color={'primary' if is_on else 'grey'}")
                     visual_btn.on('click', toggle_visual)
-                    if app.storage.user.get('visual_enabled', False):
-                        visual_btn.props("color=primary")
-
+                    if app.storage.user.get('visual_enabled', False): visual_btn.props("color=primary")
+                    
                     ui.space()
                     send_btn = ui.button(icon='send', on_click=send_message).props('flat round color=primary')
-                        
-                    model_select.on_value_change(lambda e: update_params())
-                    # Trigger initial update
-                    if model_select.value:
-                        asyncio.create_task(update_params(initial=True))
+                    
+                    if model_select.value: asyncio.create_task(update_params(initial=True))
             
             # Register listener at the end so update_button_state is available
             if current_chat_id:
