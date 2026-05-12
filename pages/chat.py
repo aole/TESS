@@ -142,6 +142,10 @@ async def create_page(model_param: str = None, new_chat: bool = False):
     drawer = ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10 flex flex-col flex-nowrap')
     with drawer:
         with ui.column().classes('w-full p-4 gap-1 shrink-0 border-b border-white/5'):
+            ui.label('Model').classes('text-sm font-medium text-gray-400 mb-1')
+            model_select = ui.select(options=model_options, value=default_model).props('dense options-dense outlined dark').classes('w-full text-sm mb-2')
+            model_select.on_value_change(lambda e: update_params())
+
             ui.label('System Prompt').classes('text-sm font-medium text-gray-400 mb-1')
             system_prompt = ui.textarea(
                 placeholder='You are a helpful assistant...', 
@@ -1057,9 +1061,6 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     ui.button(icon='add', on_click=lambda: uploader.run_method('pickFiles')).props('flat round color=primary').tooltip('Attach text files')
                     ui.button(icon='settings', on_click=open_settings).props('flat round color=grey')
 
-                    model_select = ui.select(options=model_options, value=default_model).props('dense options-dense borderless').classes('w-48 text-sm text-gray-400')
-                    model_select.on_value_change(lambda e: update_params())
-                    
                     tts_btn = ui.button(icon='volume_off').props('flat round color=grey').tooltip('Toggle Text-to-Speech')
                     def toggle_tts():
                         app.storage.user['tts_enabled'] = not app.storage.user.get('tts_enabled', False)
