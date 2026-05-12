@@ -594,13 +594,11 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     update_button_state()
 
                     tool_funcs_map = {}
-                    selected_tools = app.storage.user.get('selected_tools', [])
                     available_tools = [t for t in tool_service.get_all_tools() if t.active]
-                    tool_options = {t.name: t for t in available_tools}
                     
-                    for name in selected_tools:
-                        if name in tool_options:
-                            func = load_tool_function(name, tool_options[name].code)
+                    for t in available_tools:
+                        if not t.is_builtin:
+                            func = load_tool_function(t.name, t.code)
                             if func: tool_funcs_map[func.__name__] = func
                                     
                     if app.storage.user.get('web_search_enabled', False) and config_manager.is_tool_active('web_search_tool'):

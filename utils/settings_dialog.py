@@ -69,21 +69,6 @@ class SettingsDialog:
                             value=app.storage.user.get('system_prompt', '')
                         ).props('dense rows=3 filled flat').classes('w-full text-sm bg-white/5 rounded-md')
 
-                # Tools
-                available_tools = [t for t in tool_service.get_all_tools() if t.active]
-                if available_tools:
-                    with ui.expansion('Tools', icon='construction').classes('w-full bg-white/5 rounded-lg').props('dense'):
-                        with ui.column().classes('w-full p-2'):
-                            saved_tools = app.storage.user.get('selected_tools', [])
-
-                            def update_tool_storage():
-                                selected = [name for name, box in self.tool_checks.items() if box.value]
-                                app.storage.user['selected_tools'] = selected
-
-                            with ui.column().classes('gap-1'):
-                                for t in available_tools:
-                                    is_checked = t.name in saved_tools
-                                    self.tool_checks[t.name] = ui.checkbox(t.name, value=is_checked, on_change=update_tool_storage).classes('text-sm text-gray-300')
 
 
                 # Security (Encryption)
@@ -121,9 +106,6 @@ class SettingsDialog:
         self.repeat_penalty_slider.value = app.storage.user.get('repeat_penalty', 1.1)
         self.system_prompt.value = app.storage.user.get('system_prompt', '')
         
-        saved_tools = app.storage.user.get('selected_tools', [])
-        for name, box in self.tool_checks.items():
-            box.value = name in saved_tools
             
         self.update_encryption_ui()
 
