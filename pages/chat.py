@@ -10,6 +10,7 @@ from services.batch_service import batch_service
 from services.tts_service import tts_service, VOICES
 from utils.ui_components import ui_list, ui_list_item
 from utils.audio_player import AudioPlayer
+from utils.settings_dialog import SettingsDialog
 import asyncio
 import uuid
 
@@ -261,201 +262,82 @@ async def create_page(model_param: str = None, new_chat: bool = False):
         return None
     
     # Settings Dialog
-    with ui.dialog() as settings_dialog, ui.card().classes('w-full max-w-lg p-6 bg-[#18181b] border border-white/10'):
-        with ui.row().classes('w-full justify-between items-center mb-4'):
-             ui.label('Settings').classes('text-xl font-bold text-gray-200')
-             ui.button(icon='close', on_click=settings_dialog.close).props('flat round dense color=grey')
+    def clear_chat():
+        messages.clear()
+        app.storage.user['messages'] = []
+        refresh_chat_ui()
+        settings_dialog.close()
 
-        with ui.column().classes('w-full gap-4'):
-             # Model Selection
+    settings_dialog = SettingsDialog(
+        model_options=model_options,
+        on_clear_chat=clear_chat,
+        on_chat_updated=lambda chat_id=None: load_chat_by_id(chat_id) if chat_id else refresh_chat_ui(),
+        get_current_chat_id=lambda: current_chat_id,
+        get_messages=lambda: messages,
+        model_select_component=model_select
+    )
 
-            # Parameters
-            with ui.expansion('Parameters', icon='tune').classes('w-full bg-white/5 rounded-lg').props('dense'):
-                with ui.column().classes('w-full p-2 gap-2'):
-                    temp_slider = ui.slider(min=0, max=1, step=0.1, value=app.storage.user.get('temperature', 0.7)).props('label-always thumb-path=""')
-                    ui.label('Temperature').classes('text-xs text-muted')
-                    
-                    top_p_slider = ui.slider(min=0, max=1, step=0.1, value=app.storage.user.get('top_p', 0.9)).props('label-always')
-                    ui.label('Top P').classes('text-xs text-muted')
-                    
-                    repeat_penalty_slider = ui.slider(min=0, max=2, step=0.1, value=app.storage.user.get('repeat_penalty', 1.1)).props('label-always')
-                    ui.label('Repeat Penalty').classes('text-xs text-muted')
-                    
-             # Sync UI from storage
-            def sync_ui_from_storage():
-                temp_slider.value = app.storage.user.get('temperature', 0.7)
-                top_p_slider.value = app.storage.user.get('top_p', 0.9)
-                repeat_penalty_slider.value = app.storage.user.get('repeat_penalty', 1.1)
-                system_prompt.value = app.storage.user.get('system_prompt', '')
-                
-                # Also tool checks
-                saved_tools = app.storage.user.get('selected_tools', [])
-                for name, box in tool_checks.items():
-                    box.value = name in saved_tools
+    # Parameter update logic
+    async def update_params(initial=False):
+        if not model_select.value: return
+        
+        # Update ratings and storage
+        await settings_dialog.update_ratings_display(model_select.value)
+        app.storage.user['selected_model'] = model_select.value
 
-            # Tools
-            available_tools = [t for t in tool_service.get_all_tools() if t.active]
-            tool_options = {t.name: t for t in available_tools}
-            tool_checks = {}
+        with model_select:
+            # Update URL without reload
+            from urllib.parse import quote
+            safe_model = quote(model_select.value)
+            await ui.run_javascript(f"window.history.replaceState(null, '', '/chat?model={safe_model}');")
+
+            # If this is the initial load and we have saved settings, don't overwrite them with model defaults
+            has_saved = any(k in app.storage.user for k in ['temperature', 'top_p', 'repeat_penalty', 'system_prompt'])
+            if initial and has_saved:
+                return
+
+            new_params = await client.get_model_parameters(model_select.value)
             
-            if available_tools:
-                with ui.expansion('Tools', icon='construction').classes('w-full bg-white/5 rounded-lg').props('dense'):
-                    with ui.column().classes('w-full p-2'):
-                         if 'selected_tools' not in app.storage.user:
-                             app.storage.user['selected_tools'] = []
-                         saved_tools = app.storage.user['selected_tools']
+            # Check for differences
+            diffs = []
+            if 'temperature' in new_params and abs(new_params['temperature'] - app.storage.user.get('temperature', 0.7)) > 0.01:
+                diffs.append(f"Temperature: {app.storage.user.get('temperature', 0.7)} → {new_params['temperature']}")
+            if 'top_p' in new_params and abs(new_params['top_p'] - app.storage.user.get('top_p', 0.9)) > 0.01:
+                diffs.append(f"Top P: {app.storage.user.get('top_p', 0.9)} → {new_params['top_p']}")
+            if 'repeat_penalty' in new_params and abs(new_params['repeat_penalty'] - app.storage.user.get('repeat_penalty', 1.1)) > 0.01:
+                diffs.append(f"Repeat Penalty: {app.storage.user.get('repeat_penalty', 1.1)} → {new_params['repeat_penalty']}")
+            
+            new_sys = new_params.get('system', '')
+            if new_sys != app.storage.user.get('system_prompt', ''):
+                diffs.append("System Prompt will change")
 
-                         def update_tool_storage():
-                             selected = [name for name, box in tool_checks.items() if box.value]
-                             app.storage.user['selected_tools'] = selected
-
-                         with ui.column().classes('gap-1'):
-                             for t_name in tool_options.keys():
-                                 is_checked = t_name in saved_tools
-                                 tool_checks[t_name] = ui.checkbox(t_name, value=is_checked, on_change=update_tool_storage).classes('text-sm text-gray-300')
-
-            # TTS Voice Selection
-            with ui.expansion('Audio (TTS)', icon='volume_up').classes('w-full bg-white/5 rounded-lg').props('dense'):
-                with ui.column().classes('w-full p-2 gap-2'):
-                    ui.label('Select Voice').classes('text-xs text-gray-400')
-                    def update_voice_storage():
-                        app.storage.user['tts_voice'] = voice_select_chat.value
+            if not initial and diffs:
+                with ui.dialog() as confirm_dialog, ui.card().classes('p-6 bg-[#18181b] border border-white/10'):
+                    ui.label('Apply Model Defaults?').classes('text-xl font-bold text-gray-200 mb-2')
+                    ui.label('The new model has different default parameters:').classes('text-sm text-gray-400 mb-4')
+                    for d in diffs:
+                        ui.label(f"• {d}").classes('text-xs text-gray-500 ml-2')
                     
-                    voice_select_chat = ui.select(
-                        options=VOICES, 
-                        value=app.storage.user.get('tts_voice', 'af_heart'),
-                        with_input=True,
-                        on_change=update_voice_storage
-                    ).classes('w-full').props('outlined dense dark')
-
-            # Security (Encryption)
-            with ui.expansion('Security', icon='security').classes('w-full bg-white/5 rounded-lg').props('dense'):
-                with ui.column().classes('w-full p-2 gap-2'):
-                    ui.label('Protect your chat history with a password.').classes('text-xs text-gray-400')
-                    settings_encrypt_btn = ui.button('Encrypt Chat', icon='lock').props('outline color=primary').classes('w-full')
-                    settings_remove_enc_btn = ui.button('Remove Encryption', icon='lock_open').props('outline color=negative').classes('w-full hidden')
-                    settings_unlock_btn = ui.button('Unlock Chat', icon='key').props('outline color=warning').classes('w-full hidden')
-                    settings_lock_btn = ui.button('Lock Chat', icon='lock').props('outline color=warning').classes('w-full hidden')
-
-            # Ratings
-            ratings_section = ui.expansion('Model Ratings', icon='star').classes('w-full bg-white/5 rounded-lg hidden').props('dense')
-            stats_content = ui.column().classes('w-full p-2 gap-1')
-            with ratings_section:
-                stats_content.move(ratings_section) # Ensure content is inside
-
-            async def update_ratings_display(model):
-                 stats = rating_service.get_model_stats(model)
-                 if stats:
-                     ratings_section.classes(remove='hidden')
-                     stats_content.clear()
-                     with stats_content:
-                         for tag, data in stats.items():
-                             with ui.row().classes('w-full justify-between items-center text-xs'):
-                                 ui.label(tag).classes('text-gray-300')
-                                 ui.label(f"{data['average']}★ ({data['count']})").classes('text-yellow-400')
-                 else:
-                     ratings_section.classes(add='hidden')
-
-            def clear_chat():
-                messages.clear()
-                app.storage.user['messages'] = []
-                if 'refresh_chat_ui' in locals():
-                    refresh_chat_ui()
-                settings_dialog.close()
-
-            async def save_settings():
-                app.storage.user['temperature'] = temp_slider.value
-                app.storage.user['top_p'] = top_p_slider.value
-                app.storage.user['repeat_penalty'] = repeat_penalty_slider.value
-                app.storage.user['system_prompt'] = system_prompt.value
-                ui.notify('Settings saved and persisted', type='positive')
-                settings_dialog.close()
-
-            async def restore_defaults():
-                if not model_select.value:
-                    ui.notify("No model selected", type='warning')
+                    with ui.row().classes('w-full justify-end gap-2 mt-6'):
+                        ui.button('Keep Current', on_click=lambda: confirm_dialog.submit(False)).props('flat color=grey')
+                        ui.button('Apply New', on_click=lambda: confirm_dialog.submit(True)).props('flat color=primary')
+                
+                should_update = await confirm_dialog
+                if not should_update:
                     return
-                
-                try:
-                    params = await client.get_model_parameters(model_select.value)
-                    
-                    # Default fallbacks if not specified in model
-                    # Using app defaults: Temp=0.7, TopP=0.9, RepPen=1.1
-                    temp_slider.value = params.get('temperature', 0.7)
-                    top_p_slider.value = params.get('top_p', 0.9)
-                    repeat_penalty_slider.value = params.get('repeat_penalty', 1.1)
-                    
-                    # System prompt
-                    system_prompt.value = params.get('system', '')
-                        
-                    ui.notify(f"Restored defaults for {model_select.value}", type='info')
-                        
-                except Exception as e:
-                    ui.notify(f"Error restoring defaults: {e}", type='negative')
 
-            ui.button('Save Changes', on_click=save_settings).props('flat color=primary').classes('w-full mt-4')
-            with ui.row().classes('w-full gap-2 items-center'):
-                ui.button('Clear Chat', on_click=clear_chat).props('outline color=negative').classes('flex-grow')
-                ui.button('Defaults', on_click=restore_defaults).props('outline color=grey').classes('flex-grow')
-
-            # Parameter update logic
-            async def update_params(initial=False):
-                if not model_select.value: return
-                
-                # Update ratings and storage
-                await update_ratings_display(model_select.value)
-                app.storage.user['selected_model'] = model_select.value
-
-                with model_select:
-                    # Update URL without reload
-                    from urllib.parse import quote
-                    safe_model = quote(model_select.value)
-                    await ui.run_javascript(f"window.history.replaceState(null, '', '/chat?model={safe_model}');")
-
-                    # If this is the initial load and we have saved settings, don't overwrite them with model defaults
-                    has_saved = any(k in app.storage.user for k in ['temperature', 'top_p', 'repeat_penalty', 'system_prompt'])
-                    if initial and has_saved:
-                        return
-
-                    new_params = await client.get_model_parameters(model_select.value)
-                    
-                    # Check for differences
-                    diffs = []
-                    if 'temperature' in new_params and abs(new_params['temperature'] - temp_slider.value) > 0.01:
-                        diffs.append(f"Temperature: {temp_slider.value} → {new_params['temperature']}")
-                    if 'top_p' in new_params and abs(new_params['top_p'] - top_p_slider.value) > 0.01:
-                        diffs.append(f"Top P: {top_p_slider.value} → {new_params['top_p']}")
-                    if 'repeat_penalty' in new_params and abs(new_params['repeat_penalty'] - repeat_penalty_slider.value) > 0.01:
-                        diffs.append(f"Repeat Penalty: {repeat_penalty_slider.value} → {new_params['repeat_penalty']}")
-                    
-                    new_sys = new_params.get('system', '')
-                    if new_sys != system_prompt.value:
-                        diffs.append("System Prompt will change")
-
-                    if not initial and diffs:
-                        with ui.dialog() as confirm_dialog, ui.card().classes('p-6 bg-[#18181b] border border-white/10'):
-                            ui.label('Apply Model Defaults?').classes('text-xl font-bold text-gray-200 mb-2')
-                            ui.label('The new model has different default parameters:').classes('text-sm text-gray-400 mb-4')
-                            for d in diffs:
-                                ui.label(f"• {d}").classes('text-xs text-gray-500 ml-2')
-                            
-                            with ui.row().classes('w-full justify-end gap-2 mt-6'):
-                                ui.button('Keep Current', on_click=lambda: confirm_dialog.submit(False)).props('flat color=grey')
-                                ui.button('Apply New', on_click=lambda: confirm_dialog.submit(True)).props('flat color=primary')
-                        
-                        should_update = await confirm_dialog
-                        if not should_update:
-                            return
-
-                    # Apply updates
-                    if 'temperature' in new_params:
-                        temp_slider.value = new_params['temperature']
-                    if 'top_p' in new_params:
-                        top_p_slider.value = new_params['top_p']
-                    if 'repeat_penalty' in new_params:
-                        repeat_penalty_slider.value = new_params['repeat_penalty']
-                    if 'system' in new_params:
-                        system_prompt.value = new_params['system']
+            # Apply updates
+            if 'temperature' in new_params:
+                app.storage.user['temperature'] = new_params['temperature']
+            if 'top_p' in new_params:
+                app.storage.user['top_p'] = new_params['top_p']
+            if 'repeat_penalty' in new_params:
+                app.storage.user['repeat_penalty'] = new_params['repeat_penalty']
+            if 'system' in new_params:
+                app.storage.user['system_prompt'] = new_params['system']
+            
+            # Sync side prompt if needed
+            system_prompt.value = app.storage.user.get('system_prompt', '')
 
 
     # Layout (just chat area now)
@@ -523,14 +405,14 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     message_id=msg['id']
                 )
                 ui.notify(f"Rated {rating} stars for {tag}", type='positive')
-                await update_ratings_display(msg.get('model', 'unknown'))
+                await settings_dialog.update_ratings_display(msg.get('model', 'unknown'))
                 chat_renderer.render_messages(messages)
 
             async def handle_delete_rating(msg, tag):
                 if not msg.get('id'): return
                 rating_service.remove_rating(msg['id'], tag)
                 ui.notify(f"Removed rating for {tag}", type='info')
-                await update_ratings_display(msg.get('model', 'unknown'))
+                await settings_dialog.update_ratings_display(msg.get('model', 'unknown'))
                 chat_renderer.render_messages(messages)
                 
             def get_msg_ratings(msg_id):
@@ -614,78 +496,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
             # Encryption Controls
             encryption_controls = ui.row().classes('w-full items-center justify-end gap-2 px-2 pb-2')
             
-            async def prompt_encryption():
-                with ui.dialog() as d, ui.card().classes('bg-[#18181b] border border-white/10'):
-                    ui.label('Encrypt Chat').classes('text-lg font-bold text-gray-200')
-                    pw1 = ui.input('Password', password=True, password_toggle_button=True).classes('w-full')
-                    pw2 = ui.input('Confirm Password', password=True, password_toggle_button=True).classes('w-full')
-                    
-                    async def do_encrypt():
-                        nonlocal messages
-                        if not pw1.value or pw1.value != pw2.value:
-                            ui.notify('Passwords do not match or empty', type='negative')
-                            return
-                        chat = chat_service.load_chat(current_chat_id)
-                        if chat:
-                            import secrets
-                            chat.is_encrypted = True
-                            chat.salt = secrets.token_hex(16)
-                            
-                            garbage_messages = chat_service.encrypt_messages(messages, pw1.value, chat.salt)
-                            chat.messages = garbage_messages
-                            chat_service.save_chat(chat, update_timestamp=False)
-                            
-                            # Do NOT add to unlocked_chats, so it immediately locks and renders garbage
-                            app.storage.user['unlocked_chats'].pop(current_chat_id, None)
-                            
-                            # Replace local messages and re-render
-                            messages.clear()
-                            messages.extend(garbage_messages)
-                            app.storage.user['messages'] = messages
-                            refresh_chat_ui()
-                            
-                            ui.notify('Chat encrypted', type='positive')
-                            update_encryption_ui()
-                        d.close()
-                    ui.button('Encrypt', on_click=do_encrypt).props('color=primary').classes('w-full mt-2')
-                await d
-
-            async def prompt_unlock():
-                with ui.dialog() as d, ui.card().classes('bg-[#18181b] border border-white/10'):
-                    ui.label('Unlock Chat').classes('text-lg font-bold text-gray-200')
-                    pw = ui.input('Password', password=True, password_toggle_button=True).classes('w-full').on('keydown.enter', lambda: do_unlock())
-                    
-                    async def do_unlock():
-                        if chat_service.verify_password(current_chat_id, pw.value):
-                            app.storage.user['unlocked_chats'][current_chat_id] = pw.value
-                            load_chat_by_id(current_chat_id)
-                            ui.notify('Chat unlocked', type='positive')
-                            d.close()
-                        else:
-                            ui.notify('Incorrect password', type='negative')
-                    ui.button('Unlock', on_click=do_unlock).props('color=warning').classes('w-full mt-2')
-                await d
-
-            async def prompt_remove_encryption():
-                chat = chat_service.load_chat(current_chat_id)
-                if chat:
-                    chat.is_encrypted = False
-                    chat.salt = None
-                    app.storage.user['unlocked_chats'].pop(current_chat_id, None)
-                    chat.messages = messages
-                    chat_service.save_chat(chat, update_timestamp=False)
-                    ui.notify('Encryption removed', type='info')
-                    update_encryption_ui()
-
-            def do_lock():
-                app.storage.user['unlocked_chats'].pop(current_chat_id, None)
-                load_chat_by_id(current_chat_id)
-                ui.notify('Chat locked', type='info')
-
-            settings_encrypt_btn.on('click', prompt_encryption)
-            settings_remove_enc_btn.on('click', prompt_remove_encryption)
-            settings_unlock_btn.on('click', prompt_unlock)
-            settings_lock_btn.on('click', do_lock)
+            # Encryption UI is now handled by settings_dialog for the buttons there.
+            # We still need a way to disable input if locked.
 
             # --- Input Area ---
             with ui.column().classes('w-full gap-1 p-2 glass-panel rounded-lg'):
@@ -696,7 +508,6 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 attached_files = []
 
                 def open_settings():
-                    sync_ui_from_storage()
                     settings_dialog.open()
 
                 # --- File Attachment Logic ---
@@ -742,10 +553,6 @@ async def create_page(model_param: str = None, new_chat: bool = False):
 
                 def update_encryption_ui():
                     if not current_chat_id:
-                        settings_encrypt_btn.classes(add='hidden')
-                        settings_unlock_btn.classes(add='hidden')
-                        settings_lock_btn.classes(add='hidden')
-                        settings_remove_enc_btn.classes(add='hidden')
                         if 'user_input' in locals() and user_input:
                             user_input.props('disable=false')
                             user_input.placeholder = 'Type a message...'
@@ -756,31 +563,20 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     if not chat: return
                     
                     if chat.is_encrypted:
-                        settings_encrypt_btn.classes(add='hidden')
-                        pw = app.storage.user['unlocked_chats'].get(current_chat_id)
+                        pw = app.storage.user.get('unlocked_chats', {}).get(current_chat_id)
                         is_unlocked = pw and chat_service.verify_password(current_chat_id, pw)
                         
                         if is_unlocked:
-                            settings_unlock_btn.classes(add='hidden')
-                            settings_lock_btn.classes(remove='hidden')
-                            settings_remove_enc_btn.classes(remove='hidden')
                             if 'user_input' in locals() and user_input:
                                 user_input.props('disable=false')
                                 user_input.placeholder = 'Type a message...'
                                 if send_btn: send_btn.props('disable=false')
                         else:
-                            settings_unlock_btn.classes(remove='hidden')
-                            settings_lock_btn.classes(add='hidden')
-                            settings_remove_enc_btn.classes(add='hidden')
                             if 'user_input' in locals() and user_input:
                                 user_input.props('disable=true')
-                                user_input.placeholder = 'Chat is locked. Unlock to continue or view.'
+                                user_input.placeholder = 'Chat is locked. Unlock in settings to continue.'
                                 if send_btn: send_btn.props('disable=true')
                     else:
-                        settings_encrypt_btn.classes(remove='hidden')
-                        settings_unlock_btn.classes(add='hidden')
-                        settings_lock_btn.classes(add='hidden')
-                        settings_remove_enc_btn.classes(add='hidden')
                         if 'user_input' in locals() and user_input:
                             user_input.props('disable=false')
                             user_input.placeholder = 'Type a message...'
@@ -798,11 +594,14 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     update_button_state()
 
                     tool_funcs_map = {}
-                    if available_tools:
-                        for name, checkbox in tool_checks.items():
-                            if checkbox.value and name in tool_options:
-                                func = load_tool_function(name, tool_options[name].code)
-                                if func: tool_funcs_map[func.__name__] = func
+                    selected_tools = app.storage.user.get('selected_tools', [])
+                    available_tools = [t for t in tool_service.get_all_tools() if t.active]
+                    tool_options = {t.name: t for t in available_tools}
+                    
+                    for name in selected_tools:
+                        if name in tool_options:
+                            func = load_tool_function(name, tool_options[name].code)
+                            if func: tool_funcs_map[func.__name__] = func
                                     
                     if app.storage.user.get('web_search_enabled', False):
                         try:
@@ -832,10 +631,10 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                             stream_id=current_chat_id,
                             messages=messages,
                             model=model_select.value,
-                            temperature=temp_slider.value,
-                            top_p=top_p_slider.value,
-                            repeat_penalty=repeat_penalty_slider.value,
-                            system_prompt=system_prompt.value + ("\n\nYou have been provided with external documents. Always prioritize information found in the <file_attachment> tags over your general training data if there is a conflict. If the answer isn't in the file, explicitly state that." if state.get('has_attachments') else ""),
+                            temperature=app.storage.user.get('temperature', 0.7),
+                            top_p=app.storage.user.get('top_p', 0.9),
+                            repeat_penalty=app.storage.user.get('repeat_penalty', 1.1),
+                            system_prompt=app.storage.user.get('system_prompt', '') + ("\n\nYou have been provided with external documents. Always prioritize information found in the <file_attachment> tags over your general training data if there is a conflict. If the answer isn't in the file, explicitly state that." if state.get('has_attachments') else ""),
                             tool_funcs_map=tool_funcs_map,
                             log_requests=config_manager.is_logging_enabled('chat'),
                             persist_callback=persist_chat,
@@ -941,6 +740,40 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     
                     ui.space()
                     send_btn = ui.button(icon='send', on_click=send_message).props('flat round color=primary')
+                    
+                    def update_encryption_ui():
+                        if not current_chat_id:
+                            if 'user_input' in locals() and user_input:
+                                user_input.props('disable=false')
+                                user_input.placeholder = 'Type a message...'
+                                if send_btn: send_btn.props('disable=false')
+                            return
+
+                        chat = chat_service.load_chat(current_chat_id)
+                        if not chat: return
+                        
+                        if chat.is_encrypted:
+                            pw = app.storage.user.get('unlocked_chats', {}).get(current_chat_id)
+                            is_unlocked = pw and chat_service.verify_password(current_chat_id, pw)
+                            
+                            if is_unlocked:
+                                if 'user_input' in locals() and user_input:
+                                    user_input.props('disable=false')
+                                    user_input.placeholder = 'Type a message...'
+                                    if send_btn: send_btn.props('disable=false')
+                            else:
+                                if 'user_input' in locals() and user_input:
+                                    user_input.props('disable=true')
+                                    user_input.placeholder = 'Chat is locked. Unlock in settings to continue.'
+                                    if send_btn: send_btn.props('disable=true')
+                        else:
+                            if 'user_input' in locals() and user_input:
+                                user_input.props('disable=false')
+                                user_input.placeholder = 'Type a message...'
+                                if send_btn: send_btn.props('disable=false')
+
+                    update_encryption_ui()
+                    ui.timer(2.0, update_encryption_ui)
                     
                     if model_select.value: asyncio.create_task(update_params(initial=True))
             
