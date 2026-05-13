@@ -1,5 +1,5 @@
 from nicegui import ui, app
-from pages import models, chat, arena, batch, tools, create, settings, google, playground, audio, visual, apps, python_page
+from pages import models, chat, arena, batch, tools, create, settings, google, playground, audio, visual, apps, python_page, personas
 
 # Page styling and configuration
 def layout(page_path: str = ''):
@@ -68,6 +68,7 @@ def layout(page_path: str = ''):
             ui.element('div').classes('h-4 w-px bg-white/20 mx-2')
             
             nav_link('Models', '/')
+            nav_link('Personas', '/personas')
             nav_link('Create', '/create')
             nav_link('Playground', '/playground')
             nav_link('Python', '/python')
@@ -147,6 +148,11 @@ def settings_page():
 def apps_route(app_name: str = None):
     layout('/apps')
     apps.create_page(app_name)
+
+@ui.page('/personas')
+def personas_page():
+    layout('/personas')
+    personas.create_page()
 
 if __name__ in {"__main__", "__mp_main__"}:
     app.add_static_files('/data', 'data')
