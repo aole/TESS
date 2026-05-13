@@ -3,6 +3,7 @@ from utils.config import config_manager
 from utils.ui_components import ui_card, ui_info_card
 from services.note_service import note_service
 from services.tts_service import VOICES
+from services.persona_service import persona_service
 
 # ── Storage key used to persist system info for the session ──────────────────
 _SYS_INFO_KEY = "system_info_cache"
@@ -255,6 +256,36 @@ def create_page():
                     value=config_manager.get_note_storage(),
                     on_change=handle_storage_change,
                 ).classes('w-full')
+
+            # ── Default Persona ───────────────────────────────────────────────
+            with ui_card(heading="Default Persona", heading_icon="person", heading_color="purple"):
+                ui.label(
+                    'This persona\'s system prompt will be pre-filled in new chat sessions.'
+                ).classes('text-sm text-gray-500 mb-2')
+
+                def _persona_options():
+                    opts = persona_service.get_all_persona_options()
+                    return {p['id']: p['name'] for p in opts}
+
+                def _on_default_persona_change(e):
+                    persona_service.set_default_persona_id(e.value)
+                    ui.notify('Default persona saved', type='positive')
+
+                default_persona_select = ui.select(
+                    options=_persona_options(),
+                    label='Default Persona',
+                    value=persona_service.get_default_persona_id(),
+                    on_change=_on_default_persona_change,
+                ).classes('w-full').props('outlined dense dark')
+
+                def _refresh_persona_opts():
+                    default_persona_select.options = _persona_options()
+                    # Make sure current value is still valid
+                    if default_persona_select.value not in default_persona_select.options:
+                        default_persona_select.value = persona_service.get_default_persona_id()
+
+                # Refresh options lazily so newly-created personas appear
+                ui.timer(2.0, _refresh_persona_opts)
 
             # ── Playground ────────────────────────────────────────────────────
             with ui_card(heading="Default Models", heading_icon="psychology", heading_color="indigo"):

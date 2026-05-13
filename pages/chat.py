@@ -11,6 +11,7 @@ from services.tts_service import tts_service, VOICES
 from utils.ui_components import ui_list, ui_list_item
 from utils.audio_player import AudioPlayer
 from utils.settings_dialog import SettingsDialog
+from services.persona_service import persona_service, NO_PERSONA_ID
 import asyncio
 import uuid
 
@@ -154,6 +155,45 @@ async def create_page(model_param: str = None, new_chat: bool = False):
             model_select = ui.select(options=model_options, value=default_model).props('dense options-dense outlined dark').classes('w-full text-sm mb-2')
             model_select.on_value_change(lambda e: update_params())
 
+            # ── Persona picker ────────────────────────────────────────────────
+            ui.label('Persona').classes('text-sm font-medium text-gray-400 mb-1')
+
+            def _build_persona_opts():
+                opts = persona_service.get_all_persona_options()
+                return {p['id']: p['name'] for p in opts}
+
+            # Determine initial persona selection
+            _saved_prompt = app.storage.user.get('system_prompt')
+            _default_persona = persona_service.get_default_persona()
+            _initial_persona_id = app.storage.user.get(
+                'selected_persona_id',
+                _default_persona['id'],
+            )
+            # Pre-fill system prompt from default persona if none saved yet
+            if _saved_prompt is None:
+                app.storage.user['system_prompt'] = _default_persona['system_prompt']
+
+            def _on_persona_change(e):
+                pid = e.value
+                app.storage.user['selected_persona_id'] = pid
+                persona = persona_service.get_persona(pid)
+                if persona is not None:
+                    system_prompt.value = persona['system_prompt']
+                    app.storage.user['system_prompt'] = persona['system_prompt']
+
+            persona_select = ui.select(
+                options=_build_persona_opts(),
+                value=_initial_persona_id,
+                on_change=_on_persona_change,
+            ).props('dense options-dense outlined dark').classes('w-full text-sm mb-2')
+
+            # Refresh persona options periodically (picks up newly created personas)
+            def _refresh_persona_opts():
+                persona_select.options = _build_persona_opts()
+
+            ui.timer(3.0, _refresh_persona_opts)
+
+            # ── System Prompt ─────────────────────────────────────────────────
             ui.label('System Prompt').classes('text-sm font-medium text-gray-400 mb-1')
             system_prompt = ui.textarea(
                 placeholder='You are a helpful assistant...', 
