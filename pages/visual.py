@@ -102,7 +102,7 @@ def create_page():
         """path is the web-accessible URL string (e.g. '/data/visual/foo.png')."""
         image_container.clear()
         with image_container:
-            ui.image(path).classes('w-full h-full object-contain rounded-lg shadow-xl')
+            ui.image(path).classes('w-full h-full object-contain')
 
     # ── Helper: open the history grid inside image_container ─────────────────
     def show_history():
@@ -148,22 +148,13 @@ def create_page():
                     for fname in images:
                         src = f'/{_VISUAL_DIR}/{fname}'
                         with ui.element('div').style(
-                            'position: relative; overflow: hidden; border-radius: 6px;'
-                            'border: 1px solid rgba(255,255,255,0.08); cursor: pointer;'
+                            'position: relative; overflow: hidden; cursor: pointer;'
                             'aspect-ratio: 1 / 1; background: rgba(0,0,0,0.3);'
                             'transition: transform 0.15s ease, box-shadow 0.15s ease;'
                         ).on('click', lambda s=src: show_image(s)):
                             ui.image(src).style(
                                 'width:100%; height:100%; object-fit:cover; display:block;'
                             )
-                            with ui.element('div').style(
-                                'position:absolute; bottom:0; left:0; right:0;'
-                                'background: linear-gradient(transparent, rgba(0,0,0,0.75));'
-                                'padding: 4px 6px; font-size: 9px;'
-                                'color: rgba(255,255,255,0.45);'
-                                'white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'
-                            ):
-                                ui.label(fname)
 
     def _restore_last():
         """Go back to the last generated image (or placeholder)."""
