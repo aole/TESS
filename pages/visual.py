@@ -1,5 +1,6 @@
 import os
 import asyncio
+import threading
 from nicegui import ui, run, app
 from services.visual_service import generate_image_task
 
@@ -56,16 +57,39 @@ def create_page():
                 return
                 
             generate_btn.disable()
-            ui.notify('Generating image... This may take a minute or two.', type='info', timeout=5000)
+            ui.notify('Generating image… This may take a minute or two.', type='info', timeout=5000)
             image_container.clear()
             
+            # --- Build a custom progress bar in the image placeholder ---
             with image_container:
-                ui.spinner('dots', size='xl', color='primary')
+                with ui.column().classes('items-center justify-center gap-4 w-full px-12'):
+                    ui.icon('auto_awesome', size='48px').classes('text-purple-400/60 mb-2')
+                    progress_label = ui.label('Preparing…').classes('text-white/50 text-sm font-mono tracking-widest')
+                    progress_bar = ui.linear_progress(value=0, size='12px').classes('w-full').props('rounded color=purple show-value=false')
+                    ui.label('Generating image — this may take a moment').classes('text-white/20 text-xs mt-1')
+            
+            # Thread-safe callback driven by visual_service
+            loop = asyncio.get_event_loop()
+
+            def on_progress(step: int, total: int):
+                if total == 0:
+                    return
+                fraction = min(step / total, 1.0)
+                label_text = f'Step {step} / {total}'
+
+                def _update():
+                    try:
+                        progress_bar.set_value(fraction)
+                        progress_label.set_text(label_text)
+                    except Exception:
+                        pass
+
+                loop.call_soon_threadsafe(_update)
             
             try:
                 # Run the generation task in a separate thread to not block the UI
                 w_str, h_str = image_size.value.split('x')
-                output_path = await run.io_bound(generate_image_task, prompt.value, negative_prompt.value, int(steps.value), int(w_str), int(h_str))
+                output_path = await run.io_bound(generate_image_task, prompt.value, negative_prompt.value, int(steps.value), int(w_str), int(h_str), on_progress)
                 
                 # Update UI
                 app.storage.user['visual_last_image'] = output_path

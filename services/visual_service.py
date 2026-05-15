@@ -14,7 +14,7 @@ def flush():
     gc.collect()
     torch.cuda.empty_cache()
 
-def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, width: int = 1024, height: int = 1024) -> str:
+def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, width: int = 1024, height: int = 1024, progress_callback=None) -> str:
     # Calculate VRAM limit for an 8GB card (leaving a small buffer)
     vram_limit = torch.cuda.mem_get_info("cuda")[1] / (1024 ** 3) - 0.5
     print(f"--- Initializing Anima Preview 3 on {vram_limit:.2f}GB VRAM ---")
@@ -26,7 +26,7 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
         model_configs=[
             ModelConfig(
                 model_id="circlestone-labs/Anima", 
-                origin_file_pattern="split_files/diffusion_models/anima-preview3-base.safetensors", 
+                origin_file_pattern="split_files/diffusion_models/anima-base-v1.0.safetensors", 
             ),
             ModelConfig(
                 model_id="circlestone-labs/Anima", 
@@ -44,13 +44,31 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
 
     # 3. INFERENCE
     print("Generating image...")
+    def _progress_bar_cmd(iterable, **kwargs):
+        """tqdm-compatible wrapper that drives the progress_callback."""
+        items = list(iterable)
+        total = len(items)
+        for i, item in enumerate(items):
+            if progress_callback:
+                try:
+                    progress_callback(i, total)
+                except Exception:
+                    pass
+            yield item
+        if progress_callback:
+            try:
+                progress_callback(total, total)
+            except Exception:
+                pass
+
     with torch.no_grad():
         image = pipe(
             prompt, 
             negative_prompt=negative_prompt,
             num_inference_steps=steps,
             width=width,
-            height=height
+            height=height,
+            progress_bar_cmd=_progress_bar_cmd,
         )
     
     import datetime
