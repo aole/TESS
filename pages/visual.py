@@ -65,7 +65,7 @@ def create_page():
                 with ui.column().classes('items-center justify-center gap-4 w-full px-12'):
                     ui.icon('auto_awesome', size='48px').classes('text-purple-400/60 mb-2')
                     progress_label = ui.label('Preparing…').classes('text-white/50 text-sm font-mono tracking-widest')
-                    progress_bar = ui.linear_progress(value=0, size='12px').classes('w-full').props('rounded color=purple show-value=false')
+                    progress_bar = ui.linear_progress(value=0, size='12px', show_value=False).classes('w-full').props('rounded color=purple')
                     ui.label('Generating image — this may take a moment').classes('text-white/20 text-xs mt-1')
             
             # Thread-safe callback driven by visual_service

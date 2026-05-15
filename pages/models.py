@@ -218,7 +218,7 @@ def create_page():
                      with ui.row().classes('w-full justify-between items-center'):
                          ui.label().bind_text_from(pull_state, 'status_text').classes('text-sm font-mono text-indigo-300')
                          ui.label().bind_text_from(pull_state, 'progress_text').classes('text-sm font-mono font-bold text-teal-400')
-                     ui.linear_progress().bind_value_from(pull_state, 'progress').classes('w-full')
+                     ui.linear_progress(show_value=False).bind_value_from(pull_state, 'progress').classes('w-full')
                  ui.button(icon='cancel', on_click=cancel_pull).props('flat round color=negative dense')
 
         # Model Table
