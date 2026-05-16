@@ -90,8 +90,64 @@ def create_page():
                 'text-white/70 border border-white/10 shadow'
             )
 
-    _grid_open = {'value': False}   # mutable flag so closures can mutate it
-    _grid_element = {'ref': None}     # reference to the grid <div>
+    _grid_open = {'value': False}
+    _grid_element = {'ref': None}
+
+    _gen_state = {
+        'active': False,
+        'idx': 0,
+        'total': 0,
+        'pct': 0,
+        'batch_prefix': '',
+        'spinner_cell': None,
+        'circ_progress': None,
+        'linear_progress': None,
+        'progress_label': None,
+    }
+
+    def _inject_grid_spinner():
+        """Helper to inject a progress spinner into the history grid if active."""
+        if not _gen_state['active'] or not _grid_open['value'] or _grid_element['ref'] is None:
+            return
+        
+        grid = _grid_element['ref']
+        with grid:
+            with ui.element('div').style(
+                'position: relative; overflow: hidden;'
+                'aspect-ratio: 1 / 1; background: rgba(88,28,135,0.25);'
+                'border: 1px solid rgba(168,85,247,0.4);'
+                'border-radius: 6px;'
+                'display: flex; flex-direction: column;'
+                'align-items: center; justify-content: center; gap: 6px;'
+            ) as spinner_cell:
+                _gen_state['spinner_cell'] = spinner_cell
+                _gen_state['circ_progress'] = ui.circular_progress(
+                    min=0, max=100, value=_gen_state['pct'], show_value=True, size='56px'
+                ).props('color=purple track-color=white/10 font-size=10px')
+                ui.label(f"{_gen_state['batch_prefix']}Generating…").style(
+                    'font-size: 11px; color: rgba(216,180,254,0.7);'
+                    'font-family: monospace; letter-spacing: 0.05em;'
+                )
+        spinner_cell.move(grid, 0)
+
+    def _inject_normal_progress():
+        """Helper to inject a linear progress bar into the main view if active."""
+        if not _gen_state['active'] or _grid_open['value']:
+            return
+            
+        image_container.clear()
+        with image_container:
+            with ui.column().classes('items-center justify-center gap-4 w-full px-12'):
+                ui.icon('auto_awesome', size='48px').classes('text-purple-400/60 mb-2')
+                _gen_state['progress_label'] = ui.label(f"{_gen_state['batch_prefix']}Preparing…").classes(
+                    'text-white/50 text-sm font-mono tracking-widest'
+                )
+                _gen_state['linear_progress'] = ui.linear_progress(
+                    value=_gen_state['pct']/100, size='12px', show_value=False
+                ).classes('w-full').props('rounded color=purple')
+                ui.label(f"Generating image {_gen_state['idx']+1} of {_gen_state['total']} — this may take a moment").classes(
+                    'text-white/20 text-xs mt-1'
+                )
 
     # ── Helper: restore the "no image" placeholder ───────────────────────────
     def show_placeholder():
@@ -159,6 +215,9 @@ def create_page():
                         src = f'/{_VISUAL_DIR}/{fname}'
                         fpath = f'{_VISUAL_DIR}/{fname}'
                         _add_grid_cell(grid, src, fpath)
+        
+        # Re-inject spinner if needed
+        _inject_grid_spinner()
 
     # ── Helper: delete an image file and refresh the grid ───────────────────
     def _delete_image(fpath: str):
@@ -224,6 +283,11 @@ def create_page():
         """Go back to the last generated image (or placeholder)."""
         _grid_open['value'] = False
         _grid_element['ref'] = None
+        
+        if _gen_state['active']:
+            _inject_normal_progress()
+            return
+            
         last = app.storage.user.get('visual_last_image')
         if last and os.path.exists(last):
             show_image(f'/{last}')
@@ -242,120 +306,47 @@ def create_page():
         generate_btn.disable()
         total_prompts = len(raw_prompts)
         
+        # Reset state
+        _gen_state['active'] = True
+        _gen_state['total'] = total_prompts
+        _gen_state['pct'] = 0
+        
+        loop = asyncio.get_event_loop()
+
+        def on_progress(step: int, total: int):
+            if total == 0:
+                return
+            pct = min(round(step / total * 100), 100)
+            _gen_state['pct'] = pct
+            
+            def _update():
+                try:
+                    if _gen_state['circ_progress']:
+                        _gen_state['circ_progress'].set_value(pct)
+                    if _gen_state['linear_progress']:
+                        _gen_state['linear_progress'].set_value(pct / 100)
+                    if _gen_state['progress_label']:
+                        _gen_state['progress_label'].set_text(f"{_gen_state['batch_prefix']}Step {step} / {total}")
+                except Exception:
+                    pass
+            loop.call_soon_threadsafe(_update)
+
         try:
             for idx, current_p in enumerate(raw_prompts):
-                batch_prefix = f"[{idx + 1}/{total_prompts}] " if total_prompts > 1 else ""
+                _gen_state['idx'] = idx
+                _gen_state['batch_prefix'] = f"[{idx + 1}/{total_prompts}] " if total_prompts > 1 else ""
+                _gen_state['pct'] = 0
                 
-                # ── If the history grid is open, inject a spinner cell at top-left ───
-                if _grid_open['value'] and _grid_element['ref'] is not None:
-                    grid = _grid_element['ref']
-                    spinner_cell = None
-                    circ_progress = None
-                    with grid:
-                        with ui.element('div').style(
-                            'position: relative; overflow: hidden;'
-                            'aspect-ratio: 1 / 1; background: rgba(88,28,135,0.25);'
-                            'border: 1px solid rgba(168,85,247,0.4);'
-                            'border-radius: 6px;'
-                            'display: flex; flex-direction: column;'
-                            'align-items: center; justify-content: center; gap: 6px;'
-                        ) as spinner_cell:
-                            circ_progress = ui.circular_progress(
-                                min=0, max=100, value=0, show_value=True, size='56px'
-                            ).props('color=purple track-color=white/10 font-size=10px')
-                            ui.label(f'{batch_prefix}Generating…').style(
-                                'font-size: 11px; color: rgba(216,180,254,0.7);'
-                                'font-family: monospace; letter-spacing: 0.05em;'
-                            )
-                    # Move the new cell to be the first child in the grid
-                    spinner_cell.move(grid, 0)
+                # Clear UI refs (they will be re-injected if we are in the right view)
+                _gen_state['spinner_cell'] = None
+                _gen_state['circ_progress'] = None
+                _gen_state['linear_progress'] = None
+                _gen_state['progress_label'] = None
 
-                    loop = asyncio.get_event_loop()
-
-                    def on_progress_grid(step: int, total: int):
-                        if total == 0:
-                            return
-                        pct = min(round(step / total * 100), 100)
-                        def _update():
-                            try:
-                                circ_progress.set_value(pct)
-                            except Exception:
-                                pass
-                        loop.call_soon_threadsafe(_update)
-
-                    try:
-                        w_str, h_str = image_size.value.split('x')
-                        output_path = await run.io_bound(
-                            generate_image_task,
-                            current_p, negative_prompt.value,
-                            int(steps.value), int(w_str), int(h_str),
-                            on_progress_grid,
-                            unload_after=(idx == total_prompts - 1)
-                        )
-                        app.storage.user['visual_last_image'] = output_path
-                        src = f'/{output_path}'
-                        # Replace placeholder content with the generated image in-place
-                        spinner_cell.clear()
-                        spinner_cell.style(
-                            'position: relative; overflow: hidden;'
-                            'aspect-ratio: 1 / 1; background: rgba(0,0,0,0.3);'
-                            'border: none; border-radius: 6px; cursor: pointer;'
-                            'display: block;'
-                        )
-                        with spinner_cell:
-                            ui.image(src).style(
-                                'width:100%; height:100%; object-fit:cover; display:block;'
-                            )
-                            # Hover-reveal delete button
-                            fpath = output_path  # local binding
-                            _add_delete_btn(spinner_cell, fpath)
-                        spinner_cell.on('click', lambda s=src: show_image(s))
-                        
-                        if total_prompts == 1:
-                            ui.notify('Image generated successfully!', type='positive')
-                        else:
-                            ui.notify(f'Generated {idx+1}/{total_prompts}', type='positive', pos='bottom-right', timeout=2000)
-
-                    except Exception as e:
-                        import traceback
-                        traceback.print_exc()
-                        spinner_cell.delete()
-                        ui.notify(f'Failed to generate image {idx+1}: {str(e)}', type='negative')
-                    
-                    continue
-
-                # ── Normal mode: replace the whole container with a progress view ─────
-                image_container.clear()
-
-                with image_container:
-                    with ui.column().classes('items-center justify-center gap-4 w-full px-12'):
-                        ui.icon('auto_awesome', size='48px').classes('text-purple-400/60 mb-2')
-                        progress_label = ui.label(f'{batch_prefix}Preparing…').classes(
-                            'text-white/50 text-sm font-mono tracking-widest'
-                        )
-                        progress_bar = ui.linear_progress(
-                            value=0, size='12px', show_value=False
-                        ).classes('w-full').props('rounded color=purple')
-                        ui.label(f'Generating image {idx+1} of {total_prompts} — this may take a moment').classes(
-                            'text-white/20 text-xs mt-1'
-                        )
-
-                loop = asyncio.get_event_loop()
-
-                def on_progress_normal(step: int, total: int):
-                    if total == 0:
-                        return
-                    fraction = min(step / total, 1.0)
-                    label_text = f'{batch_prefix}Step {step} / {total}'
-
-                    def _update():
-                        try:
-                            progress_bar.set_value(fraction)
-                            progress_label.set_text(label_text)
-                        except Exception:
-                            pass
-
-                    loop.call_soon_threadsafe(_update)
+                if _grid_open['value']:
+                    _inject_grid_spinner()
+                else:
+                    _inject_normal_progress()
 
                 try:
                     w_str, h_str = image_size.value.split('x')
@@ -363,15 +354,32 @@ def create_page():
                         generate_image_task,
                         current_p, negative_prompt.value,
                         int(steps.value), int(w_str), int(h_str),
-                        on_progress_normal,
+                        on_progress,
                         unload_after=(idx == total_prompts - 1)
                     )
                     app.storage.user['visual_last_image'] = output_path
-                    image_container.clear()
-                    with image_container:
-                        ui.image(f'/{output_path}').classes(
-                            'w-full h-full object-contain rounded-lg shadow-xl'
+                    src = f'/{output_path}'
+                    
+                    # Handle completion UI
+                    if _gen_state['spinner_cell']:
+                        cell = _gen_state['spinner_cell']
+                        cell.clear()
+                        cell.style(
+                            'position: relative; overflow: hidden;'
+                            'aspect-ratio: 1 / 1; background: rgba(0,0,0,0.3);'
+                            'border: none; border-radius: 6px; cursor: pointer;'
+                            'display: block;'
                         )
+                        with cell:
+                            ui.image(src).style('width:100%; height:100%; object-fit:cover; display:block;')
+                            _add_delete_btn(cell, output_path)
+                        cell.on('click', lambda s=src: show_image(s))
+                    
+                    if not _grid_open['value']:
+                        image_container.clear()
+                        with image_container:
+                            ui.image(f'/{output_path}').classes('w-full h-full object-contain rounded-lg shadow-xl')
+
                     if total_prompts == 1:
                         ui.notify('Image generated successfully!', type='positive')
                     else:
@@ -380,12 +388,16 @@ def create_page():
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
-                    image_container.clear()
-                    with image_container:
-                        ui.label(f'Error: {str(e)}').classes('text-red-400')
+                    if _gen_state['spinner_cell']:
+                        _gen_state['spinner_cell'].delete()
                     ui.notify(f'Failed to generate image {idx+1}: {str(e)}', type='negative')
         
         finally:
+            _gen_state['active'] = False
+            _gen_state['spinner_cell'] = None
+            _gen_state['circ_progress'] = None
+            _gen_state['linear_progress'] = None
+            _gen_state['progress_label'] = None
             generate_btn.enable()
             if total_prompts > 1:
                 ui.notify(f'Batch processing of {total_prompts} prompts complete.', type='info')
