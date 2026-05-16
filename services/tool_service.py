@@ -89,6 +89,16 @@ class ToolService:
             active=config_manager.is_tool_active("web_search_tool"),
             is_builtin=True
         ))
+
+        # Memory Tool
+        memory_desc = "Handles user long-term memory. Allows saving, retrieving, and deleting personal details about the user."
+        builtin.append(Tool(
+            name="user_memory_tool",
+            description=memory_desc,
+            code="# Builtin Tool: user_memory_tool\n# (Implementation is in utils/memory_tool.py)",
+            active=config_manager.is_tool_active("user_memory_tool"),
+            is_builtin=True
+        ))
         
         return builtin
 
