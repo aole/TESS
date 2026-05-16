@@ -168,8 +168,10 @@ def create_page():
             last = app.storage.user.get('visual_last_image')
             if last and os.path.normpath(last) == os.path.normpath(fpath):
                 app.storage.user['visual_last_image'] = None
-            show_history()
+            # Notify BEFORE show_history() — which calls image_container.clear()
+            # and destroys the current slot context, breaking ui.notify afterwards.
             ui.notify('Image deleted.', type='info')
+            show_history()
         except Exception as exc:
             ui.notify(f'Could not delete image: {exc}', type='negative')
 
