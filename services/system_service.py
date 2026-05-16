@@ -135,6 +135,35 @@ def _get_gpus() -> list[dict]:
     return [{"name": "No GPU detected", "vram": ""}]
 
 
+def get_primary_gpu_usage() -> Optional[dict]:
+    """Return VRAM usage of the largest GPU."""
+    try:
+        # Query: index, memory.total, memory.used
+        out = _run(["nvidia-smi", "--query-gpu=index,memory.total,memory.used", "--format=csv,noheader,nounits"])
+        if not out:
+            return None
+        
+        gpus = []
+        for line in out.splitlines():
+            parts = line.split(",")
+            if len(parts) == 3:
+                idx = int(parts[0].strip())
+                total = int(parts[1].strip())
+                used = int(parts[2].strip())
+                gpus.append({"index": idx, "total": total, "used": used})
+        
+        if not gpus:
+            return None
+            
+        # Find GPU with largest total VRAM
+        primary = max(gpus, key=lambda x: x["total"])
+        
+        primary["percentage"] = (primary["used"] / primary["total"]) * 100 if primary["total"] > 0 else 0
+        return primary
+    except Exception:
+        return None
+
+
 def _get_cuda_version() -> str:
     out = _run(["nvcc", "--version"])
     if out:

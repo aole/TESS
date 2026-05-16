@@ -1,5 +1,6 @@
-from nicegui import ui, app
+from nicegui import ui, app, run
 from pages import models, chat, arena, batch, tools, create, settings, google, playground, audio, visual, apps, python_page, personas
+from services import system_service
 
 # Page styling and configuration
 def layout(page_path: str = ''):
@@ -56,6 +57,37 @@ def layout(page_path: str = ''):
         ui.space()
         
         with ui.row().classes('gap-4 items-center'):
+            # VRAM Indicator
+            with ui.row().classes('items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10') as vram_container:
+                vram_icon = ui.icon('memory', size='16px').classes('text-indigo-400')
+                vram_label = ui.label('VRAM: --').classes('text-xs font-medium text-white/70')
+                vram_progress = ui.linear_progress(value=0, show_value=False).classes('w-12 h-1 rounded-full bg-white/10').props('color=indigo-400')
+                
+                async def update_vram():
+                    usage = await run.io_bound(system_service.get_primary_gpu_usage)
+                    if usage:
+                        used_gb = usage['used'] / 1024
+                        total_gb = usage['total'] / 1024
+                        vram_label.set_text(f"{used_gb:.1f}/{total_gb:.0f} GB")
+                        vram_progress.set_value(usage['percentage'] / 100)
+                        
+                        # Change color based on usage
+                        if usage['percentage'] > 90:
+                            vram_progress.props('color=red-500')
+                            vram_icon.classes('text-red-400', remove='text-indigo-400 text-orange-400')
+                        elif usage['percentage'] > 75:
+                            vram_progress.props('color=orange-500')
+                            vram_icon.classes('text-orange-400', remove='text-indigo-400 text-red-400')
+                        else:
+                            vram_progress.props('color=indigo-500')
+                            vram_icon.classes('text-indigo-400', remove='text-red-400 text-orange-400')
+                    else:
+                        vram_label.set_text("VRAM: N/A")
+                
+                ui.timer(1.0, update_vram)
+                # We don't call update_vram() here because it might block the initial page load if nvidia-smi is slow.
+                # The timer will handle the first update shortly.
+
             # Navigation Links
             def nav_link(text, target):
                 classes = 'nav-item'
