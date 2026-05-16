@@ -97,9 +97,10 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
     import json
     from PIL.PngImagePlugin import PngInfo
     
-    os.makedirs("data/visual", exist_ok=True)
+    os.makedirs("data/visual/thumbs", exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = f"data/visual/tess_{timestamp}.png"
+    fname = f"tess_{timestamp}.png"
+    output_path = f"data/visual/{fname}"
     
     metadata = PngInfo()
     params = {
@@ -115,6 +116,13 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
     metadata.add_text("parameters", json.dumps(params, indent=2))
     
     image.save(output_path, pnginfo=metadata)
+    
+    # Generate and save thumbnail
+    thumb = image.copy()
+    thumb.thumbnail((256, 256))
+    thumb_path = os.path.join("data/visual/thumbs", fname)
+    thumb.save(thumb_path)
+    
     print(f"Success: saved as {output_path}")
     
     # Cleanup memory if requested

@@ -203,7 +203,7 @@ def create_page():
 
             images = sorted(
                 [f for f in os.listdir(_VISUAL_DIR)
-                 if os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
+                 if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
                 reverse=True,
             )
 
@@ -225,10 +225,23 @@ def create_page():
                 )
                 _grid_element['ref'] = grid
                 with grid:
+                    os.makedirs(f"{_VISUAL_DIR}/thumbs", exist_ok=True)
                     for fname in images:
-                        src = f'/{_VISUAL_DIR}/{fname}'
                         fpath = f'{_VISUAL_DIR}/{fname}'
-                        _add_grid_cell(grid, src, fpath)
+                        src = f'/{fpath}'
+                        thumb_path = f'{_VISUAL_DIR}/thumbs/{fname}'
+                        
+                        if not os.path.exists(thumb_path):
+                            try:
+                                from PIL import Image
+                                with Image.open(fpath) as img:
+                                    img.thumbnail((256, 256))
+                                    img.save(thumb_path)
+                            except Exception:
+                                pass
+                                
+                        thumb_src = f'/{thumb_path}' if os.path.exists(thumb_path) else src
+                        _add_grid_cell(grid, thumb_src, src, fpath)
         
         # Re-inject spinner if needed
         _inject_grid_spinner()
@@ -238,6 +251,10 @@ def create_page():
         try:
             if os.path.exists(fpath):
                 os.remove(fpath)
+                dirname, fname = os.path.split(fpath)
+                thumb_path = f"{dirname}/thumbs/{fname}".replace('\\', '/')
+                if os.path.exists(thumb_path):
+                    os.remove(thumb_path)
             last = app.storage.user.get('visual_last_image')
             if last and os.path.normpath(last) == os.path.normpath(fpath):
                 app.storage.user['visual_last_image'] = None
@@ -299,7 +316,6 @@ def create_page():
             
             ui.notify('Regenerating from metadata...', type='info')
             
-            _restore_last()
             await on_generate()
             
         except Exception as e:
@@ -335,16 +351,16 @@ def create_page():
             ))
 
     # ── Helper: build a full grid cell (image + delete button) ───────────────
-    def _add_grid_cell(grid, src: str, fpath: str):
+    def _add_grid_cell(grid, thumb_src: str, full_src: str, fpath: str):
         with grid:
             cell = ui.element('div').style(
                 'position: relative; overflow: hidden; cursor: pointer;'
                 'aspect-ratio: 1 / 1; background: rgba(0,0,0,0.3);'
                 'transition: transform 0.15s ease, box-shadow 0.15s ease;'
             )
-            cell.on('click', lambda s=src: show_image(s))
+            cell.on('click', lambda s=full_src: show_image(s))
             with cell:
-                ui.image(src).style(
+                ui.image(thumb_src).style(
                     'width:100%; height:100%; object-fit:cover; display:block;'
                 )
             _add_delete_btn(cell, fpath)
@@ -454,6 +470,10 @@ def create_page():
                     app.storage.user['visual_last_image'] = output_path
                     src = f'/{output_path}'
                     
+                    dirname, fname = os.path.split(output_path)
+                    thumb_path = f"{dirname}/thumbs/{fname}".replace('\\', '/')
+                    thumb_src = f'/{thumb_path}' if os.path.exists(thumb_path) else src
+                    
                     # Handle completion UI
                     if _gen_state['spinner_cell']:
                         cell = _gen_state['spinner_cell']
@@ -465,7 +485,7 @@ def create_page():
                             'display: block;'
                         )
                         with cell:
-                            ui.image(src).style('width:100%; height:100%; object-fit:cover; display:block;')
+                            ui.image(thumb_src).style('width:100%; height:100%; object-fit:cover; display:block;')
                             _add_delete_btn(cell, output_path)
                             _add_regenerate_btn(cell, output_path)
                         cell.on('click', lambda s=src: show_image(s))
