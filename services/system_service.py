@@ -136,21 +136,22 @@ def _get_gpus() -> list[dict]:
 
 
 def get_primary_gpu_usage() -> Optional[dict]:
-    """Return VRAM usage of the largest GPU."""
+    """Return VRAM usage and activity of the largest GPU."""
     try:
-        # Query: index, memory.total, memory.used
-        out = _run(["nvidia-smi", "--query-gpu=index,memory.total,memory.used", "--format=csv,noheader,nounits"])
+        # Query: index, memory.total, memory.used, utilization.gpu
+        out = _run(["nvidia-smi", "--query-gpu=index,memory.total,memory.used,utilization.gpu", "--format=csv,noheader,nounits"])
         if not out:
             return None
         
         gpus = []
         for line in out.splitlines():
             parts = line.split(",")
-            if len(parts) == 3:
+            if len(parts) == 4:
                 idx = int(parts[0].strip())
                 total = int(parts[1].strip())
                 used = int(parts[2].strip())
-                gpus.append({"index": idx, "total": total, "used": used})
+                load = int(parts[3].strip())
+                gpus.append({"index": idx, "total": total, "used": used, "load": load})
         
         if not gpus:
             return None
@@ -158,7 +159,7 @@ def get_primary_gpu_usage() -> Optional[dict]:
         # Find GPU with largest total VRAM
         primary = max(gpus, key=lambda x: x["total"])
         
-        primary["percentage"] = (primary["used"] / primary["total"]) * 100 if primary["total"] > 0 else 0
+        primary["vram_percentage"] = (primary["used"] / primary["total"]) * 100 if primary["total"] > 0 else 0
         return primary
     except Exception:
         return None

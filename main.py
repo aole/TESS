@@ -57,36 +57,35 @@ def layout(page_path: str = ''):
         ui.space()
         
         with ui.row().classes('gap-4 items-center'):
-            # VRAM Indicator
-            with ui.row().classes('items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10') as vram_container:
-                vram_icon = ui.icon('memory', size='16px').classes('text-indigo-400')
-                vram_progress = ui.linear_progress(value=0, show_value=False).classes('w-12 h-3 rounded-full bg-white/10').props('color=indigo-400')
-                vram_tooltip = ui.tooltip('VRAM: --')
+            # GPU Indicators
+            with ui.row().classes('items-center gap-2'):
+                # VRAM
+                with ui.row().classes('items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10') as vram_container:
+                    vram_progress = ui.linear_progress(value=0, show_value=False).classes('w-12 h-3 rounded-full bg-white/10').props('color=indigo-400')
+                    vram_tooltip = ui.tooltip('VRAM: --')
                 
-                async def update_vram():
+                # Activity
+                with ui.row().classes('items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10') as activity_container:
+                    activity_progress = ui.linear_progress(value=0, show_value=False).classes('w-12 h-3 rounded-full bg-white/10').props('color=emerald-400')
+                    activity_tooltip = ui.tooltip('Activity: --')
+                
+                async def update_gpu_metrics():
                     usage = await run.io_bound(system_service.get_primary_gpu_usage)
                     if usage:
+                        # Update VRAM
                         used_gb = usage['used'] / 1024
                         total_gb = usage['total'] / 1024
-                        vram_tooltip.set_text(f"VRAM: {used_gb:.1f} / {total_gb:.0f} GB ({usage['percentage']:.1f}%)")
-                        vram_progress.set_value(usage['percentage'] / 100)
+                        vram_tooltip.set_text(f"VRAM: {used_gb:.1f} / {total_gb:.0f} GB ({usage['vram_percentage']:.1f}%)")
+                        vram_progress.set_value(usage['vram_percentage'] / 100)
                         
-                        # Change color based on usage
-                        if usage['percentage'] > 90:
-                            vram_progress.props('color=red-500')
-                            vram_icon.classes('text-red-400', remove='text-indigo-400 text-orange-400')
-                        elif usage['percentage'] > 75:
-                            vram_progress.props('color=orange-500')
-                            vram_icon.classes('text-orange-400', remove='text-indigo-400 text-red-400')
-                        else:
-                            vram_progress.props('color=indigo-500')
-                            vram_icon.classes('text-indigo-400', remove='text-red-400 text-orange-400')
+                        # Update Activity
+                        activity_tooltip.set_text(f"GPU Activity: {usage['load']}%")
+                        activity_progress.set_value(usage['load'] / 100)
                     else:
                         vram_tooltip.set_text("VRAM: N/A")
+                        activity_tooltip.set_text("Activity: N/A")
                 
-                ui.timer(1.0, update_vram)
-                # We don't call update_vram() here because it might block the initial page load if nvidia-smi is slow.
-                # The timer will handle the first update shortly.
+                ui.timer(1.0, update_gpu_metrics)
 
             ui.element('div').classes('h-4 w-px bg-white/20 mx-2')
 
