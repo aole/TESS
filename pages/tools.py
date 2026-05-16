@@ -15,6 +15,19 @@ def create_page():
     refs = {}
 
     # ── Helpers ──────────────────────────────────────────────────────────────
+    def parse_code_metadata(code: str):
+        """Extract function name and parameters using AST."""
+        try:
+            import ast
+            tree = ast.parse(code)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    name = node.name
+                    params = {arg.arg: "value" for arg in node.args.args if arg.arg != 'self'}
+                    return name, params
+        except Exception:
+            pass
+        return None, {}
     def refresh_list():
         tools = tool_service.get_all_tools()
         table.rows = [t.to_dict() for t in tools]
@@ -157,6 +170,14 @@ def create_page():
 
                     refs['code_editor'].value = cleaned.strip()
                     ui.notify('Tool updated by AI', type='success')
+                    
+                    # Auto-fill name if empty
+                    if not refs['name_input'].value.strip():
+                        auto_name, _ = parse_code_metadata(cleaned)
+                        if auto_name:
+                            refs['name_input'].value = auto_name
+                            ui.notify(f'Set tool name to "{auto_name}"', type='info')
+
                     # Ensure we are in "is_new" or edit mode now
                     if state['selected_tool'] is None:
                         state['is_new'] = True
@@ -179,6 +200,12 @@ def create_page():
         if not code.strip():
             ui.notify('No code to test', type='warning')
             return
+
+        # Try to extract parameters for a better template
+        _, params = parse_code_metadata(code)
+        if params:
+            import json
+            state['test_args'] = json.dumps(params, indent=2)
 
         with ui.dialog() as dialog, ui.card().classes('w-full max-w-lg p-6'):
             dialog.props('position=left')
@@ -390,7 +417,7 @@ def create_page():
                 ui.label('Python Code').classes('text-sm text-gray-400')
                 code_editor = ui.codemirror(
                     value='', language='python', theme='dracula'
-                ).classes('w-full border border-gray-700 rounded-lg shadow-inner').style('height: 480px').props('read-only')
+                ).classes('w-full border border-gray-700 rounded-lg shadow-inner').style('height: 380px').props('read-only')
                 refs['code_editor'] = code_editor
 
                 # Action row

@@ -1,6 +1,5 @@
 import sys
 import io
-import ast
 import traceback
 
 def run_python_code(code: str, args: list[str] | None = None) -> str:
