@@ -39,6 +39,40 @@ class ConversationRenderer:
         self.container.clear()
         self._msg_elements.clear()
 
+    @staticmethod
+    def get_turn_indices(messages: List[Dict], msg: Dict) -> set:
+        """
+        Calculates the indices of all messages belonging to the same interaction turn
+        as the given message.
+        - For user messages: Includes the user message and all subsequent non-user messages.
+        - For assistant/tool messages: Includes all messages between the preceding user message
+          and the next user message (the entire assistant turn).
+        """
+        if msg not in messages:
+            return set()
+        
+        idx = messages.index(msg)
+        
+        if msg.get('role') == 'user':
+            indices = {idx}
+            j = idx + 1
+            while j < len(messages) and messages[j].get('role') != 'user':
+                indices.add(j)
+                j += 1
+            return indices
+        else:
+            # Find the start of this block (after previous user message or start of list)
+            start = idx
+            while start > 0 and messages[start-1].get('role') != 'user':
+                start -= 1
+            
+            # Find the end of this block (before next user message or end of list)
+            end = idx
+            while end + 1 < len(messages) and messages[end+1].get('role') != 'user':
+                end += 1
+            
+            return set(range(start, end + 1))
+
     def render_messages(self, messages: List[Dict]):
         self.clear()
         with self.container:
@@ -87,6 +121,11 @@ class ConversationRenderer:
                     elif role == 'user':
                         with ui.row().classes('w-full justify-end items-center mb-1'):
                             self._render_controls(msg)
+                    elif role == 'tool':
+                        with ui.row().classes('w-full justify-between items-center mb-1'):
+                            tool_name = msg.get('name', 'unknown')
+                            ui.label(f"Tool Output: {tool_name}").classes('text-xs text-gray-500 italic font-medium')
+                            self._render_controls(msg)
 
                     # Message Body
                     if msg.get('editing', False):
@@ -130,12 +169,17 @@ class ConversationRenderer:
         thinking = msg.get('thinking', '')
         
         # Use an expansion panel for thinking output
-        thinking_container = ui.expansion('Thought Process', icon='psychology').classes('w-full bg-white/5 rounded-md border-l-2 border-indigo-500 mb-2')
+        thinking_container = ui.expansion().classes('w-full bg-white/5 rounded-md border-l-2 border-indigo-500 mb-2')
+        with thinking_container:
+            with thinking_container.add_slot('header'):
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('psychology', size='20px').classes('text-indigo-400')
+                    ui.label('Thought Process').classes('text-[11px] font-bold text-gray-300 uppercase tracking-wider')
+            
+            thinking_label = ui.label(thinking).classes('text-xs text-gray-400 font-mono whitespace-pre-wrap w-full p-2')
+        
         if not thinking:
             thinking_container.classes('hidden')
-            
-        with thinking_container:
-            thinking_label = ui.label(thinking).classes('text-xs text-gray-400 font-mono whitespace-pre-wrap w-full p-2')
         
         # 2. Tool Calls
         tool_calls = msg.get('tool_calls', [])
@@ -161,7 +205,7 @@ class ConversationRenderer:
             display_content = re.sub(pattern, '', content, flags=re.DOTALL).strip()
             
             # Collapsible section for attachments
-            with ui.expansion('', icon='attachment').classes('w-full bg-white/5 rounded-md border border-white/10 mb-2 group/exp') as exp:
+            with ui.expansion().classes('w-full bg-white/5 rounded-md border border-white/10 mb-2 group/exp') as exp:
                 # Custom header with badges
                 with exp.add_slot('header'):
                     with ui.row().classes('items-center gap-2 flex-grow'):
@@ -187,8 +231,11 @@ class ConversationRenderer:
         content_markdown = None
         
         if role == 'tool':
-            tool_name = msg.get('name', 'unknown')
-            with ui.expansion(f"Tool Output: {tool_name}", icon='build').classes('w-full bg-white/5 rounded-md border-l-2 border-gray-500 mb-2'):
+            with ui.expansion().classes('w-full bg-white/5 rounded-md border-l-2 border-gray-500 mb-2') as exp:
+                with exp.add_slot('header'):
+                    with ui.row().classes('items-center gap-2'):
+                        ui.icon('storage', size='20px').classes('text-gray-400')
+                        ui.label('View Raw Output').classes('text-[11px] font-bold text-gray-300 uppercase tracking-wider')
                 ui.label(display_content).classes('text-xs font-mono p-2 text-gray-300 whitespace-pre-wrap w-full break-words')
         elif role == 'assistant':
             # Always use markdown for assistant

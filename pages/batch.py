@@ -217,7 +217,19 @@ async def create_page():
                                 
                                 # Renderer
                                 r_container = ui.column().classes('w-full flex-grow')
-                                renderer = ConversationRenderer(r_container)
+                                
+                                def make_delete_handler(m_name):
+                                    def handle_delete(msg):
+                                        if not batch_state: return
+                                        m_state = batch_state['model_states'][m_name]
+                                        m_messages = m_state['messages']
+                                        indices = ConversationRenderer.get_turn_indices(m_messages, msg)
+                                        if indices:
+                                            m_messages[:] = [m for i, m in enumerate(m_messages) if i not in indices]
+                                            model_renderers[m_name].render_messages(m_messages)
+                                    return handle_delete
+
+                                renderer = ConversationRenderer(r_container, on_delete=make_delete_handler(model))
                                 model_renderers[model] = renderer
                                 
                                 # Initial render of messages

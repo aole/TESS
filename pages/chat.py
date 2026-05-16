@@ -412,11 +412,17 @@ async def create_page(model_param: str = None, new_chat: bool = False):
 
             # Logic Handlers (Wrappers for Renderer)
             def handle_delete(msg):
-                if msg in messages:
-                    messages.remove(msg)
-                    app.storage.user['messages'] = messages
-                    chat_renderer.render_messages(messages)
-                    asyncio.create_task(save_current_chat())
+                indices_to_remove = ConversationRenderer.get_turn_indices(messages, msg)
+                if not indices_to_remove:
+                    return
+                
+                # Apply deletion
+                new_messages = [m for i, m in enumerate(messages) if i not in indices_to_remove]
+                messages[:] = new_messages
+                
+                app.storage.user['messages'] = messages
+                chat_renderer.render_messages(messages)
+                asyncio.create_task(save_current_chat())
 
             def handle_edit(msg):
                 # Reset others

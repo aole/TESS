@@ -124,8 +124,25 @@ async def create_page():
                 ui.label('Model 2 Output').classes('text-xs text-muted mb-1')
 
         # Renderers
-        renderer1 = ConversationRenderer(chat1, show_avatars=True)
-        renderer2 = ConversationRenderer(chat2, show_avatars=True)
+        def handle_delete(msg):
+            # In Arena, we keep both models in sync.
+            # We determine the turn indices from either list (since they share the same structure)
+            indices = ConversationRenderer.get_turn_indices(messages1, msg)
+            if not indices:
+                # Try message2 if it's not in messages1
+                indices = ConversationRenderer.get_turn_indices(messages2, msg)
+            
+            if indices:
+                new_msgs1 = [m for i, m in enumerate(messages1) if i not in indices]
+                new_msgs2 = [m for i, m in enumerate(messages2) if i not in indices]
+                messages1[:] = new_msgs1
+                messages2[:] = new_msgs2
+                
+                renderer1.render_messages(messages1)
+                renderer2.render_messages(messages2)
+        
+        renderer1 = ConversationRenderer(chat1, show_avatars=True, on_delete=handle_delete)
+        renderer2 = ConversationRenderer(chat2, show_avatars=True, on_delete=handle_delete)
 
         # Render initial
         if messages1: renderer1.render_messages(messages1)
