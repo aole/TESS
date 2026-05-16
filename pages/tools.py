@@ -8,6 +8,7 @@ def create_page():
     state = {
         'selected_tool': None,   # Tool object currently loaded in the panel
         'is_new': False,         # True when creating a new tool
+        'test_args': '{\n  "param1": "value1",\n  "param2": 123\n}',
     }
 
     # ── Refs (filled after UI is built) ─────────────────────────────────────
@@ -187,7 +188,7 @@ def create_page():
             args_input = ui.textarea('Arguments (JSON)').classes('w-full').props(
                 'autofocus placeholder=\'{"param": "value"}\''
             )
-            args_input.value = '{\n  "param1": "value1",\n  "param2": 123\n}'
+            args_input.value = state['test_args']
 
             ui.label('Output:').classes('mt-4 text-sm text-gray-400')
             output_area = ui.label('').classes(
@@ -198,6 +199,10 @@ def create_page():
                 try:
                     import json
                     import traceback
+                    
+                    # Store current arguments for next time
+                    state['test_args'] = args_input.value
+                    
                     args = json.loads(args_input.value or '{}')
 
                     # Setup namespace and exec code
@@ -384,8 +389,8 @@ def create_page():
                 # Code editor
                 ui.label('Python Code').classes('text-sm text-gray-400')
                 code_editor = ui.codemirror(
-                    value='', language='python'
-                ).classes('w-full border rounded').style('height: 380px').props('read-only')
+                    value='', language='python', theme='dracula'
+                ).classes('w-full border border-gray-700 rounded-lg shadow-inner').style('height: 480px').props('read-only')
                 refs['code_editor'] = code_editor
 
                 # Action row

@@ -2,9 +2,8 @@ import sys
 import io
 import ast
 import traceback
-from typing import List, Optional
 
-def run_python_code(code: str, args: Optional[List[str]] = None) -> str:
+def run_python_code(code: str, args: list[str] | None = None) -> str:
     """
     Execute arbitrary Python code and return the output.
     
