@@ -14,36 +14,56 @@ def flush():
     gc.collect()
     torch.cuda.empty_cache()
 
-def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, width: int = 1024, height: int = 1024, progress_callback=None) -> str:
-    # Calculate VRAM limit for an 8GB card (leaving a small buffer)
-    vram_limit = torch.cuda.mem_get_info("cuda")[1] / (1024 ** 3) - 0.5
-    print(f"--- Initializing Anima Preview 3 on {vram_limit:.2f}GB VRAM ---")
+_cached_pipe = None
 
-    # 2. PIPELINE INITIALIZATION
-    pipe = AnimaImagePipeline.from_pretrained(
-        torch_dtype=torch.bfloat16,
-        device="cuda",
-        model_configs=[
-            ModelConfig(
-                model_id="circlestone-labs/Anima", 
-                origin_file_pattern="split_files/diffusion_models/anima-base-v1.0.safetensors", 
-            ),
-            ModelConfig(
-                model_id="circlestone-labs/Anima", 
-                origin_file_pattern="split_files/text_encoders/qwen_3_06b_base.safetensors", 
-            ),
-            ModelConfig(
-                model_id="circlestone-labs/Anima", 
-                origin_file_pattern="split_files/vae/qwen_image_vae.safetensors", 
-            ),
-        ],
-        tokenizer_config=ModelConfig(model_id="Qwen/Qwen3-0.6B", origin_file_pattern="./"),
-        tokenizer_t5xxl_config=ModelConfig(model_id="aoleb/t5-v1_1-xxl-tokenizer", origin_file_pattern="./"),
-        vram_limit=vram_limit,
-    )
+
+def get_pipeline(vram_limit):
+    global _cached_pipe
+    if _cached_pipe is None:
+        print(f"--- Initializing Anima Preview 3 on {vram_limit:.2f}GB VRAM ---")
+        _cached_pipe = AnimaImagePipeline.from_pretrained(
+            torch_dtype=torch.bfloat16,
+            device="cuda",
+            model_configs=[
+                ModelConfig(
+                    model_id="circlestone-labs/Anima", 
+                    origin_file_pattern="split_files/diffusion_models/anima-base-v1.0.safetensors", 
+                ),
+                ModelConfig(
+                    model_id="circlestone-labs/Anima", 
+                    origin_file_pattern="split_files/text_encoders/qwen_3_06b_base.safetensors", 
+                ),
+                ModelConfig(
+                    model_id="circlestone-labs/Anima", 
+                    origin_file_pattern="split_files/vae/qwen_image_vae.safetensors", 
+                ),
+            ],
+            tokenizer_config=ModelConfig(model_id="Qwen/Qwen3-0.6B", origin_file_pattern="./"),
+            tokenizer_t5xxl_config=ModelConfig(model_id="aoleb/t5-v1_1-xxl-tokenizer", origin_file_pattern="./"),
+            vram_limit=vram_limit,
+        )
+    return _cached_pipe
+
+
+def unload_pipeline():
+    global _cached_pipe
+    if _cached_pipe is not None:
+        print("Unloading pipeline and clearing VRAM...")
+        del _cached_pipe
+        _cached_pipe = None
+        flush()
+
+
+def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, width: int = 1024, height: int = 1024, progress_callback=None, unload_after=True) -> str:
+    # Calculate VRAM limit for an 8GB card (leaving a small buffer)
+    vram_info = torch.cuda.mem_get_info("cuda")
+    vram_limit = vram_info[1] / (1024 ** 3) - 0.5
+    
+    # 2. PIPELINE INITIALIZATION (or retrieval)
+    pipe = get_pipeline(vram_limit)
 
     # 3. INFERENCE
-    print("Generating image...")
+    print(f"Generating image: {prompt[:50]}...")
     def _progress_bar_cmd(iterable, **kwargs):
         """tqdm-compatible wrapper that drives the progress_callback."""
         items = list(iterable)
@@ -78,8 +98,8 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
     image.save(output_path)
     print(f"Success: saved as {output_path}")
     
-    # Cleanup memory
-    del pipe
-    flush()
+    # Cleanup memory if requested
+    if unload_after:
+        unload_pipeline()
     
     return output_path

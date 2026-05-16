@@ -2,6 +2,7 @@
 
 **TESS** is a comprehensive local AI workspace built on top of [Ollama](https://ollama.com). It provides a powerful, unified interface for managing, testing, and interacting with your local large language models.
 
+![TESS Screenshot](Screenshot03.png)
 ![TESS Screenshot](Screenshot01.png)
 ![TESS Screenshot](Screenshot02.png)
 

@@ -290,6 +290,7 @@ def create_page():
                             current_p, negative_prompt.value,
                             int(steps.value), int(w_str), int(h_str),
                             on_progress_grid,
+                            unload_after=(idx == total_prompts - 1)
                         )
                         app.storage.user['visual_last_image'] = output_path
                         src = f'/{output_path}'
@@ -363,6 +364,7 @@ def create_page():
                         current_p, negative_prompt.value,
                         int(steps.value), int(w_str), int(h_str),
                         on_progress_normal,
+                        unload_after=(idx == total_prompts - 1)
                     )
                     app.storage.user['visual_last_image'] = output_path
                     image_container.clear()
