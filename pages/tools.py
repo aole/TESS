@@ -25,12 +25,12 @@ def create_page():
             refs['name_input'].disable()
             refs['code_editor'].props('read-only')
             refs['gen_btn'].disable()
-            refs['save_btn'].disable()
+            refs['test_btn'].disable()
         else:
             refs['name_input'].enable()
             refs['code_editor'].props(remove='read-only')
             refs['gen_btn'].enable()
-            refs['save_btn'].enable()
+            refs['test_btn'].enable()
 
     def load_tool_into_panel(tool: Tool | None, is_new: bool = False):
         """Populate the right panel with the given tool (or empty for new)."""
@@ -42,11 +42,12 @@ def create_page():
             refs['panel_title'].set_text('Create Tool')
             refs['name_input'].value = ''
             refs['desc_input'].value = ''
-            refs['code_editor'].value = 'def my_tool():\n    pass'
+            refs['code_editor'].value = ''
             refs['name_input'].enable()
             refs['code_editor'].props(remove='read-only')
             refs['gen_btn'].enable()
-            refs['save_btn'].enable()
+            refs['test_btn'].enable()
+            # refs['save_btn'].enable() is now always true
             refs['panel_hint'].set_text('Describe a tool below or start typing to create one.')
             refs['panel_hint'].set_visibility(True)
             return
@@ -57,11 +58,12 @@ def create_page():
             refs['panel_title'].set_text('Create Tool')
             refs['name_input'].value = ''
             refs['desc_input'].value = ''
-            refs['code_editor'].value = 'def my_tool():\n    pass'
+            refs['code_editor'].value = ''
             refs['name_input'].enable()
             refs['code_editor'].props(remove='read-only')
             refs['gen_btn'].enable()
-            refs['save_btn'].enable()
+            refs['test_btn'].enable()
+            # refs['save_btn'].enable() is now always true
         else:
             refs['panel_title'].set_text(f'Edit — {tool.name}')
             refs['name_input'].value = tool.name
@@ -121,15 +123,20 @@ def create_page():
                         "Requirements:\n"
                         "1. Return ONLY valid Python code.\n"
                         "2. DO NOT include markdown formatting, backticks, or any explanation.\n"
-                        "3. Include a module-level docstring (triple quotes) at the top explaining the tool.\n"
+                        "3. Include a detailed docstring INSIDE the main function (Google/NumPy style).\n"
                         "4. Include type hints for all function arguments and return types.\n"
                         "5. The tool should be a complete, runnable Python module.\n\n"
                         "Example Format:\n"
-                        '"""\n'
-                        'This tool calculates the distance between two points.\n'
-                        '"""\n'
-                        'import math\n\n'
-                        'def calculate_distance(x1: float, y1: float, x2: float, y2: float) -> float:\n'
+                        "import math\n\n"
+                        "def calculate_distance(x1: float, y1: float, x2: float, y2: float) -> float:\n"
+                        '    """\n'
+                        '    Calculate the distance between two points.\n\n'
+                        '    Args:\n'
+                        '        x1 (float): X-coord of first point.\n'
+                        '        ...\n'
+                        '    Returns:\n'
+                        '        float: The distance.\n'
+                        '    """\n'
                         '    return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)\n\n'
                         f"Instructions: {instructions}"
                         + context
@@ -165,6 +172,64 @@ def create_page():
 
         dialog.open()
 
+    # ── Test Tool ────────────────────────────────────────────────────────────
+    async def test_tool():
+        code = refs['code_editor'].value
+        if not code.strip():
+            ui.notify('No code to test', type='warning')
+            return
+
+        with ui.dialog() as dialog, ui.card().classes('w-full max-w-lg p-6'):
+            dialog.props('position=left')
+            ui.label('Test Tool').classes('text-xl font-bold mb-2')
+            ui.label('Provide arguments in JSON format:').classes('text-sm text-gray-400 mb-2')
+
+            args_input = ui.textarea('Arguments (JSON)').classes('w-full').props(
+                'autofocus placeholder=\'{"param": "value"}\''
+            )
+            args_input.value = '{\n  "param1": "value1",\n  "param2": 123\n}'
+
+            ui.label('Output:').classes('mt-4 text-sm text-gray-400')
+            output_area = ui.label('').classes(
+                'w-full p-4 bg-black/20 rounded font-mono text-sm break-all whitespace-pre-wrap'
+            )
+
+            async def run_test():
+                try:
+                    import json
+                    import traceback
+                    args = json.loads(args_input.value or '{}')
+
+                    # Setup namespace and exec code
+                    ns = {}
+                    # Inject common utilities if needed
+                    exec(code, ns)
+
+                    # Find the tool function (first callable that is not a builtin/import)
+                    funcs = [v for k, v in ns.items() if callable(v) and not k.startswith('__')]
+                    if not funcs:
+                        output_area.set_text('Error: No function found in code.')
+                        return
+
+                    target_func = funcs[0]
+                    ui.notify(f'Running {target_func.__name__}...', type='info')
+
+                    # Execute (handle both async and sync)
+                    if asyncio.iscoroutinefunction(target_func):
+                        result = await target_func(**args)
+                    else:
+                        result = target_func(**args)
+
+                    output_area.set_text(str(result))
+                except Exception as e:
+                    output_area.set_text(f"Error: {e}\n\n{traceback.format_exc()}")
+
+            with ui.row().classes('w-full justify-end mt-4 gap-2'):
+                ui.button('Cancel', on_click=dialog.close).props('flat')
+                ui.button('Run Test', on_click=run_test).props('color=primary icon=play_arrow')
+
+        dialog.open()
+
     # ── Save ─────────────────────────────────────────────────────────────────
     async def save():
         name = refs['name_input'].value.strip()
@@ -173,6 +238,10 @@ def create_page():
             return
 
         tool = state['selected_tool']
+        if tool and tool.is_builtin:
+            ui.notify('Builtin tools cannot be modified', type='warning')
+            return
+
         is_new = state['is_new']
 
         new_tool = Tool(
@@ -307,9 +376,6 @@ def create_page():
                 with ui.row().classes('w-full gap-4'):
                     name_input = ui.input('Name')
                     name_input.classes('flex-1')
-                    name_input.on('update:model-value', lambda: save_btn.set_enabled(
-                        bool(name_input.value.strip()) and not (state['selected_tool'] and state['selected_tool'].is_builtin)
-                    ))
                     refs['name_input'] = name_input
 
                     desc_input = ui.input('Description (auto from docstring)').classes('flex-1').props('readonly')
@@ -336,8 +402,16 @@ def create_page():
                         gen_spinner.set_visibility(False)
                         refs['gen_spinner'] = gen_spinner
 
-                    save_btn = ui.button('Save', on_click=save).props('color=primary')
-                    refs['save_btn'] = save_btn
+                    with ui.row().classes('items-center gap-2'):
+                        test_btn = ui.button(
+                            'Test',
+                            on_click=test_tool,
+                            icon='play_arrow',
+                        ).props('flat color=primary')
+                        refs['test_btn'] = test_btn
+
+                        save_btn = ui.button('Save', on_click=save).props('color=primary')
+                        refs['save_btn'] = save_btn
 
     # ── Initial Load ─────────────────────────────────────────────────────────
     refresh_list()
