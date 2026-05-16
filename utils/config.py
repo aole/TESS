@@ -110,6 +110,14 @@ class ConfigManager:
         self.config["note_storage"] = storage_type
         self._save_config(self.config)
 
+    def get_last_notes_sync(self) -> str:
+        """Return ISO timestamp of the last successful notes sync, or empty string."""
+        return self.config.get("last_notes_sync", "")
+
+    def set_last_notes_sync(self, iso_timestamp: str):
+        self.config["last_notes_sync"] = iso_timestamp
+        self._save_config(self.config)
+
     def get_default_model(self, key: str) -> str:
         return self.config.get("default_models", {}).get(key, "")
 
