@@ -20,7 +20,7 @@ _cached_pipe = None
 def get_pipeline(vram_limit):
     global _cached_pipe
     if _cached_pipe is None:
-        print(f"--- Initializing Anima Preview 3 on {vram_limit:.2f}GB VRAM ---")
+        print(f"--- Initializing Anima Base v1.0 on {vram_limit:.2f}GB VRAM ---")
         _cached_pipe = AnimaImagePipeline.from_pretrained(
             torch_dtype=torch.bfloat16,
             device="cuda",
@@ -92,10 +92,27 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
         )
     
     import datetime
+    import json
+    from PIL.PngImagePlugin import PngInfo
+    
     os.makedirs("data/visual", exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = f"data/visual/tess_{timestamp}.png"
-    image.save(output_path)
+    
+    metadata = PngInfo()
+    params = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "steps": steps,
+        "width": width,
+        "height": height,
+        "model": "Anima Base v1.0"
+    }
+    # Many tools like Automatic1111 use the 'parameters' text chunk.
+    # We can store a JSON representation or a formatted string. JSON is robust.
+    metadata.add_text("parameters", json.dumps(params, indent=2))
+    
+    image.save(output_path, pnginfo=metadata)
     print(f"Success: saved as {output_path}")
     
     # Cleanup memory if requested
