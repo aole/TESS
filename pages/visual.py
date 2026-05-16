@@ -298,9 +298,16 @@ def create_page():
 
     # ── Generate handler ─────────────────────────────────────────────────────
     async def on_generate():
+        client = ui.context.client
+        def safe_notify(msg, **kwargs):
+            try:
+                client.notify(msg, **kwargs)
+            except Exception:
+                pass
+
         raw_prompts = [p.strip() for p in prompt.value.split('///') if p.strip()]
         if not raw_prompts:
-            ui.notify('Please enter a positive prompt', type='warning')
+            safe_notify('Please enter a positive prompt', type='warning')
             return
 
         generate_btn.disable()
@@ -381,16 +388,16 @@ def create_page():
                             ui.image(f'/{output_path}').classes('w-full h-full object-contain rounded-lg shadow-xl')
 
                     if total_prompts == 1:
-                        ui.notify('Image generated successfully!', type='positive')
+                        safe_notify('Image generated successfully!', type='positive')
                     else:
-                        ui.notify(f'Generated {idx+1}/{total_prompts}', type='positive', pos='bottom-right', timeout=2000)
+                        safe_notify(f'Generated {idx+1}/{total_prompts}', type='positive', pos='bottom-right', timeout=2000)
 
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
                     if _gen_state['spinner_cell']:
                         _gen_state['spinner_cell'].delete()
-                    ui.notify(f'Failed to generate image {idx+1}: {str(e)}', type='negative')
+                    safe_notify(f'Failed to generate image {idx+1}: {str(e)}', type='negative')
         
         finally:
             _gen_state['active'] = False
@@ -400,7 +407,7 @@ def create_page():
             _gen_state['progress_label'] = None
             generate_btn.enable()
             if total_prompts > 1:
-                ui.notify(f'Batch processing of {total_prompts} prompts complete.', type='info')
+                safe_notify(f'Batch processing of {total_prompts} prompts complete.', type='info')
 
     def on_clear():
         app.storage.user['visual_last_image'] = None
