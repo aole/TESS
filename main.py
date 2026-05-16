@@ -60,7 +60,7 @@ def layout(page_path: str = ''):
             # VRAM Indicator
             with ui.row().classes('items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10') as vram_container:
                 vram_icon = ui.icon('memory', size='16px').classes('text-indigo-400')
-                vram_progress = ui.linear_progress(value=0, show_value=False).classes('w-12 h-1 rounded-full bg-white/10').props('color=indigo-400')
+                vram_progress = ui.linear_progress(value=0, show_value=False).classes('w-12 h-3 rounded-full bg-white/10').props('color=indigo-400')
                 vram_tooltip = ui.tooltip('VRAM: --')
                 
                 async def update_vram():
@@ -87,6 +87,8 @@ def layout(page_path: str = ''):
                 ui.timer(1.0, update_vram)
                 # We don't call update_vram() here because it might block the initial page load if nvidia-smi is slow.
                 # The timer will handle the first update shortly.
+
+            ui.element('div').classes('h-4 w-px bg-white/20 mx-2')
 
             # Navigation Links
             def nav_link(text, target):
