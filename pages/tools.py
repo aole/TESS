@@ -53,9 +53,10 @@ def create_page():
 
         if tool is None and not is_new:
             # Ready to create state
+            state['selected_tool'] = None
+            state['is_new'] = False
             refs['panel_title'].set_text('Create Tool')
             refs['name_input'].value = ''
-            refs['desc_input'].value = ''
             refs['code_editor'].value = ''
             refs['name_input'].enable()
             refs['code_editor'].props(remove='read-only')
@@ -71,7 +72,6 @@ def create_page():
         if is_new:
             refs['panel_title'].set_text('Create Tool')
             refs['name_input'].value = ''
-            refs['desc_input'].value = ''
             refs['code_editor'].value = ''
             refs['name_input'].enable()
             refs['code_editor'].props(remove='read-only')
@@ -81,7 +81,6 @@ def create_page():
         else:
             refs['panel_title'].set_text(f'Edit — {tool.name}')
             refs['name_input'].value = tool.name
-            refs['desc_input'].value = tool.description or ''
             refs['code_editor'].value = tool.code or ''
             # Builtin tools are read-only
             _set_panel_readonly(tool.is_builtin)
@@ -278,12 +277,12 @@ def create_page():
 
         new_tool = Tool(
             name=name,
-            description=refs['desc_input'].value,
+            description='', # Extracted from code on load
             code=refs['code_editor'].value,
             active=True if is_new else (tool.active if tool else True),
         )
 
-        if is_new:
+        if is_new or tool is None:
             success = tool_service.create_tool(new_tool)
         else:
             success = tool_service.update_tool(tool.name, new_tool)
@@ -404,14 +403,11 @@ def create_page():
                 )
                 refs['panel_hint'] = panel_hint
 
-                # Name + Description row
-                with ui.row().classes('w-full gap-4'):
+                # Name row
+                with ui.row().classes('w-full'):
                     name_input = ui.input('Name')
                     name_input.classes('flex-1')
                     refs['name_input'] = name_input
-
-                    desc_input = ui.input('Description (auto from docstring)').classes('flex-1').props('readonly')
-                    refs['desc_input'] = desc_input
 
                 # Code editor
                 ui.label('Python Code').classes('text-sm text-gray-400')

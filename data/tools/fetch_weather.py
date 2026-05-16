@@ -2,9 +2,25 @@ import requests
 import json
 
 def fetch_weather(location: str) -> dict[str, any]:
-    """
-    Fetch current weather and forecast for a location using Open-Meteo.
-    Units are updated to Fahrenheit, MPH, and Inches.
+    """Fetch current weather and a 24-hour forecast for a specific location.
+
+    This tool utilizes a two-step process: first, it geocodes the location string into 
+    latitude and longitude coordinates, then it retrieves localized weather data.
+
+    IMPORTANT:
+    - Uses Open-Meteo and OpenStreetMap/Geocode.maps.co.
+    - AUTOMATED FALLBACK: If the primary geocoding service is busy, it automatically tries a secondary provider.
+    - UNIT SYSTEM: Standardized to Imperial (Fahrenheit for temperature, MPH for wind, and Inches for precipitation).
+    - RATE LIMITING: Uses specific browser headers to ensure reliable responses from geocoding services.
+
+    Args:
+        location (str): City name, full address, or landmark (e.g., "Fishers, IN" or "Paris, France").
+
+    Returns:
+        dict[str, any]: A structured dictionary containing:
+            - location: The full resolved name of the address found.
+            - current: Dictionary of current temp, humidity, wind, and conditions.
+            - forecast: A list of objects for the next 24 hourly intervals.
     """
     weather_url = "https://api.open-meteo.com/v1/forecast"
     
