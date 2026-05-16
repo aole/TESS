@@ -163,5 +163,5 @@ if __name__ in {"__main__", "__mp_main__"}:
         reload=True,
         port=8080,
         storage_secret='ollama_manager_secret',
-        uvicorn_reload_excludes='.*, .py[cod], .sw.*, ~*, data/python/*, data/personas.json',
+        uvicorn_reload_excludes='.*, .py[cod], .sw.*, ~*, data/tools/*, data/python/*, data/personas.json',
     )

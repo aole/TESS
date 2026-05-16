@@ -24,12 +24,12 @@ def create_page():
         if readonly:
             refs['name_input'].disable()
             refs['code_editor'].props('read-only')
-            refs['gen_docs_btn'].disable()
+            refs['gen_btn'].disable()
             refs['save_btn'].disable()
         else:
             refs['name_input'].enable()
             refs['code_editor'].props(remove='read-only')
-            refs['gen_docs_btn'].enable()
+            refs['gen_btn'].enable()
             refs['save_btn'].enable()
 
     def load_tool_into_panel(tool: Tool | None, is_new: bool = False):
@@ -38,16 +38,16 @@ def create_page():
         state['is_new'] = is_new
 
         if tool is None and not is_new:
-            # Nothing selected — show placeholder state
-            refs['panel_title'].set_text('No tool selected')
+            # Ready to create state
+            refs['panel_title'].set_text('Create Tool')
             refs['name_input'].value = ''
             refs['desc_input'].value = ''
-            refs['code_editor'].value = ''
-            refs['name_input'].disable()
-            refs['code_editor'].props('read-only')
-            refs['gen_docs_btn'].disable()
-            refs['save_btn'].disable()
-            refs['panel_hint'].set_text('Select a tool from the list or create a new one.')
+            refs['code_editor'].value = 'def my_tool():\n    pass'
+            refs['name_input'].enable()
+            refs['code_editor'].props(remove='read-only')
+            refs['gen_btn'].enable()
+            refs['save_btn'].enable()
+            refs['panel_hint'].set_text('Describe a tool below or start typing to create one.')
             refs['panel_hint'].set_visibility(True)
             return
 
@@ -60,7 +60,7 @@ def create_page():
             refs['code_editor'].value = 'def my_tool():\n    pass'
             refs['name_input'].enable()
             refs['code_editor'].props(remove='read-only')
-            refs['gen_docs_btn'].enable()
+            refs['gen_btn'].enable()
             refs['save_btn'].enable()
         else:
             refs['panel_title'].set_text(f'Edit — {tool.name}')
@@ -72,37 +72,98 @@ def create_page():
             if not tool.is_builtin:
                 refs['name_input'].disable()  # Don't allow renaming
 
-    # ── AI Docs Generation ───────────────────────────────────────────────────
-    async def generate_docs():
-        current_code = refs['code_editor'].value
-        if not current_code:
-            return
+    # ── AI Generation ────────────────────────────────────────────────────────
+    async def open_ai_generator():
         try:
-            models = await client.list_models()
-            if not models:
+            models_raw = await client.list_models()
+            if not models_raw:
                 ui.notify('No Ollama models found', type='warning')
                 return
-            model_name = models[0]['model']
-            ui.notify(f'Generating docs using {model_name}…', type='info')
-            prompt = (
-                "Add docstrings and type hints to the following Python code. "
-                "Return ONLY the python code with improvements, no markdown formatting or backticks:\n\n"
-                + current_code
-            )
-            response_text = ''
-            gen = await client.generate(model=model_name, prompt=prompt)
-            async for chunk in gen:
-                response_text += chunk.get('response', '')
-            cleaned = response_text.strip()
-            for prefix in ('```python', '```'):
-                if cleaned.startswith(prefix):
-                    cleaned = cleaned[len(prefix):]
-            if cleaned.endswith('```'):
-                cleaned = cleaned[:-3]
-            refs['code_editor'].value = cleaned.strip()
-            ui.notify('Docs generated!', type='success')
+            model_options = [m['model'] for m in models_raw]
         except Exception as e:
-            ui.notify(f'Generation failed: {e}', type='negative')
+            ui.notify(f'Failed to fetch models: {e}', type='negative')
+            return
+
+        with ui.dialog() as dialog, ui.card().classes('w-full max-w-lg p-6'):
+            ui.label('Generate with AI').classes('text-xl font-bold mb-2')
+            ui.label('Describe the tool or requested changes.').classes('text-sm text-gray-400 mb-4')
+
+            prompt_input = ui.textarea('Instructions').classes('w-full').props(
+                'autofocus placeholder="e.g., Create a tool that calculates the fibonacci sequence"'
+            )
+
+            model_select = ui.select(
+                options=model_options,
+                value=model_options[0],
+                label='Select LLM'
+            ).classes('w-full mt-2')
+
+            async def start_generation():
+                instructions = prompt_input.value.strip()
+                if not instructions:
+                    ui.notify('Please provide instructions', type='warning')
+                    return
+
+                selected_model = model_select.value
+                current_code = refs['code_editor'].value
+                dialog.close()
+
+                # Replace button with spinner
+                refs['gen_btn'].set_visibility(False)
+                refs['gen_spinner'].set_visibility(True)
+
+                try:
+                    context = f"\n\nCurrent code:\n```python\n{current_code}\n```" if current_code.strip() else ""
+                    prompt = (
+                        "You are an expert Python developer. "
+                        + ("Modify the existing tool" if current_code.strip() else "Create a new tool")
+                        + " based on the following instructions.\n\n"
+                        "Requirements:\n"
+                        "1. Return ONLY valid Python code.\n"
+                        "2. DO NOT include markdown formatting, backticks, or any explanation.\n"
+                        "3. Include a module-level docstring (triple quotes) at the top explaining the tool.\n"
+                        "4. Include type hints for all function arguments and return types.\n"
+                        "5. The tool should be a complete, runnable Python module.\n\n"
+                        "Example Format:\n"
+                        '"""\n'
+                        'This tool calculates the distance between two points.\n'
+                        '"""\n'
+                        'import math\n\n'
+                        'def calculate_distance(x1: float, y1: float, x2: float, y2: float) -> float:\n'
+                        '    return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)\n\n'
+                        f"Instructions: {instructions}"
+                        + context
+                    )
+
+                    response_text = ''
+                    gen = await client.generate(model=selected_model, prompt=prompt)
+                    async for chunk in gen:
+                        response_text += chunk.get('response', '')
+
+                    cleaned = response_text.strip()
+                    for prefix in ('```python', '```'):
+                        if cleaned.startswith(prefix):
+                            cleaned = cleaned[len(prefix):]
+                    if cleaned.endswith('```'):
+                        cleaned = cleaned[:-3]
+
+                    refs['code_editor'].value = cleaned.strip()
+                    ui.notify('Tool updated by AI', type='success')
+                    # Ensure we are in "is_new" or edit mode now
+                    if state['selected_tool'] is None:
+                        state['is_new'] = True
+                        refs['panel_hint'].set_visibility(False)
+                except Exception as e:
+                    ui.notify(f'AI generation failed: {e}', type='negative')
+                finally:
+                    refs['gen_btn'].set_visibility(True)
+                    refs['gen_spinner'].set_visibility(False)
+
+            with ui.row().classes('w-full justify-end mt-4 gap-2'):
+                ui.button('Cancel', on_click=dialog.close).props('flat')
+                ui.button('Generate', on_click=start_generation).props('color=primary icon=bolt')
+
+        dialog.open()
 
     # ── Save ─────────────────────────────────────────────────────────────────
     async def save():
@@ -244,7 +305,11 @@ def create_page():
 
                 # Name + Description row
                 with ui.row().classes('w-full gap-4'):
-                    name_input = ui.input('Name').classes('flex-1').props('disabled')
+                    name_input = ui.input('Name')
+                    name_input.classes('flex-1')
+                    name_input.on('update:model-value', lambda: save_btn.set_enabled(
+                        bool(name_input.value.strip()) and not (state['selected_tool'] and state['selected_tool'].is_builtin)
+                    ))
                     refs['name_input'] = name_input
 
                     desc_input = ui.input('Description (auto from docstring)').classes('flex-1').props('readonly')
@@ -259,14 +324,19 @@ def create_page():
 
                 # Action row
                 with ui.row().classes('w-full justify-between items-center mt-1'):
-                    gen_docs_btn = ui.button(
-                        'Generate Docs with AI',
-                        on_click=generate_docs,
-                        icon='auto_awesome',
-                    ).props('flat color=secondary').props('disabled')
-                    refs['gen_docs_btn'] = gen_docs_btn
+                    with ui.row().classes('items-center'):
+                        gen_btn = ui.button(
+                            'Generate with AI',
+                            on_click=open_ai_generator,
+                            icon='psychology',
+                        ).props('flat color=secondary')
+                        refs['gen_btn'] = gen_btn
 
-                    save_btn = ui.button('Save', on_click=save).props('color=primary').props('disabled')
+                        gen_spinner = ui.spinner(size='md', color='secondary').classes('ml-2')
+                        gen_spinner.set_visibility(False)
+                        refs['gen_spinner'] = gen_spinner
+
+                    save_btn = ui.button('Save', on_click=save).props('color=primary')
                     refs['save_btn'] = save_btn
 
     # ── Initial Load ─────────────────────────────────────────────────────────
