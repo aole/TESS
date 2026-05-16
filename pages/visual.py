@@ -298,12 +298,19 @@ def create_page():
 
     # ── Generate handler ─────────────────────────────────────────────────────
     async def on_generate():
-        client = ui.context.client
+        gui_client = ui.context.client
         def safe_notify(msg, **kwargs):
             try:
-                client.notify(msg, **kwargs)
+                gui_client.notify(msg, **kwargs)
             except Exception:
                 pass
+
+        # Free up VRAM by unloading any active LLMs
+        try:
+            from utils.llm_client import client as llm_client
+            await llm_client.unload_all_models()
+        except Exception as e:
+            print(f"Failed to unload LLMs before visual generation: {e}")
 
         raw_prompts = [p.strip() for p in prompt.value.split('///') if p.strip()]
         if not raw_prompts:

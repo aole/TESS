@@ -63,6 +63,13 @@ class StreamService:
         self.stop_flags[stream_id] = False
         self.stream_contexts[stream_id] = messages
         
+        # Ensure visual pipeline is unloaded to free VRAM for LLM
+        try:
+            from services.visual_service import unload_pipeline
+            unload_pipeline()
+        except Exception as e:
+            print(f"Failed to unload visual pipeline: {e}")
+        
         task = asyncio.create_task(self._process_stream(
             stream_id, messages, model, temperature, top_p, repeat_penalty, system_prompt, 
             tool_funcs_map, log_requests, persist_callback, listener, keep_alive
