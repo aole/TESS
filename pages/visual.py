@@ -157,14 +157,66 @@ def create_page():
                 with grid:
                     for fname in images:
                         src = f'/{_VISUAL_DIR}/{fname}'
-                        with ui.element('div').style(
-                            'position: relative; overflow: hidden; cursor: pointer;'
-                            'aspect-ratio: 1 / 1; background: rgba(0,0,0,0.3);'
-                            'transition: transform 0.15s ease, box-shadow 0.15s ease;'
-                        ).on('click', lambda s=src: show_image(s)):
-                            ui.image(src).style(
-                                'width:100%; height:100%; object-fit:cover; display:block;'
-                            )
+                        fpath = f'{_VISUAL_DIR}/{fname}'
+                        _add_grid_cell(grid, src, fpath)
+
+    # ── Helper: delete an image file and refresh the grid ───────────────────
+    def _delete_image(fpath: str):
+        try:
+            if os.path.exists(fpath):
+                os.remove(fpath)
+            last = app.storage.user.get('visual_last_image')
+            if last and os.path.normpath(last) == os.path.normpath(fpath):
+                app.storage.user['visual_last_image'] = None
+            show_history()
+            ui.notify('Image deleted.', type='info')
+        except Exception as exc:
+            ui.notify(f'Could not delete image: {exc}', type='negative')
+
+    # ── Helper: add a hover-reveal delete button to an existing cell div ─────
+    def _add_delete_btn(cell_div, fpath: str):
+        with cell_div:
+            btn = ui.button(icon='delete').props('flat dense round').style(
+                'position: absolute; top: 4px; right: 4px;'
+                'width: 26px; height: 26px; min-height: unset;'
+                'background: rgba(220,38,38,0.75);'
+                'color: white; opacity: 0;'
+                'transition: opacity 0.15s ease;'
+                'z-index: 10;'
+            ).classes('text-xs')
+            btn.on('click.stop', lambda p=fpath: _delete_image(p))
+            # Show on parent hover via JS
+            cell_div.on('mouseover', lambda b=btn: b.style(
+                'position: absolute; top: 4px; right: 4px;'
+                'width: 26px; height: 26px; min-height: unset;'
+                'background: rgba(220,38,38,0.75);'
+                'color: white; opacity: 1;'
+                'transition: opacity 0.15s ease;'
+                'z-index: 10;'
+            ))
+            cell_div.on('mouseout', lambda b=btn: b.style(
+                'position: absolute; top: 4px; right: 4px;'
+                'width: 26px; height: 26px; min-height: unset;'
+                'background: rgba(220,38,38,0.75);'
+                'color: white; opacity: 0;'
+                'transition: opacity 0.15s ease;'
+                'z-index: 10;'
+            ))
+
+    # ── Helper: build a full grid cell (image + delete button) ───────────────
+    def _add_grid_cell(grid, src: str, fpath: str):
+        with grid:
+            cell = ui.element('div').style(
+                'position: relative; overflow: hidden; cursor: pointer;'
+                'aspect-ratio: 1 / 1; background: rgba(0,0,0,0.3);'
+                'transition: transform 0.15s ease, box-shadow 0.15s ease;'
+            )
+            cell.on('click', lambda s=src: show_image(s))
+            with cell:
+                ui.image(src).style(
+                    'width:100%; height:100%; object-fit:cover; display:block;'
+                )
+            _add_delete_btn(cell, fpath)
 
     def _restore_last():
         """Go back to the last generated image (or placeholder)."""
@@ -246,6 +298,9 @@ def create_page():
                     ui.image(src).style(
                         'width:100%; height:100%; object-fit:cover; display:block;'
                     )
+                    # Hover-reveal delete button
+                    fpath = output_path  # local binding
+                    _add_delete_btn(spinner_cell, fpath)
                 spinner_cell.on('click', lambda s=src: show_image(s))
                 ui.notify('Image generated successfully!', type='positive')
 
