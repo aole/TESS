@@ -90,8 +90,13 @@ def create_page():
                 'text-white/70 border border-white/10 shadow'
             )
 
+    _grid_open = {'value': False}   # mutable flag so closures can mutate it
+    _grid_element = {'ref': None}     # reference to the grid <div>
+
     # ── Helper: restore the "no image" placeholder ───────────────────────────
     def show_placeholder():
+        _grid_open['value'] = False
+        _grid_element['ref'] = None
         image_container.clear()
         with image_container:
             ui.icon('image', size='64px').classes('text-white/10 mb-4')
@@ -100,12 +105,15 @@ def create_page():
     # ── Helper: show a single image full-size inside image_container ─────────
     def show_image(path: str):
         """path is the web-accessible URL string (e.g. '/data/visual/foo.png')."""
+        _grid_open['value'] = False
+        _grid_element['ref'] = None
         image_container.clear()
         with image_container:
             ui.image(path).classes('w-full h-full object-contain')
 
     # ── Helper: open the history grid inside image_container ─────────────────
     def show_history():
+        _grid_open['value'] = True
         image_container.clear()
         with image_container:
             # Header bar
@@ -140,11 +148,13 @@ def create_page():
                 'flex: 1;'
                 'padding: 8px 12px 12px;'
             ):
-                with ui.element('div').style(
+                grid = ui.element('div').style(
                     'display: grid;'
                     'grid-template-columns: repeat(5, 1fr);'
                     'gap: 8px;'
-                ):
+                )
+                _grid_element['ref'] = grid
+                with grid:
                     for fname in images:
                         src = f'/{_VISUAL_DIR}/{fname}'
                         with ui.element('div').style(
@@ -158,6 +168,8 @@ def create_page():
 
     def _restore_last():
         """Go back to the last generated image (or placeholder)."""
+        _grid_open['value'] = False
+        _grid_element['ref'] = None
         last = app.storage.user.get('visual_last_image')
         if last and os.path.exists(last):
             show_image(f'/{last}')
@@ -174,6 +186,80 @@ def create_page():
 
         generate_btn.disable()
         ui.notify('Generating image… This may take a minute or two.', type='info', timeout=5000)
+
+        # ── If the history grid is open, inject a spinner cell at top-left ───
+        if _grid_open['value'] and _grid_element['ref'] is not None:
+            grid = _grid_element['ref']
+            spinner_cell = None
+            circ_progress = None
+            with grid:
+                with ui.element('div').style(
+                    'position: relative; overflow: hidden;'
+                    'aspect-ratio: 1 / 1; background: rgba(88,28,135,0.25);'
+                    'border: 1px solid rgba(168,85,247,0.4);'
+                    'border-radius: 6px;'
+                    'display: flex; flex-direction: column;'
+                    'align-items: center; justify-content: center; gap: 6px;'
+                ) as spinner_cell:
+                    circ_progress = ui.circular_progress(
+                        min=0, max=100, value=0, show_value=True, size='56px'
+                    ).props('color=purple track-color=white/10 font-size=10px')
+                    ui.label('Generating…').style(
+                        'font-size: 11px; color: rgba(216,180,254,0.7);'
+                        'font-family: monospace; letter-spacing: 0.05em;'
+                    )
+            # Move the new cell to be the first child in the grid
+            spinner_cell.move(grid, 0)
+
+            loop = asyncio.get_event_loop()
+
+            def on_progress(step: int, total: int):
+                if total == 0:
+                    return
+                pct = min(round(step / total * 100), 100)
+                def _update():
+                    try:
+                        circ_progress.set_value(pct)
+                    except Exception:
+                        pass
+                loop.call_soon_threadsafe(_update)
+
+            try:
+                w_str, h_str = image_size.value.split('x')
+                output_path = await run.io_bound(
+                    generate_image_task,
+                    prompt.value, negative_prompt.value,
+                    int(steps.value), int(w_str), int(h_str),
+                    on_progress,
+                )
+                app.storage.user['visual_last_image'] = output_path
+                src = f'/{output_path}'
+                # Replace placeholder content with the generated image in-place
+                spinner_cell.clear()
+                spinner_cell.style(
+                    'position: relative; overflow: hidden;'
+                    'aspect-ratio: 1 / 1; background: rgba(0,0,0,0.3);'
+                    'border: none; border-radius: 6px; cursor: pointer;'
+                    'display: block;'
+                )
+                with spinner_cell:
+                    ui.image(src).style(
+                        'width:100%; height:100%; object-fit:cover; display:block;'
+                    )
+                spinner_cell.on('click', lambda s=src: show_image(s))
+                ui.notify('Image generated successfully!', type='positive')
+
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                spinner_cell.delete()
+                ui.notify(f'Failed to generate image: {str(e)}', type='negative')
+            finally:
+                generate_btn.enable()
+
+            return
+
+        # ── Normal mode: replace the whole container with a progress view ─────
         image_container.clear()
 
         with image_container:
