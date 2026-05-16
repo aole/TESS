@@ -493,7 +493,7 @@ def create_page():
             # Always ensure the visual pipeline is unloaded when generation finishes or fails
             try:
                 from services.visual_service import unload_pipeline
-                unload_pipeline()
+                await run.io_bound(unload_pipeline)
             except Exception as e:
                 print(f"Failed to unload visual pipeline in finally block: {e}")
 

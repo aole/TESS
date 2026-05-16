@@ -12,7 +12,9 @@ def flush():
     if torch.cuda.is_available():
         torch.cuda.synchronize()
     gc.collect()
-    torch.cuda.empty_cache()
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 _cached_pipe = None
 
@@ -51,7 +53,7 @@ def unload_pipeline():
         print("Unloading pipeline and clearing VRAM...")
         del _cached_pipe
         _cached_pipe = None
-        flush()
+    flush()
 
 
 def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, width: int = 1024, height: int = 1024, progress_callback=None, unload_after=True) -> str:
