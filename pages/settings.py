@@ -2,8 +2,9 @@ from nicegui import ui, app, run
 from utils.config import config_manager
 from utils.ui_components import ui_card, ui_info_card
 from services.note_service import note_service
-from services.tts_service import VOICES
+from services.tts_service import VOICES, tts_service
 from services.persona_service import persona_service
+import asyncio
 
 # ── Storage key used to persist system info for the session ──────────────────
 _SYS_INFO_KEY = "system_info_cache"
@@ -317,8 +318,74 @@ def create_page():
                 with ui.column().classes('gap-4 w-full'):
                     with ui.column().classes('gap-1 w-full'):
                         ui.label('Chat Audio Voice').classes('text-sm font-bold text-gray-400')
-                        ui.select(
-                            options=VOICES,
-                            value=config_manager.get_tts_voice(),
-                            on_change=lambda e: config_manager.set_tts_voice(e.value)
-                        ).classes('w-full').props('outlined dense dark')
+                        with ui.row().classes('items-center gap-2 w-full'):
+                            voice_select = ui.select(
+                                options=VOICES,
+                                value=config_manager.get_tts_voice(),
+                                on_change=lambda e: config_manager.set_tts_voice(e.value)
+                            ).classes('flex-1').props('outlined dense dark')
+
+                            _SAMPLE_TEXT = "Hello! This is a preview of the selected voice."
+
+                            async def _play_voice_sample(btn=None):
+                                selected_voice = voice_select.value or config_manager.get_tts_voice()
+                                if not selected_voice:
+                                    ui.notify('No voice selected', type='warning')
+                                    return
+                                if btn:
+                                    btn.props('loading')
+                                try:
+                                    b64_list = await asyncio.to_thread(
+                                        tts_service.generate_audio_b64, _SAMPLE_TEXT, selected_voice
+                                    )
+                                    if not b64_list:
+                                        ui.notify('TTS not available', type='negative')
+                                        return
+                                    # Initialise the JS audio queue if needed and play
+                                    await ui.run_javascript("""
+                                        if (!window.audioQueue) {
+                                            window.audioQueue = [];
+                                            window.isPlayingAudio = false;
+                                            window.currentAudioObj = null;
+                                            window.stopAudio = function() {
+                                                window.audioQueue = [];
+                                                if (window.currentAudioObj) {
+                                                    window.currentAudioObj.pause();
+                                                    window.currentAudioObj = null;
+                                                }
+                                                window.isPlayingAudio = false;
+                                            };
+                                            window.playNextAudio = function() {
+                                                if (window.audioQueue.length > 0 && !window.isPlayingAudio) {
+                                                    window.isPlayingAudio = true;
+                                                    let src = window.audioQueue.shift();
+                                                    window.currentAudioObj = new Audio('data:audio/wav;base64,' + src);
+                                                    window.currentAudioObj.onended = function() {
+                                                        window.isPlayingAudio = false;
+                                                        window.playNextAudio();
+                                                    };
+                                                    window.currentAudioObj.play().catch(e => {
+                                                        console.error('Audio play error', e);
+                                                        window.isPlayingAudio = false;
+                                                        window.playNextAudio();
+                                                    });
+                                                }
+                                            };
+                                        } else {
+                                            if (window.stopAudio) window.stopAudio();
+                                        }
+                                    """)
+                                    for b64 in b64_list:
+                                        await ui.run_javascript(
+                                            f"window.audioQueue.push('{b64}'); window.playNextAudio();"
+                                        )
+                                except Exception as ex:
+                                    ui.notify(f'Preview error: {ex}', type='negative')
+                                finally:
+                                    if btn:
+                                        btn.props(remove='loading')
+
+                            preview_btn = ui.button(
+                                icon='play_arrow',
+                                on_click=lambda: _play_voice_sample(preview_btn),
+                            ).props('flat round color=pink').tooltip('Preview voice')
