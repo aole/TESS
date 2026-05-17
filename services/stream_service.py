@@ -54,7 +54,9 @@ class StreamService:
                              log_requests: bool = False,
                              persist_callback: Callable[[List[Dict]], Any] = None,
                              listener: Callable = None,
-                             keep_alive: str = "5m"
+                             keep_alive: str = "5m",
+                             memory_enabled: bool = False,
+                             has_attachments: bool = False
                              ):
         
         if self.is_streaming(stream_id):
@@ -72,7 +74,8 @@ class StreamService:
         
         task = asyncio.create_task(self._process_stream(
             stream_id, messages, model, temperature, top_p, repeat_penalty, system_prompt, 
-            tool_funcs_map, log_requests, persist_callback, listener, keep_alive
+            tool_funcs_map, log_requests, persist_callback, listener, keep_alive,
+            memory_enabled, has_attachments
         ))
         self.active_tasks[stream_id] = task
         
@@ -84,7 +87,7 @@ class StreamService:
         task.add_done_callback(cleanup)
         return task
 
-    async def _process_stream(self, stream_id, messages, model, temperature, top_p, repeat_penalty, system_prompt, tool_funcs_map, log_requests, persist_callback, listener=None, keep_alive="5m"):
+    async def _process_stream(self, stream_id, messages, model, temperature, top_p, repeat_penalty, system_prompt, tool_funcs_map, log_requests, persist_callback, listener=None, keep_alive="5m", memory_enabled=False, has_attachments=False):
         try:
             import time
             from datetime import datetime
@@ -99,14 +102,13 @@ class StreamService:
             
             # Prepare API messages
             api_messages = []
-            sys_content = system_prompt or "You are a helpful assistant."
-            
-            tz = time.tzname[time.daylight]
-            current_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            sys_content += f"\n\nCurrent System Date and Time: {current_time_str} {tz}"
-            
-            if tool_funcs_map:
-                 sys_content += "\n\nIMPORTANT: When generating tool calls, ensure strictly valid JSON. Do not use invalid escape sequences like '\\?' inside strings. Only escape backslashes and double quotes. Note that the tool content/result is NOT displayed to the user, so you must interpret the tool content and provide the user a response based on it."
+            from services.system_message_service import system_message_service
+            sys_content = system_message_service.compile_message(
+                base_prompt=system_prompt,
+                memory_enabled=memory_enabled,
+                has_attachments=has_attachments,
+                tool_funcs_map=tool_funcs_map
+            )
             
             api_messages.append({'role': 'system', 'content': sys_content})
                 

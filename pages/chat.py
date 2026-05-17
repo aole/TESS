@@ -671,50 +671,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                                     chat.messages = updated_messages
                                     chat_service.save_chat(chat)
 
-                        memory_instructions = ""
-                        if app.storage.user.get('memory_enabled', True) and config_manager.is_tool_active('user_memory_tool'):
-                            memory_instructions = """
-# ROLE
-You have "Long-Term Memory." Your goal is to provide a highly personalized experience by remembering user details, family relations, preferences, and history across conversations.
-
-# OPERATIONAL RULES
-- TOOL AVAILABILITY: You may have access to tools for managing user memory (update_user_info, get_user_info, delete_user_info). Always check if these tools are available/selected before attempting to call them. 
-- AUTOMATIC STORAGE: If the `update_user_info` tool is available, use it silently and immediately whenever the user mentions a personal detail (e.g., "I'm 30," "My wife's name is Chloe," "I hate cilantro"). Do not ask for permission to save information.
-- PROACTIVE RETRIEVAL: If the `get_user_info` tool is available, you MUST use it at the very start of a session or if you realize you don't know who you are talking to. This allows you to load the user's profile and provide a personalized experience from the first message.
-- CONTRADICTION HANDLING: If a user provides new info that conflicts with old info, use the `update_user_info` tool (if available) to overwrite the existing key with the new value.
-- PRIVACY: If a user asks to "forget" or "delete" something, use the `delete_user_info` tool (if available).
-
-# EXAMPLES OF TOOL USE (IF TOOLS ARE ENABLED)
-
-Example 1: Learning New Info
-User: "I'm training for a marathon and my knees are killing me."
-Action: update_user_info(key="current_activity", value="Training for a marathon", category="interests")
-Action: update_user_info(key="health_note", value="Knee pain from running", category="bio")
-Response: "I've noted that you're training for a marathon! Sorry to hear about the knee pain—make sure you're getting enough rest between runs."
-
-Example 2: Recalling Family Info
-User: "What should I get my sister for her birthday?"
-Action: get_user_info(category="family")
-(Result: { "sister_name": "Sarah", "sister_interests": "Photography, Hiking" })
-Response: "Since Sarah loves photography and hiking, maybe a high-quality weather-proof camera strap or a National Parks pass would be a great gift?"
-
-Example 3: Updating Preferences
-User: "I've actually decided to go vegan."
-Action: update_user_info(key="dietary_pref", value="Vegan", category="preferences")
-Response: "Got it. I've updated your profile to 'Vegan.' I'll make sure all future recipe or restaurant suggestions reflect that!"
-
-Example 4: Deleting Info
-User: "Stop tracking my location, I don't live in Fishers anymore."
-Action: delete_user_info(key="location")
-Response: "No problem. I've removed your location from my records."
-"""
-                        
-                        full_system_prompt = app.storage.user.get('system_prompt', '')
-                        if memory_instructions:
-                            full_system_prompt += "\n\n" + memory_instructions
-                        
-                        if state.get('has_attachments'):
-                            full_system_prompt += "\n\nYou have been provided with external documents. Always prioritize information found in the <file_attachment> tags over your general training data if there is a conflict. If the answer isn't in the file, explicitly state that."
+                        memory_enabled = bool(app.storage.user.get('memory_enabled', True) and config_manager.is_tool_active('user_memory_tool'))
+                        has_attachments = bool(state.get('has_attachments'))
 
                         await stream_service.start_generation(
                             stream_id=current_chat_id,
@@ -723,11 +681,13 @@ Response: "No problem. I've removed your location from my records."
                             temperature=app.storage.user.get('temperature', 0.7),
                             top_p=app.storage.user.get('top_p', 0.9),
                             repeat_penalty=app.storage.user.get('repeat_penalty', 1.1),
-                            system_prompt=full_system_prompt,
+                            system_prompt=app.storage.user.get('system_prompt', ''),
                             tool_funcs_map=tool_funcs_map,
                             log_requests=config_manager.is_logging_enabled('chat'),
                             persist_callback=persist_chat,
-                            listener=on_stream_event
+                            listener=on_stream_event,
+                            memory_enabled=memory_enabled,
+                            has_attachments=has_attachments
                         )
                     else:
                         ui.notify("Error: No chat ID", type='negative')
