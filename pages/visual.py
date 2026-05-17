@@ -271,7 +271,7 @@ def create_page():
             btn = ui.button(icon='delete').props('flat dense round').style(
                 'position: absolute; top: 4px; right: 4px;'
                 'width: 26px; height: 26px; min-height: unset;'
-                'background: rgba(220,38,38,0.75);'
+                'background: rgba(0,0,0,0.75);'
                 'color: white;'
                 'transition: opacity 0.15s ease;'
                 'z-index: 10;'
@@ -309,7 +309,7 @@ def create_page():
             btn = ui.button(icon='refresh').props('flat dense round').style(
                 'position: absolute; top: 4px; left: 4px;'
                 'width: 26px; height: 26px; min-height: unset;'
-                'background: rgba(59,130,246,0.75);'
+                'background: rgba(0,0,0,0.75);'
                 'color: white;'
                 'transition: opacity 0.15s ease;'
                 'z-index: 10;'
@@ -345,7 +345,7 @@ def create_page():
             btn = ui.button(icon='info').props('flat dense round').style(
                 'position: absolute; bottom: 4px; right: 4px;'
                 'width: 26px; height: 26px; min-height: unset;'
-                'background: rgba(16,185,129,0.75);'
+                'background: rgba(0,0,0,0.75);'
                 'color: white;'
                 'transition: opacity 0.15s ease;'
                 'z-index: 10;'
