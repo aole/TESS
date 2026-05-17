@@ -350,6 +350,59 @@ def create_page():
                 'z-index: 10;'
             ))
 
+    def _load_metadata(fpath: str):
+        try:
+            from PIL import Image
+            import json
+            with Image.open(fpath) as img:
+                metadata = img.text if hasattr(img, 'text') else img.info
+                params_str = metadata.get('parameters')
+                if not params_str:
+                    ui.notify('No generation metadata found in this image.', type='warning')
+                    return
+                params = json.loads(params_str)
+            
+            prompt.value = params.get('prompt', '')
+            negative_prompt.value = params.get('negative_prompt', '')
+            steps.value = params.get('steps', 30)
+            w = params.get('width', 1024)
+            h = params.get('height', 1024)
+            image_size.value = f"{w}x{h}"
+            
+            ui.notify('Parameters loaded from metadata.', type='info')
+            
+        except Exception as e:
+            ui.notify(f"Could not read metadata: {e}", type='negative')
+
+    def _add_info_btn(cell_div, fpath: str):
+        with cell_div:
+            btn = ui.button(icon='info').props('flat dense round').style(
+                'position: absolute; bottom: 4px; right: 4px;'
+                'width: 26px; height: 26px; min-height: unset;'
+                'background: rgba(16,185,129,0.75);'
+                'color: white; opacity: 0;'
+                'transition: opacity 0.15s ease;'
+                'z-index: 10;'
+            ).classes('text-xs').tooltip('Load Parameters')
+            btn.on('click.stop', lambda p=fpath: _load_metadata(p))
+            # Show on parent hover via JS
+            cell_div.on('mouseover', lambda b=btn: b.style(
+                'position: absolute; bottom: 4px; right: 4px;'
+                'width: 26px; height: 26px; min-height: unset;'
+                'background: rgba(16,185,129,0.75);'
+                'color: white; opacity: 1;'
+                'transition: opacity 0.15s ease;'
+                'z-index: 10;'
+            ))
+            cell_div.on('mouseout', lambda b=btn: b.style(
+                'position: absolute; bottom: 4px; right: 4px;'
+                'width: 26px; height: 26px; min-height: unset;'
+                'background: rgba(16,185,129,0.75);'
+                'color: white; opacity: 0;'
+                'transition: opacity 0.15s ease;'
+                'z-index: 10;'
+            ))
+
     # ── Helper: build a full grid cell (image + delete button) ───────────────
     def _add_grid_cell(grid, thumb_src: str, full_src: str, fpath: str):
         with grid:
@@ -365,6 +418,7 @@ def create_page():
                 )
             _add_delete_btn(cell, fpath)
             _add_regenerate_btn(cell, fpath)
+            _add_info_btn(cell, fpath)
 
     def _restore_last():
         """Go back to the last generated image (or placeholder)."""
@@ -488,6 +542,7 @@ def create_page():
                             ui.image(thumb_src).style('width:100%; height:100%; object-fit:cover; display:block;')
                             _add_delete_btn(cell, output_path)
                             _add_regenerate_btn(cell, output_path)
+                            _add_info_btn(cell, output_path)
                         cell.on('click', lambda s=src: show_image(s))
                     
                     if not _grid_open['value']:
