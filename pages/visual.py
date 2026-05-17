@@ -54,6 +54,7 @@ def create_page():
             _gen_state['client'] = ui.context.client
             _gen_state['full_view_container'] = ui.element('div').classes('w-full h-full flex flex-col items-center justify-center hidden')
             _gen_state['grid_view_container'] = ui.element('div').classes('w-full h-full flex flex-col hidden')
+            _grid_element['ref'] = None
             pass
 
         # Right column – settings (30%)
