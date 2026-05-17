@@ -50,12 +50,8 @@ def create_page():
         ).style('flex: 7; min-height: 768px;') as image_container:
             _gen_state['image_container'] = image_container
             _gen_state['client'] = ui.context.client
-            last_image = app.storage.user.get('visual_last_image')
-            if last_image and os.path.exists(last_image):
-                ui.image(f'/{last_image}').classes('w-full h-full object-contain rounded-lg shadow-xl')
-            else:
-                ui.icon('image', size='64px').classes('text-white/10 mb-4')
-                ui.label('Generated image will appear here').classes('text-white/30 text-lg')
+            # Initial content is rendered at the bottom of create_page based on state
+            pass
 
         # Right column – settings (30%)
         with ui.column().classes('gap-6').style('flex: 3;'):
@@ -168,6 +164,41 @@ def create_page():
             ui.icon('image', size='64px').classes('text-white/10 mb-4')
             ui.label('Generated image will appear here').classes('text-white/30 text-lg')
 
+    # ── Helper: render full image with navigation ────────────────────────────
+    def _render_image_with_nav(path: str):
+        images = []
+        if os.path.isdir(_VISUAL_DIR):
+            images = sorted(
+                [f for f in os.listdir(_VISUAL_DIR)
+                 if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
+                reverse=True,
+            )
+            
+        filename = path.split('/')[-1]
+        prev_img = None
+        next_img = None
+        
+        try:
+            idx = images.index(filename)
+            if idx > 0:
+                prev_img = f"/{_VISUAL_DIR}/{images[idx - 1]}"
+            if idx < len(images) - 1:
+                next_img = f"/{_VISUAL_DIR}/{images[idx + 1]}"
+        except ValueError:
+            pass
+
+        with ui.element('div').classes('w-full h-full relative group flex items-center justify-center'):
+            ui.image(path).classes('w-full h-full object-contain rounded-lg shadow-xl')
+            
+            if prev_img:
+                ui.button(icon='chevron_left', on_click=lambda p=prev_img: show_image(p)).props('round flat size=lg').classes(
+                    'absolute left-4 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white hover:bg-black/80 z-10'
+                )
+            if next_img:
+                ui.button(icon='chevron_right', on_click=lambda n=next_img: show_image(n)).props('round flat size=lg').classes(
+                    'absolute right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white hover:bg-black/80 z-10'
+                )
+
     # ── Helper: show a single image full-size inside image_container ─────────
     def show_image(path: str):
         """path is the web-accessible URL string (e.g. '/data/visual/foo.png')."""
@@ -177,7 +208,7 @@ def create_page():
         if not container: return
         container.clear()
         with container:
-            ui.image(path).classes('w-full h-full object-contain')
+            _render_image_with_nav(path)
 
     # ── Helper: open the history grid inside image_container ─────────────────
     def show_history():
@@ -390,6 +421,12 @@ def create_page():
         show_history()
     elif _gen_state['active']:
         _inject_normal_progress()
+    else:
+        last = app.storage.user.get('visual_last_image')
+        if last and os.path.exists(last):
+            show_image(f'/{last}')
+        else:
+            show_placeholder()
         
     if _gen_state['active']:
         generate_btn.disable()
@@ -497,9 +534,7 @@ def create_page():
                     if not _grid_open['value']:
                         container = _gen_state.get('image_container')
                         if container:
-                            container.clear()
-                            with container:
-                                ui.image(f'/{output_path}').classes('w-full h-full object-contain rounded-lg shadow-xl')
+                            show_image(f'/{output_path}')
 
                     if total_prompts == 1:
                         safe_notify('Image generated successfully!', type='positive')
