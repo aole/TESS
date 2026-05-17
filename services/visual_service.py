@@ -73,7 +73,11 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
         for i, item in enumerate(items):
             if progress_callback:
                 try:
-                    progress_callback(i, total)
+                    res = progress_callback(i, total)
+                    if res == "CANCEL":
+                        raise InterruptedError("Cancelled")
+                except InterruptedError:
+                    raise
                 except Exception:
                     pass
             yield item
@@ -83,15 +87,19 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
             except Exception:
                 pass
 
-    with torch.no_grad():
-        image = pipe(
-            prompt, 
-            negative_prompt=negative_prompt,
-            num_inference_steps=steps,
-            width=width,
-            height=height,
-            progress_bar_cmd=_progress_bar_cmd,
-        )
+    try:
+        with torch.no_grad():
+            image = pipe(
+                prompt, 
+                negative_prompt=negative_prompt,
+                num_inference_steps=steps,
+                width=width,
+                height=height,
+                progress_bar_cmd=_progress_bar_cmd,
+            )
+    except InterruptedError:
+        print("Generation cancelled by user")
+        return None
     
     import datetime
     import json

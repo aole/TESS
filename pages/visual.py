@@ -95,16 +95,13 @@ def create_page():
                     on_change=lambda e: steps_label.set_text(str(int(e.value)))
                 ).classes('w-full').bind_value(app.storage.user, 'visual_inference_steps')
 
-            # Generate / Clear
+            # Generate
             with ui.row().classes('w-full gap-4 mt-2 flex-nowrap'):
                 generate_btn = ui.button('Generate', icon='brush').classes(
-                    'flex-grow h-16 text-xl '
+                    'w-full h-16 text-xl transition-all duration-300 '
                     'bg-gradient-to-r from-purple-500 to-indigo-500 '
                     'hover:from-purple-600 hover:to-indigo-600 shadow-lg'
                 )
-                clear_btn = ui.button(icon='delete').classes(
-                    'w-16 h-16 bg-red-500/20 text-red-400 hover:bg-red-500/40 shadow-lg'
-                ).tooltip('Clear Image')
 
             pass
 
@@ -462,7 +459,9 @@ def create_page():
             show_placeholder()
         
     if _gen_state['active']:
-        generate_btn.disable()
+        generate_btn.props('color=red icon=stop')
+        generate_btn.set_text('Stop')
+        generate_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
 
     # ── Generate handler ─────────────────────────────────────────────────────
     async def on_generate():
@@ -492,17 +491,23 @@ def create_page():
             expanded_prompts.extend([p] * batch_count)
         raw_prompts = expanded_prompts
 
-        generate_btn.disable()
         total_prompts = len(raw_prompts)
         
         # Reset state
         _gen_state['active'] = True
+        _gen_state['cancel'] = False
         _gen_state['total'] = total_prompts
         _gen_state['pct'] = 0
+        
+        generate_btn.props('color=red icon=stop')
+        generate_btn.set_text('Stop')
+        generate_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
         
         loop = asyncio.get_event_loop()
 
         def on_progress(step: int, total: int):
+            if _gen_state.get('cancel'):
+                return "CANCEL"
             if total == 0:
                 return
             pct = min(round(step / total * 100), 100)
@@ -541,11 +546,22 @@ def create_page():
                     w_str, h_str = image_size.value.split('x')
                     output_path = await run.io_bound(
                         generate_image_task,
-                        current_p, negative_prompt.value,
-                        int(steps.value), int(w_str), int(h_str),
+                        current_p,
+                        negative_prompt.value,
+                        app.storage.user['visual_inference_steps'],
+                        int(w_str),
+                        int(h_str),
                         on_progress,
-                        unload_after=(idx == total_prompts - 1)
+                        unload_after=False
                     )
+                    
+                    if not output_path:
+                        if _gen_state.get('cancel'):
+                            if _gen_state['spinner_cell']:
+                                _gen_state['spinner_cell'].delete()
+                            break
+                        raise Exception("Pipeline returned None")
+                        
                     app.storage.user['visual_last_image'] = output_path
                     src = f'/{output_path}'
                     
@@ -596,17 +612,34 @@ def create_page():
                 print(f"Failed to unload visual pipeline in finally block: {e}")
 
             _gen_state['active'] = False
+            _gen_state['cancel'] = False
             _gen_state['spinner_cell'] = None
             _gen_state['circ_progress'] = None
             _gen_state['linear_progress'] = None
             _gen_state['progress_label'] = None
             generate_btn.enable()
-            if total_prompts > 1:
+            generate_btn.props('color=primary icon=brush')
+            generate_btn.set_text('Generate')
+            generate_btn.classes(add='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', remove='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
+            
+            if not _grid_open['value']:
+                last = app.storage.user.get('visual_last_image')
+                if last and os.path.exists(last):
+                    show_image(f'/{last}')
+                else:
+                    show_placeholder()
+            
+            if _gen_state.get('cancel'):
+                safe_notify('Generation stopped.', type='warning')
+            elif total_prompts > 1:
                 safe_notify(f'Batch processing of {total_prompts} prompts complete.', type='info')
 
-    def on_clear():
-        app.storage.user['visual_last_image'] = None
-        show_placeholder()
+    async def on_generate_click():
+        if _gen_state.get('active'):
+            _gen_state['cancel'] = True
+            generate_btn.set_text('Stopping...')
+            generate_btn.disable()
+        else:
+            await on_generate()
 
-    generate_btn.on('click', on_generate)
-    clear_btn.on('click', on_clear)
+    generate_btn.on('click', on_generate_click)
