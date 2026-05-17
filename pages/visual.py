@@ -187,8 +187,13 @@ def create_page():
         except ValueError:
             pass
 
-        with ui.element('div').classes('w-full h-full relative group flex items-center justify-center'):
+        with ui.element('div').classes('w-full h-full relative group flex items-center justify-center') as img_div:
             ui.image(path).classes('w-full h-full object-contain rounded-lg shadow-xl')
+            
+            fpath = path.lstrip('/')
+            _add_delete_btn(img_div, fpath)
+            _add_regenerate_btn(img_div, fpath)
+            _add_info_btn(img_div, fpath)
             
             if prev_img:
                 ui.button(icon='chevron_left', on_click=lambda p=prev_img: show_image(p)).props('round flat size=lg').classes(
@@ -300,7 +305,7 @@ def create_page():
     def _add_delete_btn(cell_div, fpath: str):
         with cell_div:
             btn = ui.button(icon='delete').props('flat dense round').style(
-                'position: absolute; top: 4px; right: 4px;'
+                'position: absolute; bottom: 4px; left: 4px;'
                 'width: 26px; height: 26px; min-height: unset;'
                 'background: rgba(0,0,0,0.75);'
                 'color: white;'
@@ -374,7 +379,7 @@ def create_page():
     def _add_info_btn(cell_div, fpath: str):
         with cell_div:
             btn = ui.button(icon='info').props('flat dense round').style(
-                'position: absolute; bottom: 4px; right: 4px;'
+                'position: absolute; top: 4px; right: 4px;'
                 'width: 26px; height: 26px; min-height: unset;'
                 'background: rgba(0,0,0,0.75);'
                 'color: white;'
