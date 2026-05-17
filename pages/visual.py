@@ -48,11 +48,12 @@ def create_page():
         # Left column – image area (70%)
         with ui.column().classes(
             'rounded-lg border border-white/10 overflow-hidden bg-black/20 '
-            'items-center justify-center relative'
+            'relative'
         ).style('flex: 7; height: calc(100vh - 120px); min-height: 500px;') as image_container:
             _gen_state['image_container'] = image_container
             _gen_state['client'] = ui.context.client
-            # Initial content is rendered at the bottom of create_page based on state
+            _gen_state['full_view_container'] = ui.element('div').classes('w-full h-full flex flex-col items-center justify-center hidden')
+            _gen_state['grid_view_container'] = ui.element('div').classes('w-full h-full flex flex-col hidden')
             pass
 
         # Right column – settings (30%)
@@ -109,7 +110,7 @@ def create_page():
 
     def _inject_grid_spinner():
         """Helper to inject a progress spinner into the history grid if active."""
-        if not _gen_state['active'] or not _grid_open['value'] or _grid_element['ref'] is None:
+        if not _gen_state['active'] or _grid_element['ref'] is None:
             return
         
         grid = _grid_element['ref']
@@ -137,11 +138,11 @@ def create_page():
         if not _gen_state['active'] or _grid_open['value']:
             return
             
-        container = _gen_state.get('image_container')
-        if not container: return
-        container.clear()
-        with container:
-            with ui.column().classes('items-center justify-center gap-4 w-full px-12'):
+        full_view = _gen_state.get('full_view_container')
+        if not full_view: return
+        full_view.clear()
+        with full_view:
+            with ui.column().classes('items-center justify-center gap-4 w-full h-full px-12'):
                 ui.icon('auto_awesome', size='48px').classes('text-purple-400/60 mb-2')
                 _gen_state['progress_label'] = ui.label(f"{_gen_state['batch_prefix']}Preparing…").classes(
                     'text-white/50 text-sm font-mono tracking-widest'
@@ -156,13 +157,17 @@ def create_page():
     # ── Helper: restore the "no image" placeholder ───────────────────────────
     def show_placeholder():
         _grid_open['value'] = False
-        _grid_element['ref'] = None
-        container = _gen_state.get('image_container')
-        if not container: return
-        container.clear()
-        with container:
-            ui.icon('image', size='64px').classes('text-white/10 mb-4')
-            ui.label('Generated image will appear here').classes('text-white/30 text-lg')
+        full_view = _gen_state.get('full_view_container')
+        grid_view = _gen_state.get('grid_view_container')
+        if not full_view or not grid_view: return
+        
+        grid_view.classes(add='hidden')
+        full_view.classes(remove='hidden')
+        full_view.clear()
+        with full_view:
+            with ui.column().classes('w-full h-full items-center justify-center'):
+                ui.icon('image', size='64px').classes('text-white/10 mb-4')
+                ui.label('Generated image will appear here').classes('text-white/30 text-lg')
 
     # ── Helper: render full image with navigation ────────────────────────────
     def _render_image_with_nav(path: str):
@@ -235,20 +240,31 @@ def create_page():
     def show_image(path: str):
         """path is the web-accessible URL string (e.g. '/data/visual/foo.png')."""
         _grid_open['value'] = False
-        _grid_element['ref'] = None
-        container = _gen_state.get('image_container')
-        if not container: return
-        container.clear()
-        with container:
+        full_view = _gen_state.get('full_view_container')
+        grid_view = _gen_state.get('grid_view_container')
+        if not full_view or not grid_view: return
+        
+        grid_view.classes(add='hidden')
+        full_view.classes(remove='hidden')
+        full_view.clear()
+        with full_view:
             _render_image_with_nav(path)
 
     # ── Helper: open the history grid inside image_container ─────────────────
     def show_history():
         _grid_open['value'] = True
-        container = _gen_state.get('image_container')
-        if not container: return
-        container.clear()
-        with container:
+        full_view = _gen_state.get('full_view_container')
+        grid_view = _gen_state.get('grid_view_container')
+        if not full_view or not grid_view: return
+        
+        full_view.classes(add='hidden')
+        grid_view.classes(remove='hidden')
+        
+        if _grid_element.get('ref') is not None:
+            return  # Grid already built
+
+        grid_view.clear()
+        with grid_view:
             # Header bar
             with ui.row().classes('w-full items-center justify-between px-4 pt-3 pb-1').style(
                 'flex-shrink: 0;'
@@ -328,6 +344,7 @@ def create_page():
                 cell_div.delete()
             elif not _grid_open['value']:
                 show_placeholder()
+                _grid_element['ref'] = None  # Force rebuild next time grid is opened
                 
         except Exception as exc:
             ui.notify(f'Could not delete image: {exc}', type='negative')
@@ -439,7 +456,6 @@ def create_page():
     def _restore_last():
         """Go back to the last generated image (or placeholder)."""
         _grid_open['value'] = False
-        _grid_element['ref'] = None
         
         if _gen_state['active']:
             _inject_normal_progress()
@@ -541,9 +557,8 @@ def create_page():
                 _gen_state['linear_progress'] = None
                 _gen_state['progress_label'] = None
 
-                if _grid_open['value']:
-                    _inject_grid_spinner()
-                else:
+                _inject_grid_spinner()
+                if not _grid_open['value']:
                     _inject_normal_progress()
 
                 try:
