@@ -44,6 +44,9 @@ def create_page():
             output_log.push("Process is already running.")
             return
 
+        # Clear output before the next run
+        output_log.clear()
+
         status_badge.set_text("Running")
         status_badge.props('color=green')
         
@@ -57,7 +60,7 @@ def create_page():
             output_log.push(f"Error saving file: {e}")
             
         process = subprocess.Popen(
-            [sys.executable, PYTHON_SCRIPT_FILE],
+            [sys.executable, '-u', PYTHON_SCRIPT_FILE],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
