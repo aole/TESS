@@ -142,7 +142,12 @@ def create_page():
         if not full_view: return
         full_view.clear()
         with full_view:
-            with ui.column().classes('items-center justify-center gap-4 w-full h-full px-12'):
+            with ui.column().classes('relative items-center justify-center gap-4 w-full h-full px-12'):
+                ui.button(icon='grid_view', on_click=show_history).props('flat dense round').style(
+                    'position: absolute; top: 16px; right: 16px;'
+                    'width: 40px; height: 40px; background: rgba(0,0,0,0.5); color: white; z-index: 10;'
+                ).tooltip('Visual History Grid')
+                
                 ui.icon('auto_awesome', size='48px').classes('text-purple-400/60 mb-2')
                 _gen_state['progress_label'] = ui.label(f"{_gen_state['batch_prefix']}Preparing…").classes(
                     'text-white/50 text-sm font-mono tracking-widest'
@@ -165,7 +170,12 @@ def create_page():
         full_view.classes(remove='hidden')
         full_view.clear()
         with full_view:
-            with ui.column().classes('w-full h-full items-center justify-center'):
+            with ui.column().classes('relative w-full h-full items-center justify-center'):
+                ui.button(icon='grid_view', on_click=show_history).props('flat dense round').style(
+                    'position: absolute; top: 16px; right: 16px;'
+                    'width: 40px; height: 40px; background: rgba(0,0,0,0.5); color: white; z-index: 10;'
+                ).tooltip('Visual History Grid')
+                
                 ui.icon('image', size='64px').classes('text-white/10 mb-4')
                 ui.label('Generated image will appear here').classes('text-white/30 text-lg')
 
