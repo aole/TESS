@@ -39,6 +39,8 @@ def create_page():
         app.storage.user['visual_image_size'] = '1024x1024'
     if 'visual_inference_steps' not in app.storage.user:
         app.storage.user['visual_inference_steps'] = 30
+    if 'visual_batch_count' not in app.storage.user:
+        app.storage.user['visual_batch_count'] = 1
 
     # ── Main two-column layout ───────────────────────────────────────────────
     with ui.row().classes('w-full max-w-screen-2xl mx-auto gap-6 p-4 flex-nowrap items-start'):
@@ -67,15 +69,20 @@ def create_page():
                 app.storage.user, 'visual_negative_prompt'
             )
 
-            with ui.column().classes('w-full gap-1'):
-                ui.label('Image Size').classes('text-sm text-gray-400')
-                image_size = ui.select(
-                    options={
-                        '1024x1024': '1024 × 1024 (1:1)',
-                        '896x1152':  '896 × 1152 (3:4)',
-                        '1152x896':  '1152 × 896 (4:3)',
-                    }
-                ).classes('w-full').bind_value(app.storage.user, 'visual_image_size')
+            with ui.row().classes('w-full gap-4 flex-nowrap'):
+                with ui.column().classes('flex-grow gap-1'):
+                    ui.label('Image Size').classes('text-sm text-gray-400')
+                    image_size = ui.select(
+                        options={
+                            '1024x1024': '1024 × 1024 (1:1)',
+                            '896x1152':  '896 × 1152 (3:4)',
+                            '1152x896':  '1152 × 896 (4:3)',
+                        }
+                    ).classes('w-full').bind_value(app.storage.user, 'visual_image_size')
+                
+                with ui.column().classes('w-24 gap-1'):
+                    ui.label('Count').classes('text-sm text-gray-400')
+                    batch_count = ui.number(value=1, min=1, max=50, format='%d').classes('w-full').bind_value(app.storage.user, 'visual_batch_count')
 
             with ui.column().classes('w-full gap-1'):
                 with ui.row().classes('w-full justify-between items-center'):
@@ -478,6 +485,12 @@ def create_page():
         if not raw_prompts:
             safe_notify('Please enter a positive prompt', type='warning')
             return
+
+        batch_count = int(app.storage.user.get('visual_batch_count', 1))
+        expanded_prompts = []
+        for p in raw_prompts:
+            expanded_prompts.extend([p] * batch_count)
+        raw_prompts = expanded_prompts
 
         generate_btn.disable()
         total_prompts = len(raw_prompts)
