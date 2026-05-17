@@ -310,7 +310,7 @@ def create_page():
         _inject_grid_spinner()
 
     # ── Helper: delete an image file and refresh the grid ───────────────────
-    def _delete_image(fpath: str):
+    def _delete_image(fpath: str, cell_div=None):
         try:
             if os.path.exists(fpath):
                 os.remove(fpath)
@@ -321,10 +321,14 @@ def create_page():
             last = app.storage.user.get('visual_last_image')
             if last and os.path.normpath(last) == os.path.normpath(fpath):
                 app.storage.user['visual_last_image'] = None
-            # Notify BEFORE show_history() — which calls image_container.clear()
-            # and destroys the current slot context, breaking ui.notify afterwards.
+                
             ui.notify('Image deleted.', type='info')
-            show_history()
+            
+            if _grid_open['value'] and cell_div:
+                cell_div.delete()
+            elif not _grid_open['value']:
+                show_placeholder()
+                
         except Exception as exc:
             ui.notify(f'Could not delete image: {exc}', type='negative')
 
@@ -339,7 +343,7 @@ def create_page():
                 'transition: opacity 0.15s ease;'
                 'z-index: 10;'
             ).classes('text-xs opacity-0 group-hover:opacity-100')
-            btn.on('click.stop', lambda p=fpath: _delete_image(p))
+            btn.on('click.stop', lambda p=fpath, c=cell_div: _delete_image(p, c))
 
     async def _regenerate_image(fpath: str):
         try:
