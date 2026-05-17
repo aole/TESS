@@ -8,7 +8,7 @@ _VISUAL_EXTS = {'.png', '.jpg', '.jpeg', '.webp'}
 _VISUAL_DIR  = 'data/visual'
 
 
-_grid_open = {'value': False}
+_grid_open = {'value': True}
 _grid_element = {'ref': None}
 
 _gen_state = {
