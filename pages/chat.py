@@ -7,7 +7,7 @@ from services.chat_service import chat_service
 from utils.chat_renderer import ConversationRenderer
 from services.stream_service import stream_service
 from services.batch_service import batch_service
-from services.tts_service import tts_service, VOICES
+from services.tts_service import tts_service
 from utils.ui_components import ui_list, ui_list_item
 from utils.audio_player import AudioPlayer
 from utils.settings_dialog import SettingsDialog

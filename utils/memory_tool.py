@@ -70,6 +70,8 @@ def get_user_info(category: str = None) -> dict:
     """
     try:
         memory = _load_memory()
+        if category.lower() == "all":
+            category = None
         if category:
             return memory.get(category, {})
         return memory

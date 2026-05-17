@@ -1,11 +1,28 @@
 from typing import Callable, Optional
-from nicegui import ui
+from nicegui import app, ui
 from utils.llm_client import client
 from services.rating_service import rating_service
 import asyncio
 from dataclasses import dataclass
 
 import inspect
+
+def supports_tools(model_name: str, family: str) -> bool:
+    model_name_lower = model_name.lower()
+    
+    # Check dynamic blacklist from app.storage.general
+    try:
+        models_without = app.storage.general.get('models_without_tools', [])
+        # Extract base names (without tags) for comparison
+        model_base = model_name_lower.split(':')[0]
+        if any(m.lower() == model_name_lower or m.lower().split(':')[0] == model_base for m in models_without):
+            return False
+    except Exception:
+        pass
+
+    return True
+
+
 
 @dataclass
 class PullState:
@@ -74,6 +91,10 @@ def create_page():
             # Truncate digest
             m['digest_short'] = m.get('digest', '')[:12] + '...'
             m['family_str'] = m.get('details', {}).get('family', 'N/A')
+            
+            # Tool support check
+            m['supports_tools'] = supports_tools(m['model'], m['family_str'])
+            m['tools_support_str'] = "Supported" if m['supports_tools'] else "Not Supported"
             
             # Rating Stats
             best = rating_service.get_best_tag_for_model(m['model'])
@@ -226,6 +247,7 @@ def create_page():
             {'name': 'name', 'label': 'Name (Click to Chat)', 'field': 'model', 'align': 'left', 'sortable': True, 'classes': 'text-indigo-300 font-mono font-bold'},
             {'name': 'size', 'label': 'Size', 'field': 'size_str', 'align': 'left', 'sortable': True},
             {'name': 'family', 'label': 'Family', 'field': 'family_str', 'align': 'left', 'sortable': True},
+            {'name': 'tools', 'label': 'Tools', 'field': 'tools_support_str', 'align': 'left', 'sortable': True},
             {'name': 'rating', 'label': 'Best Rating', 'field': 'rating_str', 'align': 'left', 'sortable': True, 'classes': 'text-yellow-400 font-bold'},
             {'name': 'actions', 'label': '', 'field': 'actions', 'align': 'right'},
         ]
@@ -236,6 +258,20 @@ def create_page():
                 <div class="cursor-pointer text-indigo-300 font-mono font-bold hover:text-indigo-100 flex items-center gap-2 group" @click="$parent.$emit('chat', props.row)">
                      {{ props.row.model }}
                      <q-icon name="chat" size="xs" class="opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+            </q-td>
+        ''')
+        table.add_slot('body-cell-tools', r'''
+            <q-td key="tools" :props="props">
+                <div class="flex items-center">
+                    <span v-if="!props.row.supports_tools" class="text-red-400/90 hover:text-red-300 flex items-center cursor-help">
+                        <q-icon name="block" size="sm" class="mr-1" />
+                        <q-tooltip class="bg-[#18181b] text-gray-200 border border-white/10 text-xs rounded p-2">This model does not support tools / function calling</q-tooltip>
+                    </span>
+                    <span v-else class="text-teal-400/80 flex items-center">
+                        <q-icon name="check" size="xs" class="mr-1" />
+                        <q-tooltip class="bg-[#18181b] text-gray-200 border border-white/10 text-xs rounded p-2">This model supports tools / function calling</q-tooltip>
+                    </span>
                 </div>
             </q-td>
         ''')
