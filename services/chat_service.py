@@ -84,7 +84,8 @@ class ChatService:
                             'id': data.get('id'),
                             'title': data.get('title', 'Untitled'),
                             'updated_at': data.get('updated_at', ''),
-                            'preview': self._get_preview(data.get('messages', []))
+                            'preview': self._get_preview(data.get('messages', [])),
+                            'is_encrypted': data.get('is_encrypted', False)
                         })
                 except Exception as e:
                     print(f"Error listing chat {filename}: {e}")

@@ -278,6 +278,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 with ui_list_item(
                     title=c['title'],
                     subtitle=c['updated_at'][:10],
+                    subtitle_icon='lock' if c.get('is_encrypted') else None,
                     active=is_active,
                     on_click=lambda cid=c['id']: load_chat_by_id(cid),
                     action_icon='delete',
@@ -597,31 +598,19 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 
                 ui.timer(1.0, update_button_state)
 
-                def update_encryption_ui():
-                    if not current_chat_id:
-                        if 'user_input' in locals() and user_input:
-                            user_input.props('disable=false')
-                            user_input.placeholder = 'Type a message...'
-                            if send_btn: send_btn.props('disable=false')
-                        return
-
+                def is_chat_locked():
+                    if not current_chat_id: return False
                     chat = chat_service.load_chat(current_chat_id)
-                    if not chat: return
-                    
-                    if chat.is_encrypted:
-                        pw = app.storage.user.get('unlocked_chats', {}).get(current_chat_id)
-                        is_unlocked = pw and chat_service.verify_password(current_chat_id, pw)
-                        
-                        if is_unlocked:
-                            if 'user_input' in locals() and user_input:
-                                user_input.props('disable=false')
-                                user_input.placeholder = 'Type a message...'
-                                if send_btn: send_btn.props('disable=false')
-                        else:
-                            if 'user_input' in locals() and user_input:
-                                user_input.props('disable=true')
-                                user_input.placeholder = 'Chat is locked. Unlock in settings to continue.'
-                                if send_btn: send_btn.props('disable=true')
+                    if not chat or not chat.is_encrypted: return False
+                    pw = app.storage.user.get('unlocked_chats', {}).get(current_chat_id)
+                    return not (pw and chat_service.verify_password(current_chat_id, pw))
+
+                def update_encryption_ui():
+                    if is_chat_locked():
+                        if 'user_input' in locals() and user_input:
+                            user_input.props('disable=true')
+                            user_input.placeholder = 'Chat is locked. Unlock in settings to continue.'
+                            if send_btn: send_btn.props('disable=true')
                     else:
                         if 'user_input' in locals() and user_input:
                             user_input.props('disable=false')
@@ -633,6 +622,9 @@ async def create_page(model_param: str = None, new_chat: bool = False):
 
                 # --- Core Generation Logic ---
                 async def generate_response():
+                    if is_chat_locked():
+                        ui.notify("Chat is locked.", type='warning')
+                        return
                     if state['processing'] and not state['stopping']:
                          return
                     state['processing'] = True
@@ -743,6 +735,9 @@ Response: "No problem. I've removed your location from my records."
                         update_button_state()
 
                 async def save_and_respond(msg, new_content):
+                    if is_chat_locked():
+                        ui.notify("Chat is locked.", type='warning')
+                        return
                     if config_manager.is_tts_enabled():
                         asyncio.create_task(asyncio.to_thread(tts_service.warmup))
                     msg['content'] = new_content
@@ -759,6 +754,9 @@ Response: "No problem. I've removed your location from my records."
                 chat_renderer.on_save_and_respond = save_and_respond
 
                 async def send_message():
+                    if is_chat_locked():
+                        ui.notify("Chat is locked.", type='warning')
+                        return
                     if state['processing'] or stream_service.any_active() or batch_service.any_active():
                         stream_service.stop_all()
                         batch_service.stop_all()
