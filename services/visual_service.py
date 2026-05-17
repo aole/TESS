@@ -99,6 +99,9 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
             )
     except InterruptedError:
         print("Generation cancelled by user")
+        if unload_after:
+            del pipe
+            unload_pipeline()
         return None
     
     import datetime
@@ -135,6 +138,7 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
     
     # Cleanup memory if requested
     if unload_after:
+        del pipe
         unload_pipeline()
     
     return output_path
