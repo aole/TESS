@@ -88,6 +88,14 @@ class StreamService:
         try:
             import time
             from datetime import datetime
+            from nicegui import app
+            
+            try:
+                if 'models_without_tools' not in app.storage.general:
+                    app.storage.general['models_without_tools'] = []
+                if model in app.storage.general['models_without_tools']:
+                    tool_funcs_map = None
+            except Exception: pass
             
             # Prepare API messages
             api_messages = []
@@ -148,73 +156,92 @@ class StreamService:
                 except: pass
                 
                 # Setup stream
-                list_tools = list(tool_funcs_map.values()) if tool_funcs_map else None
-                
-                try:
-                    stream = await client.chat(
-                        model=model,
-                        messages=api_messages,
-                        stream=True,
-                        options={
-                            'temperature': temperature,
-                            'top_p': top_p,
-                            'repeat_penalty': repeat_penalty
-                        },
-                        keep_alive=keep_alive,
-                        tools=list_tools,
-                        log_requests=log_requests
-                    )
+                while True:
+                    list_tools = list(tool_funcs_map.values()) if tool_funcs_map else None
                     
-                    response_content = ""
-                    full_thinking = ""
-                    tool_calls = []
+                    try:
+                        stream = await client.chat(
+                            model=model,
+                            messages=api_messages,
+                            stream=True,
+                            options={
+                                'temperature': temperature,
+                                'top_p': top_p,
+                                'repeat_penalty': repeat_penalty
+                            },
+                            keep_alive=keep_alive,
+                            tools=list_tools,
+                            log_requests=log_requests
+                        )
+                        
+                        response_content = ""
+                        full_thinking = ""
+                        tool_calls = []
 
-                    async for chunk in stream:
-                        if self.stop_flags.get(stream_id):
-                            if not response_content and not full_thinking:
-                                response_content = '_Stopped by user_'
-                                assistant_msg['content'] = response_content
-                            break
+                        async for chunk in stream:
+                            if self.stop_flags.get(stream_id):
+                                if not response_content and not full_thinking:
+                                    response_content = '_Stopped by user_'
+                                    assistant_msg['content'] = response_content
+                                break
+                                
+                            msg_chunk = chunk.get('message', {})
+                            part = msg_chunk.get('content') or ''
+                            thinking_part = msg_chunk.get('thinking', '')
+                            tc_part = msg_chunk.get('tool_calls', [])
                             
-                        msg_chunk = chunk.get('message', {})
-                        part = msg_chunk.get('content') or ''
-                        thinking_part = msg_chunk.get('thinking', '')
-                        tc_part = msg_chunk.get('tool_calls', [])
-                        
-                        if thinking_part: full_thinking += thinking_part
-                        if tc_part: tool_calls.extend(tc_part)
-                        if part: response_content += part
-                        
-                        # Update local msg
-                        assistant_msg['content'] = response_content
-                        assistant_msg['thinking'] = full_thinking
-                        if tool_calls: assistant_msg['tool_calls'] = tool_calls
-                        
-                        # Notify Listener: Update
-                        try:
-                            if listener:
-                                await listener('update_message', msg_id, response_content, full_thinking, tool_calls)
-                            if stream_id in self.listeners:
-                               await self.listeners[stream_id]('update_message', msg_id, response_content, full_thinking, tool_calls)
-                        except: pass
-                    
-                except Exception as e:
-                    assistant_msg['content'] += f"\n[Error: {e}]"
-                    print(f"Streaming Exception: {e}")
-                    if listener:
-                         try: await listener('error', str(e))
-                         except: pass
-                             
-                    if stream_id in self.listeners:
-                         try: await self.listeners[stream_id]('error', str(e))
-                         except: pass
-                    # Save before breaking
-                    if persist_callback:
-                        if asyncio.iscoroutinefunction(persist_callback):
-                            await persist_callback(messages)
-                        else:
-                            persist_callback(messages)
-                    break
+                            if thinking_part: full_thinking += thinking_part
+                            if tc_part: tool_calls.extend(tc_part)
+                            if part: 
+                                if part.startswith("Error:") and "does not support tools" in part.lower():
+                                    raise Exception(part)
+                                response_content += part
+                            if chunk.get("error"):
+                                raise Exception(chunk["error"])
+                            
+                            # Update local msg
+                            assistant_msg['content'] = response_content
+                            assistant_msg['thinking'] = full_thinking
+                            if tool_calls: assistant_msg['tool_calls'] = tool_calls
+                            
+                            # Notify Listener: Update
+                            try:
+                                if listener:
+                                    await listener('update_message', msg_id, response_content, full_thinking, tool_calls)
+                                if stream_id in self.listeners:
+                                   await self.listeners[stream_id]('update_message', msg_id, response_content, full_thinking, tool_calls)
+                            except: pass
+                        break
+                    except Exception as e:
+                        error_msg = str(e).lower()
+                        if "does not support tools" in error_msg and list_tools:
+                            print(f"Model {model} does not support tools. Retrying without tools.")
+                            from nicegui import app
+                            try:
+                                if 'models_without_tools' not in app.storage.general:
+                                    app.storage.general['models_without_tools'] = []
+                                if model not in app.storage.general['models_without_tools']:
+                                    app.storage.general['models_without_tools'].append(model)
+                            except Exception: pass
+                            tool_funcs_map = None
+                            continue
+
+                        assistant_msg['content'] += f"\n[Error: {e}]"
+                        print(f"Streaming Exception: {e}")
+                        if listener:
+                             try: await listener('error', str(e))
+                             except: pass
+                                 
+                        if stream_id in self.listeners:
+                             try: await self.listeners[stream_id]('error', str(e))
+                             except: pass
+                        # Save before breaking
+                        if persist_callback:
+                            if asyncio.iscoroutinefunction(persist_callback):
+                                await persist_callback(messages)
+                            else:
+                                persist_callback(messages)
+                        break
 
                 # End of stream (or stop)
                 assistant_msg['content'] = response_content
