@@ -272,28 +272,11 @@ def create_page():
                 'position: absolute; top: 4px; right: 4px;'
                 'width: 26px; height: 26px; min-height: unset;'
                 'background: rgba(220,38,38,0.75);'
-                'color: white; opacity: 0;'
+                'color: white;'
                 'transition: opacity 0.15s ease;'
                 'z-index: 10;'
-            ).classes('text-xs')
+            ).classes('text-xs opacity-0 group-hover:opacity-100')
             btn.on('click.stop', lambda p=fpath: _delete_image(p))
-            # Show on parent hover via JS
-            cell_div.on('mouseover', lambda b=btn: b.style(
-                'position: absolute; top: 4px; right: 4px;'
-                'width: 26px; height: 26px; min-height: unset;'
-                'background: rgba(220,38,38,0.75);'
-                'color: white; opacity: 1;'
-                'transition: opacity 0.15s ease;'
-                'z-index: 10;'
-            ))
-            cell_div.on('mouseout', lambda b=btn: b.style(
-                'position: absolute; top: 4px; right: 4px;'
-                'width: 26px; height: 26px; min-height: unset;'
-                'background: rgba(220,38,38,0.75);'
-                'color: white; opacity: 0;'
-                'transition: opacity 0.15s ease;'
-                'z-index: 10;'
-            ))
 
     async def _regenerate_image(fpath: str):
         try:
@@ -327,28 +310,11 @@ def create_page():
                 'position: absolute; top: 4px; left: 4px;'
                 'width: 26px; height: 26px; min-height: unset;'
                 'background: rgba(59,130,246,0.75);'
-                'color: white; opacity: 0;'
+                'color: white;'
                 'transition: opacity 0.15s ease;'
                 'z-index: 10;'
-            ).classes('text-xs').tooltip('Regenerate')
+            ).classes('text-xs opacity-0 group-hover:opacity-100').tooltip('Regenerate')
             btn.on('click.stop', lambda p=fpath: _regenerate_image(p))
-            # Show on parent hover via JS
-            cell_div.on('mouseover', lambda b=btn: b.style(
-                'position: absolute; top: 4px; left: 4px;'
-                'width: 26px; height: 26px; min-height: unset;'
-                'background: rgba(59,130,246,0.75);'
-                'color: white; opacity: 1;'
-                'transition: opacity 0.15s ease;'
-                'z-index: 10;'
-            ))
-            cell_div.on('mouseout', lambda b=btn: b.style(
-                'position: absolute; top: 4px; left: 4px;'
-                'width: 26px; height: 26px; min-height: unset;'
-                'background: rgba(59,130,246,0.75);'
-                'color: white; opacity: 0;'
-                'transition: opacity 0.15s ease;'
-                'z-index: 10;'
-            ))
 
     def _load_metadata(fpath: str):
         try:
@@ -380,33 +346,16 @@ def create_page():
                 'position: absolute; bottom: 4px; right: 4px;'
                 'width: 26px; height: 26px; min-height: unset;'
                 'background: rgba(16,185,129,0.75);'
-                'color: white; opacity: 0;'
+                'color: white;'
                 'transition: opacity 0.15s ease;'
                 'z-index: 10;'
-            ).classes('text-xs').tooltip('Load Parameters')
+            ).classes('text-xs opacity-0 group-hover:opacity-100').tooltip('Load Parameters')
             btn.on('click.stop', lambda p=fpath: _load_metadata(p))
-            # Show on parent hover via JS
-            cell_div.on('mouseover', lambda b=btn: b.style(
-                'position: absolute; bottom: 4px; right: 4px;'
-                'width: 26px; height: 26px; min-height: unset;'
-                'background: rgba(16,185,129,0.75);'
-                'color: white; opacity: 1;'
-                'transition: opacity 0.15s ease;'
-                'z-index: 10;'
-            ))
-            cell_div.on('mouseout', lambda b=btn: b.style(
-                'position: absolute; bottom: 4px; right: 4px;'
-                'width: 26px; height: 26px; min-height: unset;'
-                'background: rgba(16,185,129,0.75);'
-                'color: white; opacity: 0;'
-                'transition: opacity 0.15s ease;'
-                'z-index: 10;'
-            ))
 
     # ── Helper: build a full grid cell (image + delete button) ───────────────
     def _add_grid_cell(grid, thumb_src: str, full_src: str, fpath: str):
         with grid:
-            cell = ui.element('div').style(
+            cell = ui.element('div').classes('group').style(
                 'position: relative; overflow: hidden; cursor: pointer;'
                 'aspect-ratio: 1 / 1; background: rgba(0,0,0,0.3);'
                 'transition: transform 0.15s ease, box-shadow 0.15s ease;'
@@ -537,7 +486,7 @@ def create_page():
                             'aspect-ratio: 1 / 1; background: rgba(0,0,0,0.3);'
                             'border: none; border-radius: 6px; cursor: pointer;'
                             'display: block;'
-                        )
+                        ).classes('group')
                         with cell:
                             ui.image(thumb_src).style('width:100%; height:100%; object-fit:cover; display:block;')
                             _add_delete_btn(cell, output_path)
