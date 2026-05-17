@@ -47,7 +47,7 @@ def create_page():
         with ui.column().classes(
             'rounded-lg border border-white/10 overflow-hidden bg-black/20 '
             'items-center justify-center relative'
-        ).style('flex: 7; min-height: 768px;') as image_container:
+        ).style('flex: 7; height: calc(100vh - 120px); min-height: 500px;') as image_container:
             _gen_state['image_container'] = image_container
             _gen_state['client'] = ui.context.client
             # Initial content is rendered at the bottom of create_page based on state
@@ -99,11 +99,7 @@ def create_page():
                     'w-16 h-16 bg-red-500/20 text-red-400 hover:bg-red-500/40 shadow-lg'
                 ).tooltip('Clear Image')
 
-            # Visual History Grid button
-            history_btn = ui.button('Visual History Grid', icon='photo_library').classes(
-                'w-full h-12 bg-white/5 hover:bg-white/10 '
-                'text-white/70 border border-white/10 shadow'
-            )
+            pass
 
     # State is now managed at the module level
 
@@ -187,13 +183,40 @@ def create_page():
         except ValueError:
             pass
 
-        with ui.element('div').classes('w-full h-full relative group flex items-center justify-center') as img_div:
-            ui.image(path).classes('w-full h-full object-contain rounded-lg shadow-xl')
+        with ui.element('div').classes('w-full h-full relative group') as img_div:
+            with ui.element('div').classes('w-full h-full overflow-auto flex flex-col'):
+                img = ui.element('img').props(f'src="{path}"').classes('m-auto w-full h-full object-contain rounded-lg shadow-xl transition-all duration-300')
             
             fpath = path.lstrip('/')
             _add_delete_btn(img_div, fpath)
             _add_regenerate_btn(img_div, fpath)
             _add_info_btn(img_div, fpath)
+            
+            zoom_state = {'fit': True}
+            
+            with ui.row().classes(
+                'absolute left-1/2 -translate-x-1/2 flex items-center gap-2 '
+                'opacity-0 group-hover:opacity-100 transition-opacity z-10'
+            ).style('top: 4px;'):
+                def toggle_zoom():
+                    if zoom_state['fit']:
+                        img.classes(remove='h-full object-contain', add='h-auto')
+                        zoom_btn.props('icon=zoom_out')
+                        zoom_state['fit'] = False
+                    else:
+                        img.classes(remove='h-auto', add='h-full object-contain')
+                        zoom_btn.props('icon=zoom_in')
+                        zoom_state['fit'] = True
+                        
+                zoom_btn = ui.button(icon='zoom_in', on_click=toggle_zoom).props('flat dense round').style(
+                    'width: 26px; height: 26px; min-height: unset;'
+                    'background: rgba(0,0,0,0.75); color: white;'
+                ).classes('text-xs').tooltip('Toggle Zoom')
+                
+                ui.button(icon='grid_view', on_click=show_history).props('flat dense round').style(
+                    'width: 26px; height: 26px; min-height: unset;'
+                    'background: rgba(0,0,0,0.75); color: white;'
+                ).classes('text-xs').tooltip('Visual History Grid')
             
             if prev_img:
                 ui.button(icon='chevron_left', on_click=lambda p=prev_img: show_image(p)).props('round flat size=lg').classes(
@@ -419,8 +442,6 @@ def create_page():
             show_image(f'/{last}')
         else:
             show_placeholder()
-
-    history_btn.on('click', show_history)
 
     if _grid_open['value']:
         show_history()
