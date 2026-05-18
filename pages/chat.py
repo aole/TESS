@@ -332,6 +332,60 @@ async def create_page(model_param: str = None, new_chat: bool = False):
             safe_model = quote(model_select.value)
             await ui.run_javascript(f"window.history.replaceState(null, '', '/chat?model={safe_model}');")
 
+            # Check if there is a custom model configuration
+            model_configs = app.storage.general.get('model_configurations', {})
+            model_cfg = model_configs.get(model_select.value)
+            if model_cfg:
+                app.storage.user['temperature'] = model_cfg.get('temperature', 0.7)
+                app.storage.user['top_p'] = model_cfg.get('top_p', 0.9)
+                app.storage.user['repeat_penalty'] = model_cfg.get('repeat_penalty', 1.1)
+                
+                # Apply system prompt / persona
+                persona_id = model_cfg.get('persona_id', NO_PERSONA_ID)
+                app.storage.user['selected_persona_id'] = persona_id
+                
+                if persona_id != NO_PERSONA_ID:
+                    persona = persona_service.get_persona(persona_id)
+                    if persona:
+                        app.storage.user['system_prompt'] = persona['system_prompt']
+                    else:
+                        app.storage.user['system_prompt'] = model_cfg.get('system_prompt', '')
+                else:
+                    app.storage.user['system_prompt'] = model_cfg.get('system_prompt', '')
+
+                # Tools configuration
+                tools_enabled = model_cfg.get('tools_enabled', True)
+                if 'models_without_tools' not in app.storage.general:
+                    app.storage.general['models_without_tools'] = []
+                
+                if not tools_enabled:
+                    if model_select.value not in app.storage.general['models_without_tools']:
+                        app.storage.general['models_without_tools'].append(model_select.value)
+                else:
+                    if model_select.value in app.storage.general['models_without_tools']:
+                        app.storage.general['models_without_tools'].remove(model_select.value)
+
+                # Memory configuration
+                app.storage.user['memory_enabled'] = model_cfg.get('memory_enabled', True)
+
+                # Sync UI components
+                try:
+                    system_prompt.value = app.storage.user.get('system_prompt', '')
+                except:
+                    pass
+                try:
+                    persona_select.value = app.storage.user.get('selected_persona_id', NO_PERSONA_ID)
+                except:
+                    pass
+
+                # Call the UI updater if defined
+                if 'update_tool_buttons' in locals():
+                    try:
+                        update_tool_buttons()
+                    except Exception:
+                        pass
+                return
+
             # If this is the initial load and we have saved settings, don't overwrite them with model defaults
             has_saved = any(k in app.storage.user for k in ['temperature', 'top_p', 'repeat_penalty', 'system_prompt'])
             if initial and has_saved:
@@ -798,16 +852,18 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     visual_btn.on('click', toggle_visual)
                     if app.storage.user.get('visual_enabled', False): visual_btn.props("color=primary")
                     
+                    def update_tool_buttons():
+                        is_on = app.storage.user.get('memory_enabled', True)
+                        memory_btn.props(f"icon={'psychology' if is_on else 'psychology_alt'} color={'primary' if is_on else 'grey'}")
+
                     memory_btn = ui.button(icon='psychology').props('flat round color=grey').tooltip('Toggle User Memory')
                     if not config_manager.is_tool_active('user_memory_tool'):
                         memory_btn.classes('hidden')
                     def toggle_memory():
                         app.storage.user['memory_enabled'] = not app.storage.user.get('memory_enabled', True)
-                        is_on = app.storage.user['memory_enabled']
-                        memory_btn.props(f"icon={'psychology' if is_on else 'psychology_alt'} color={'primary' if is_on else 'grey'}")
+                        update_tool_buttons()
                     memory_btn.on('click', toggle_memory)
-                    if app.storage.user.get('memory_enabled', True): memory_btn.props("icon=psychology color=primary")
-                    else: memory_btn.props("icon=psychology_alt color=grey")
+                    update_tool_buttons()
                     
                     ui.space()
                     send_btn = ui.button(icon='send', on_click=send_message).props('flat round color=primary')

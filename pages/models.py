@@ -2,6 +2,7 @@ from typing import Callable, Optional
 from nicegui import app, ui
 from utils.llm_client import client
 from services.rating_service import rating_service
+from services.persona_service import persona_service, NO_PERSONA_ID
 import asyncio
 from dataclasses import dataclass
 
@@ -218,6 +219,140 @@ def create_page():
         global current_pull_task
         current_pull_task = asyncio.create_task(pull_model_task(model_name, on_complete=refresh_list))
 
+    def configure_model_dialog(model_name: str, family_str: str):
+        # Fetch current custom configuration if it exists synchronously
+        model_configs = app.storage.general.get('model_configurations', {})
+        model_cfg = model_configs.get(model_name, {})
+
+        # Use standard settings as fallback while loading
+        saved_temp = model_cfg.get('temperature', 0.7)
+        saved_top_p = model_cfg.get('top_p', 0.9)
+        saved_repeat_penalty = model_cfg.get('repeat_penalty', 1.1)
+        saved_sys = model_cfg.get('system_prompt', '')
+        saved_persona = model_cfg.get('persona_id', NO_PERSONA_ID)
+        saved_tools = model_cfg.get('tools_enabled', supports_tools(model_name, family_str))
+        saved_memory = model_cfg.get('memory_enabled', True)
+
+        with ui.dialog() as dialog, ui.card().classes('w-full max-w-lg p-6 bg-[#18181b] border border-white/10 text-gray-200 rounded-xl shadow-2xl'):
+            # Header with loading spinner
+            with ui.row().classes('w-full justify-between items-center mb-1'):
+                with ui.column().classes('gap-0'):
+                    ui.label(f'Configure Model').classes('text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-teal-400')
+                    ui.label(model_name).classes('text-sm font-mono text-indigo-300')
+                loading_spinner = ui.spinner('dots', size='md', color='indigo').tooltip('Loading defaults from model file...')
+                loading_spinner.set_visibility(False)
+
+            # Persona dropdown
+            ui.label('Default Persona').classes('text-sm font-medium text-gray-400 mb-1')
+            persona_opts = {p['id']: p['name'] for p in persona_service.get_all_persona_options()}
+            
+            def on_persona_change(e):
+                pid = e.value
+                if pid != NO_PERSONA_ID:
+                    persona = persona_service.get_persona(pid)
+                    if persona:
+                        sys_prompt_input.value = persona['system_prompt']
+            
+            persona_select = ui.select(
+                options=persona_opts,
+                value=saved_persona,
+                on_change=on_persona_change
+            ).props('dense options-dense outlined dark').classes('w-full text-sm mb-4')
+
+            # System Prompt
+            ui.label('Default System Message / Persona Prompt').classes('text-sm font-medium text-gray-400 mb-1')
+            sys_prompt_input = ui.textarea(
+                placeholder='You are a helpful assistant...',
+                value=saved_sys
+            ).props('dense rows=3 filled flat').classes('w-full text-sm mb-4 bg-white/5 rounded-md text-gray-200')
+
+            # Sliders for parameters
+            with ui.expansion('Model Parameters', icon='tune', value=True).classes('w-full bg-white/5 rounded-lg mb-4').props('dense'):
+                with ui.column().classes('w-full p-4 gap-4'):
+                    # Temperature
+                    with ui.column().classes('w-full gap-1'):
+                        with ui.row().classes('w-full justify-between'):
+                            ui.label('Temperature').classes('text-xs text-gray-400')
+                            temp_val = ui.label().classes('text-xs text-indigo-400 font-mono')
+                        temp_slider = ui.slider(min=0.0, max=1.0, step=0.1, value=saved_temp).props('label-always thumb-path=""')
+                        temp_val.bind_text_from(temp_slider, 'value', backward=lambda v: f"{v:.1f}")
+
+                    # Top P
+                    with ui.column().classes('w-full gap-1'):
+                        with ui.row().classes('w-full justify-between'):
+                            ui.label('Top P').classes('text-xs text-gray-400')
+                            top_p_val = ui.label().classes('text-xs text-indigo-400 font-mono')
+                        top_p_slider = ui.slider(min=0.0, max=1.0, step=0.1, value=saved_top_p).props('label-always')
+                        top_p_val.bind_text_from(top_p_slider, 'value', backward=lambda v: f"{v:.1f}")
+
+                    # Repeat Penalty
+                    with ui.column().classes('w-full gap-1'):
+                        with ui.row().classes('w-full justify-between'):
+                            ui.label('Repeat Penalty').classes('text-xs text-gray-400')
+                            rep_val = ui.label().classes('text-xs text-indigo-400 font-mono')
+                        repeat_penalty_slider = ui.slider(min=0.0, max=2.0, step=0.1, value=saved_repeat_penalty).props('label-always')
+                        rep_val.bind_text_from(repeat_penalty_slider, 'value', backward=lambda v: f"{v:.1f}")
+
+            # Checkboxes
+            with ui.row().classes('w-full gap-6 mb-6'):
+                tools_checkbox = ui.checkbox('Can use Tools', value=saved_tools).classes('text-sm text-gray-300')
+                memory_checkbox = ui.checkbox('Can use Memory', value=saved_memory).classes('text-sm text-gray-300')
+
+            # Buttons
+            async def do_save():
+                # Store configurations in app.storage.general
+                if 'model_configurations' not in app.storage.general:
+                    app.storage.general['model_configurations'] = {}
+                
+                app.storage.general['model_configurations'][model_name] = {
+                    'temperature': temp_slider.value,
+                    'top_p': top_p_slider.value,
+                    'repeat_penalty': repeat_penalty_slider.value,
+                    'system_prompt': sys_prompt_input.value,
+                    'persona_id': persona_select.value,
+                    'tools_enabled': tools_checkbox.value,
+                    'memory_enabled': memory_checkbox.value
+                }
+                
+                # Also synchronize the tools support list
+                if 'models_without_tools' not in app.storage.general:
+                    app.storage.general['models_without_tools'] = []
+                
+                if not tools_checkbox.value:
+                    if model_name not in app.storage.general['models_without_tools']:
+                        app.storage.general['models_without_tools'].append(model_name)
+                else:
+                    if model_name in app.storage.general['models_without_tools']:
+                        app.storage.general['models_without_tools'].remove(model_name)
+                
+                ui.notify(f"Configuration saved for {model_name}", type='positive')
+                dialog.close()
+                ui.navigate.to(f'/chat?model={model_name}&new_chat=true')
+
+            with ui.row().classes('w-full justify-end gap-2'):
+                ui.button('Cancel', on_click=dialog.close).props('flat color=grey').classes('text-sm')
+                ui.button('Save', on_click=do_save).props('color=primary').classes('text-sm font-bold px-4')
+                
+        dialog.open()
+
+        # Fetch defaults from model file asynchronously IF we do not have a custom saved configuration yet
+        if not model_cfg:
+            async def load_defaults():
+                try:
+                    loading_spinner.set_visibility(True)
+                    defaults = await client.get_model_parameters(model_name)
+                    
+                    temp_slider.value = defaults.get('temperature', 0.7)
+                    top_p_slider.value = defaults.get('top_p', 0.9)
+                    repeat_penalty_slider.value = defaults.get('repeat_penalty', 1.1)
+                    sys_prompt_input.value = defaults.get('system', '')
+                except Exception:
+                    pass
+                finally:
+                    loading_spinner.set_visibility(False)
+            
+            asyncio.create_task(load_defaults())
+
     # Layout
     with ui.column().classes('w-full h-full pt-14 px-4 max-w-7xl mx-auto'):
         # Header + Pull
@@ -289,7 +424,7 @@ def create_page():
 
         # Event binding for slot buttons
         table.on('details', lambda e: show_details(e.args['model']))
-        table.on('chat', lambda e: ui.navigate.to(f'/chat?model={e.args["model"]}&new_chat=true'))
+        table.on('chat', lambda e: configure_model_dialog(e.args['model'], e.args.get('family_str', 'N/A')))
         table.on('create', lambda e: ui.navigate.to(f'/create?base_model={e.args["model"]}'))
         table.on('rename', lambda e: rename_model_dialog(e.args['model']))
         table.on('delete', lambda e: delete_model(e.args['model']))

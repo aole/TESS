@@ -111,7 +111,7 @@ class OllamaClient(BaseLLMClient):
             self._log('create_error', str(e), model)
             yield {'status': 'error', 'error': str(e)}
 
-    async def generate(self, model: str, prompt: str, system: str = None, template: str = None, context: List[int] = None, stream: bool = True, options: Dict[str, Any] = None, log_requests: bool = True):
+    async def generate(self, model: str, prompt: str, system: str = None, template: str = None, context: List[int] = None, stream: bool = True, options: Dict[str, Any] = None, log_requests: bool = False):
         """Generate a response for a given prompt."""
         if log_requests:
             self._log('generate_request', {'prompt': prompt, 'system': system, 'options': options}, model)
