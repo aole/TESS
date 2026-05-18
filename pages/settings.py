@@ -119,7 +119,7 @@ def create_page():
         # ════════════════════════════════════════════════════════════════════
         # RIGHT PANEL — Settings Content
         # ════════════════════════════════════════════════════════════════════
-        with ui.column().classes("flex-1 p-8 gap-8 max-w-3xl"):
+        with ui.column().classes("flex-1 p-4 gap-4 max-w-3xl"):
 
             ui.label('Settings').classes(
                 'text-3xl font-bold bg-clip-text text-transparent '
@@ -127,12 +127,43 @@ def create_page():
             )
 
             # ── Logging ───────────────────────────────────────────────────────
+            def _logging_footer():
+                with ui.row().classes('items-center justify-between w-full'):
+                    ui.markdown("> Logs are saved to `logs/llm_debug.log`").classes("text-sm text-gray-500 italic")
+                    
+                    def _clear_logs():
+                        with ui.dialog() as dialog, ui.card().classes('bg-[#1e1f20] border border-white/10 p-6 w-96'):
+                            ui.label('Clear Logs?').classes('text-xl font-bold text-gray-200 mb-2')
+                            ui.label('Are you sure you want to clear all logs from llm_debug.log? This cannot be undone.').classes('text-gray-400 text-sm mb-6')
+
+                            with ui.row().classes('w-full justify-end gap-2'):
+                                def _confirm_clear():
+                                    dialog.close()
+                                    import os
+                                    log_path = os.path.join(os.getcwd(), 'logs', 'llm_debug.log')
+                                    try:
+                                        if os.path.exists(log_path):
+                                            with open(log_path, 'w', encoding='utf-8') as f:
+                                                f.truncate(0)
+                                            ui.notify('Logs cleared successfully', type='positive')
+                                        else:
+                                            ui.notify('Log file is already empty or does not exist', type='info')
+                                    except Exception as ex:
+                                        ui.notify(f'Failed to clear logs: {ex}', type='negative')
+
+                                ui.button('Cancel', on_click=dialog.close).props('flat color=grey')
+                                ui.button('Clear', on_click=_confirm_clear).props('flat color=red')
+                        dialog.open()
+
+                    ui.link('Clear Logs', 'javascript:void(0)').classes(
+                        'text-red-400 hover:text-red-300 underline text-xs font-semibold cursor-pointer transition-colors'
+                    ).on('click', _clear_logs)
+
             with ui_card(
                 heading="Logging Configuration",
                 heading_icon="article",
                 heading_color="indigo",
-                footer_text="> Logs are saved to `logs/llm_debug.log`",
-                footer_markdown=True,
+                footer=_logging_footer,
             ):
                 with ui.column().classes('gap-4'):
                     ui.checkbox('Enable Chat Logging',
