@@ -142,6 +142,16 @@ def create_page():
                         ui.label('Quantization').classes('text-xs text-muted')
                         ui.label(info.get('details', {}).get('quantization_level', 'N/A'))
 
+                # Model Ratings
+                stats = rating_service.get_model_stats(model_name)
+                if stats:
+                    ui.label('Model Ratings').classes('text-lg font-bold mt-6 mb-2 text-indigo-400')
+                    with ui.column().classes('w-full p-4 glass-panel rounded gap-2'):
+                        for tag, data in stats.items():
+                            with ui.row().classes('w-full justify-between items-center text-sm'):
+                                ui.label(tag).classes('text-gray-300')
+                                ui.label(f"{data['average']}★ ({data['count']} ratings)").classes('text-yellow-400 font-bold')
+
                 # System Prompt / Modelfile
                 if 'modelfile' in info:
                     ui.label('Modelfile').classes('text-lg font-bold mt-6 mb-2 text-indigo-400')
@@ -242,6 +252,16 @@ def create_page():
                     ui.label(model_name).classes('text-sm font-mono text-indigo-300')
                 loading_spinner = ui.spinner('dots', size='md', color='indigo').tooltip('Loading defaults from model file...')
                 loading_spinner.set_visibility(False)
+
+            # Model Ratings
+            stats = rating_service.get_model_stats(model_name)
+            if stats:
+                with ui.expansion('Model Ratings', icon='star').classes('w-full bg-white/5 rounded-lg mb-4 text-sm').props('dense'):
+                    with ui.column().classes('w-full p-4 gap-2'):
+                        for tag, data in stats.items():
+                            with ui.row().classes('w-full justify-between items-center text-sm'):
+                                ui.label(tag).classes('text-gray-300')
+                                ui.label(f"{data['average']}★ ({data['count']} ratings)").classes('text-yellow-400 font-bold')
 
             # Persona dropdown
             ui.label('Default Persona').classes('text-sm font-medium text-gray-400 mb-1')

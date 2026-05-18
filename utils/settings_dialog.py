@@ -33,10 +33,6 @@ class SettingsDialog:
         self.settings_unlock_btn = None
         self.settings_lock_btn = None
         
-        # Ratings
-        self.ratings_section = None
-        self.stats_content = None
-
         self._build_dialog()
 
     def _build_dialog(self):
@@ -55,18 +51,11 @@ class SettingsDialog:
                         self.settings_unlock_btn = ui.button('Unlock Chat', icon='key', on_click=self.prompt_unlock).props('outline color=warning').classes('w-full hidden')
                         self.settings_lock_btn = ui.button('Lock Chat', icon='lock', on_click=self.do_lock).props('outline color=warning').classes('w-full hidden')
 
-                # Ratings
-                self.ratings_section = ui.expansion('Model Ratings', icon='star').classes('w-full bg-white/5 rounded-lg hidden').props('dense')
-                with self.ratings_section:
-                    self.stats_content = ui.column().classes('w-full p-2 gap-1')
-
                 # Action Buttons
                 ui.button('Clear Chat History', on_click=self.on_clear_chat).props('flat color=negative').classes('w-full mt-4')
 
     def open(self):
         self.sync_ui_from_storage()
-        if self.model_select_component and self.model_select_component.value:
-            asyncio.create_task(self.update_ratings_display(self.model_select_component.value))
         self.dialog.open()
 
     def close(self):
@@ -74,19 +63,6 @@ class SettingsDialog:
 
     def sync_ui_from_storage(self):
         self.update_encryption_ui()
-
-    async def update_ratings_display(self, model: str):
-        stats = rating_service.get_model_stats(model)
-        if stats:
-            self.ratings_section.classes(remove='hidden')
-            self.stats_content.clear()
-            with self.stats_content:
-                for tag, data in stats.items():
-                    with ui.row().classes('w-full justify-between items-center text-xs'):
-                        ui.label(tag).classes('text-gray-300')
-                        ui.label(f"{data['average']}★ ({data['count']})").classes('text-yellow-400')
-        else:
-            self.ratings_section.classes(add='hidden')
 
     # --- Encryption Logic ---
 

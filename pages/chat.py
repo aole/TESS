@@ -322,8 +322,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
     async def update_params(initial=False):
         if not model_select.value: return
         
-        # Update ratings and storage
-        await settings_dialog.update_ratings_display(model_select.value)
+        # Update storage
         app.storage.user['selected_model'] = model_select.value
 
         with model_select:
@@ -467,14 +466,12 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     message_id=msg['id']
                 )
                 ui.notify(f"Rated {rating} stars for {tag}", type='positive')
-                await settings_dialog.update_ratings_display(msg.get('model', 'unknown'))
                 chat_renderer.render_messages(messages)
 
             async def handle_delete_rating(msg, tag):
                 if not msg.get('id'): return
                 rating_service.remove_rating(msg['id'], tag)
                 ui.notify(f"Removed rating for {tag}", type='info')
-                await settings_dialog.update_ratings_display(msg.get('model', 'unknown'))
                 chat_renderer.render_messages(messages)
                 
             def get_msg_ratings(msg_id):
