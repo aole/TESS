@@ -70,20 +70,24 @@ def layout(page_path: str = ''):
                     activity_tooltip = ui.tooltip('Activity: --')
                 
                 async def update_gpu_metrics():
-                    usage = await run.io_bound(system_service.get_primary_gpu_usage)
-                    if usage:
-                        # Update VRAM
-                        used_gb = usage['used'] / 1024
-                        total_gb = usage['total'] / 1024
-                        vram_tooltip.set_text(f"VRAM: {used_gb:.1f} / {total_gb:.0f} GB ({usage['vram_percentage']:.1f}%)")
-                        vram_progress.set_value(usage['vram_percentage'] / 100)
-                        
-                        # Update Activity
-                        activity_tooltip.set_text(f"GPU Activity: {usage['load']}%")
-                        activity_progress.set_value(usage['load'] / 100)
-                    else:
-                        vram_tooltip.set_text("VRAM: N/A")
-                        activity_tooltip.set_text("Activity: N/A")
+                    try:
+                        usage = await run.io_bound(system_service.get_primary_gpu_usage)
+                        if usage:
+                            # Update VRAM
+                            used_gb = usage['used'] / 1024
+                            total_gb = usage['total'] / 1024
+                            vram_tooltip.set_text(f"VRAM: {used_gb:.1f} / {total_gb:.0f} GB ({usage['vram_percentage']:.1f}%)")
+                            vram_progress.set_value(usage['vram_percentage'] / 100)
+                            
+                            # Update Activity
+                            activity_tooltip.set_text(f"GPU Activity: {usage['load']}%")
+                            activity_progress.set_value(usage['load'] / 100)
+                        else:
+                            vram_tooltip.set_text("VRAM: N/A")
+                            activity_tooltip.set_text("Activity: N/A")
+                    except RuntimeError as e:
+                        if "deleted" not in str(e):
+                            raise
                 
                 ui.timer(1.0, update_gpu_metrics)
 
