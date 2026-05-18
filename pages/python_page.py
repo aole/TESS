@@ -59,12 +59,22 @@ def create_page():
         except Exception as e:
             output_log.push(f"Error saving file: {e}")
             
+        # Configure env to include current working directory in PYTHONPATH
+        env = os.environ.copy()
+        cwd = os.getcwd()
+        if 'PYTHONPATH' in env:
+            env['PYTHONPATH'] = cwd + os.pathsep + env['PYTHONPATH']
+        else:
+            env['PYTHONPATH'] = cwd
+
         process = subprocess.Popen(
             [sys.executable, '-u', PYTHON_SCRIPT_FILE],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=env,
+            cwd=cwd,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         )
         
@@ -97,6 +107,14 @@ def create_page():
         terminal_input.value = ''
         output_log.push(f"$ {cmd}")
         
+        # Configure env to include current working directory in PYTHONPATH
+        env = os.environ.copy()
+        cwd = os.getcwd()
+        if 'PYTHONPATH' in env:
+            env['PYTHONPATH'] = cwd + os.pathsep + env['PYTHONPATH']
+        else:
+            env['PYTHONPATH'] = cwd
+
         p = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -104,6 +122,8 @@ def create_page():
             shell=True,
             text=True,
             bufsize=1,
+            env=env,
+            cwd=cwd,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         )
         
