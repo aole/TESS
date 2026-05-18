@@ -1,4 +1,4 @@
-from nicegui import ui
+from nicegui import ui, app
 from services.tool_service import tool_service, Tool
 from utils.llm_client import client
 import asyncio
@@ -443,4 +443,14 @@ def create_page():
 
     # ── Initial Load ─────────────────────────────────────────────────────────
     refresh_list()
-    load_tool_into_panel(None)
+    
+    pending_code = app.storage.user.get('pending_tool_code')
+    if pending_code:
+        del app.storage.user['pending_tool_code']
+        load_tool_into_panel(None, is_new=True)
+        refs['code_editor'].value = pending_code
+        auto_name, _ = parse_code_metadata(pending_code)
+        if auto_name:
+            refs['name_input'].value = auto_name
+    else:
+        load_tool_into_panel(None)

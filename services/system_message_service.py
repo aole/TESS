@@ -1,4 +1,3 @@
-import time
 from datetime import datetime
 from typing import Dict, Callable, Optional
 
@@ -56,11 +55,6 @@ class SystemMessageService:
         # 1. Base system prompt
         sys_content = base_prompt or ""
         sys_content = self.replace_system_variables(sys_content)
-        
-        # 2. Date and Time
-        tz = time.tzname[time.daylight] if hasattr(time, 'daylight') else ""
-        current_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        sys_content += f"\n\nCurrent System Date and Time: {current_time_str} {tz}"
         
         # 3. Memory Instructions
         if memory_enabled:

@@ -2,7 +2,7 @@ import asyncio
 import os
 import sys
 import subprocess
-from nicegui import ui
+from nicegui import ui, app
 
 # Constants
 PYTHON_SCRIPT_FILE = 'data/python/script.py'
@@ -101,6 +101,10 @@ def create_page():
     def clear_output():
         output_log.clear()
 
+    def create_tool_from_code():
+        app.storage.user['pending_tool_code'] = python_code
+        ui.navigate.to('/tools')
+
     async def run_terminal_command():
         cmd = terminal_input.value
         if not cmd: return
@@ -144,6 +148,7 @@ def create_page():
                 ui.button('Run', icon='play_arrow', on_click=run_code).props('color=positive dense')
                 ui.button('Stop', icon='stop', on_click=stop_code).props('color=negative dense flat')
                 ui.button('Clear Output', icon='clear_all', on_click=clear_output).props('color=secondary dense flat')
+                ui.button('Create Tool', icon='build', on_click=create_tool_from_code).props('color=indigo dense flat')
             
             status_badge = ui.badge('Idle', color='grey').classes('text-sm')
             
