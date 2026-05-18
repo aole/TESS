@@ -230,8 +230,9 @@ def create_page():
         saved_repeat_penalty = model_cfg.get('repeat_penalty', 1.1)
         saved_sys = model_cfg.get('system_prompt', '')
         saved_persona = model_cfg.get('persona_id', NO_PERSONA_ID)
-        saved_tools = model_cfg.get('tools_enabled', supports_tools(model_name, family_str))
-        saved_memory = model_cfg.get('memory_enabled', True)
+        tools_permanently_disabled = not supports_tools(model_name, family_str)
+        saved_tools = False if tools_permanently_disabled else model_cfg.get('tools_enabled', True)
+        saved_memory = False if (tools_permanently_disabled or not saved_tools) else model_cfg.get('memory_enabled', True)
 
         with ui.dialog() as dialog, ui.card().classes('w-full max-w-lg p-6 bg-[#18181b] border border-white/10 text-gray-200 rounded-xl shadow-2xl'):
             # Header with loading spinner
@@ -298,8 +299,27 @@ def create_page():
                 tools_checkbox = ui.checkbox('Can use Tools', value=saved_tools).classes('text-sm text-gray-300')
                 memory_checkbox = ui.checkbox('Can use Memory', value=saved_memory).classes('text-sm text-gray-300')
 
+            def on_tools_change(e):
+                if not e.value:
+                    memory_checkbox.value = False
+                    memory_checkbox.disable()
+                else:
+                    if not tools_permanently_disabled:
+                        memory_checkbox.enable()
+
+            tools_checkbox.on('change', on_tools_change)
+
+            # Initial disabled/enabled states
+            if tools_permanently_disabled:
+                tools_checkbox.disable()
+                memory_checkbox.disable()
+                tools_checkbox.tooltip('This model does not support tools / function calling')
+                memory_checkbox.tooltip('This model does not support tools, which are required for memory')
+            elif not saved_tools:
+                memory_checkbox.disable()
+
             # Buttons
-            async def do_save():
+            def do_save(navigate_to_chat: bool = False):
                 # Store configurations in app.storage.general
                 if 'model_configurations' not in app.storage.general:
                     app.storage.general['model_configurations'] = {}
@@ -327,11 +347,14 @@ def create_page():
                 
                 ui.notify(f"Configuration saved for {model_name}", type='positive')
                 dialog.close()
-                ui.navigate.to(f'/chat?model={model_name}&new_chat=true')
+                if navigate_to_chat:
+                    ui.navigate.to(f'/chat?model={model_name}&new_chat=true')
 
-            with ui.row().classes('w-full justify-end gap-2'):
-                ui.button('Cancel', on_click=dialog.close).props('flat color=grey').classes('text-sm')
-                ui.button('Save', on_click=do_save).props('color=primary').classes('text-sm font-bold px-4')
+            with ui.row().classes('w-full justify-between items-center'):
+                ui.button('Save & Chat', on_click=lambda: do_save(navigate_to_chat=True)).props('color=secondary outline').classes('text-sm font-bold')
+                with ui.row().classes('gap-2 items-center'):
+                    ui.button('Cancel', on_click=dialog.close).props('flat color=grey').classes('text-sm')
+                    ui.button('Save', on_click=lambda: do_save(navigate_to_chat=False)).props('color=primary').classes('text-sm font-bold px-4')
                 
         dialog.open()
 
