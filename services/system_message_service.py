@@ -5,6 +5,33 @@ from typing import Dict, Callable, Optional
 class SystemMessageService:
     """Service to compile and provide the final system message sent to the model."""
     
+    def replace_system_variables(self, text: str) -> str:
+        """
+        Replaces variables like {{CURRENT_DATE_TIME}}, {{CURRENT_DATE}},
+        {{CURRENT_TIME}}, {{DAY_OF_WEEK}} in the text with their current values.
+        """
+        if not text:
+            return ""
+            
+        import re
+        from datetime import datetime
+        
+        now = datetime.now()
+        
+        replacements = {
+            'CURRENT_DATE_TIME': now.strftime('%b-%d-%Y %I:%M:%S %p'),
+            'CURRENT_DATE': now.strftime('%b-%d-%Y'),
+            'CURRENT_TIME': now.strftime('%I:%M:%S %p'),
+            'DAY_OF_WEEK': now.strftime('%A'),
+        }
+        
+        def repl(match):
+            var_name = match.group(1).strip().upper()
+            return replacements.get(var_name, match.group(0))
+            
+        # Case-insensitive replacement, matching {{VARIABLE_NAME}} with optional spaces
+        return re.sub(r'\{\{\s*([A-Za-z0-9_]+)\s*\}\}', repl, text)
+    
     def compile_message(
         self,
         base_prompt: str = "",
@@ -28,6 +55,7 @@ class SystemMessageService:
         """
         # 1. Base system prompt
         sys_content = base_prompt or ""
+        sys_content = self.replace_system_variables(sys_content)
         
         # 2. Date and Time
         tz = time.tzname[time.daylight] if hasattr(time, 'daylight') else ""

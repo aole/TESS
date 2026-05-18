@@ -11,7 +11,7 @@ def create_page():
     global _selected_id
     _selected_id = None
 
-    # ── Two-panel layout ──────────────────────────────────────────────────────
+    # ── Three-panel layout ────────────────────────────────────────────────────
     with ui.row().classes('w-full min-h-screen gap-0 items-start pt-14'):
 
         # ════════════════════════════════════════════════════════════════════
@@ -31,7 +31,7 @@ def create_page():
             )
 
         # ════════════════════════════════════════════════════════════════════
-        # RIGHT PANEL — Edit / Detail Panel
+        # MIDDLE PANEL — Edit / Detail Panel
         # ════════════════════════════════════════════════════════════════════
         with ui.column().classes('flex-1 p-8 gap-6 max-w-3xl'):
 
@@ -48,6 +48,76 @@ def create_page():
 
             with form_container:
                 _render_empty_state()
+
+        # ════════════════════════════════════════════════════════════════════
+        # RIGHT PANEL — System Variables Reference
+        # ════════════════════════════════════════════════════════════════════
+        with ui.column().classes(
+            'w-80 shrink-0 min-h-screen border-l border-white/10 '
+            'bg-black/20 sticky top-14 self-start overflow-y-auto p-6 gap-4'
+        ).style('max-height: calc(100vh - 3.5rem)'):
+            
+            with ui.row().classes('items-center gap-2 mb-2 w-full'):
+                ui.icon('token', size='20px').classes('text-purple-400')
+                ui.label('System Variables').classes('text-lg font-bold text-gray-200')
+                
+            ui.label(
+                'Include these variables in your system prompt. They will be replaced '
+                'dynamically when sent to the model.'
+            ).classes('text-xs text-gray-400 leading-relaxed mb-4')
+            
+            from datetime import datetime
+            now = datetime.now()
+            vars_info = [
+                {
+                    'name': 'CURRENT_DATE_TIME',
+                    'example': now.strftime('%b-%d-%Y %I:%M:%S %p'),
+                    'desc': 'Current date and time'
+                },
+                {
+                    'name': 'CURRENT_DATE',
+                    'example': now.strftime('%b-%d-%Y'),
+                    'desc': 'Current date'
+                },
+                {
+                    'name': 'CURRENT_TIME',
+                    'example': now.strftime('%I:%M:%S %p'),
+                    'desc': 'Current time'
+                },
+                {
+                    'name': 'DAY_OF_WEEK',
+                    'example': now.strftime('%A'),
+                    'desc': 'Day of the week'
+                }
+            ]
+            
+            for var in vars_info:
+                with ui.element('div').classes(
+                    'w-full p-4 rounded-xl bg-white/5 border border-white/5 '
+                    'flex flex-col gap-2 hover:border-purple-500/30 transition-all duration-200'
+                ):
+                    with ui.row().classes('w-full items-center justify-between'):
+                        def make_copy_fn(name=var['name']):
+                            return lambda: (
+                                ui.run_javascript(f"navigator.clipboard.writeText('{{{{{name}}}}}')"),
+                                ui.notify(f"Copied {{{{{name}}}}} to clipboard!", type='positive')
+                            )
+                        
+                        ui.label(f"{{{{{var['name']}}}}}").classes(
+                            'text-xs font-mono font-semibold text-purple-300 '
+                            'bg-purple-950/40 px-2 py-1 rounded border border-purple-500/20 '
+                            'cursor-pointer hover:bg-purple-900/40'
+                        ).on('click', make_copy_fn())
+                        
+                        ui.button(
+                            icon='content_copy',
+                            on_click=make_copy_fn()
+                        ).props('flat round dense size=sm color=primary').tooltip('Copy to clipboard')
+                        
+                    ui.label(var['desc']).classes('text-xs text-gray-400')
+                    with ui.row().classes('items-center gap-1.5 mt-1'):
+                        ui.icon('schedule', size='12px').classes('text-gray-500')
+                        ui.label(f"Value: {var['example']}").classes('text-[11px] text-gray-500 font-mono italic')
 
         # ── Wire everything up ────────────────────────────────────────────────
 
