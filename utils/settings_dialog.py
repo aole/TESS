@@ -25,10 +25,6 @@ class SettingsDialog:
         self.model_select_component = model_select_component
         
         self.dialog = None
-        self.temp_slider = None
-        self.top_p_slider = None
-        self.repeat_penalty_slider = None
-        self.system_prompt = None
         self.tool_checks = {}
         
         # Security Buttons (references to be set during build)
@@ -50,27 +46,6 @@ class SettingsDialog:
                 ui.button(icon='close', on_click=self.dialog.close).props('flat round dense color=grey')
 
             with ui.column().classes('w-full gap-4'):
-                # Parameters
-                with ui.expansion('Parameters', icon='tune').classes('w-full bg-white/5 rounded-lg').props('dense'):
-                    with ui.column().classes('w-full p-2 gap-2'):
-                        self.temp_slider = ui.slider(min=0, max=1, step=0.1, value=app.storage.user.get('temperature', 0.7)).props('label-always thumb-path=""')
-                        ui.label('Temperature').classes('text-xs text-muted')
-                        
-                        self.top_p_slider = ui.slider(min=0, max=1, step=0.1, value=app.storage.user.get('top_p', 0.9)).props('label-always')
-                        ui.label('Top P').classes('text-xs text-muted')
-                        
-                        self.repeat_penalty_slider = ui.slider(min=0, max=2, step=0.1, value=app.storage.user.get('repeat_penalty', 1.1)).props('label-always')
-                        ui.label('Repeat Penalty').classes('text-xs text-muted')
-                        
-                        # System prompt (in settings too for convenience)
-                        ui.label('System Prompt').classes('text-xs text-muted mt-2')
-                        self.system_prompt = ui.textarea(
-                            placeholder='You are a helpful assistant...', 
-                            value=app.storage.user.get('system_prompt', '')
-                        ).props('dense rows=3 filled flat').classes('w-full text-sm bg-white/5 rounded-md')
-
-
-
                 # Security (Encryption)
                 with ui.expansion('Security', icon='security').classes('w-full bg-white/5 rounded-lg').props('dense'):
                     with ui.column().classes('w-full p-2 gap-2'):
@@ -86,10 +61,7 @@ class SettingsDialog:
                     self.stats_content = ui.column().classes('w-full p-2 gap-1')
 
                 # Action Buttons
-                ui.button('Save Changes', on_click=self.save_settings).props('flat color=primary').classes('w-full mt-4')
-                with ui.row().classes('w-full gap-2 items-center'):
-                    ui.button('Clear Chat', on_click=self.on_clear_chat).props('outline color=negative').classes('flex-grow')
-                    ui.button('Defaults', on_click=self.restore_defaults).props('outline color=grey').classes('flex-grow')
+                ui.button('Clear Chat History', on_click=self.on_clear_chat).props('flat color=negative').classes('w-full mt-4')
 
     def open(self):
         self.sync_ui_from_storage()
@@ -101,37 +73,7 @@ class SettingsDialog:
         self.dialog.close()
 
     def sync_ui_from_storage(self):
-        self.temp_slider.value = app.storage.user.get('temperature', 0.7)
-        self.top_p_slider.value = app.storage.user.get('top_p', 0.9)
-        self.repeat_penalty_slider.value = app.storage.user.get('repeat_penalty', 1.1)
-        self.system_prompt.value = app.storage.user.get('system_prompt', '')
-        
-            
         self.update_encryption_ui()
-
-    async def save_settings(self):
-        app.storage.user['temperature'] = self.temp_slider.value
-        app.storage.user['top_p'] = self.top_p_slider.value
-        app.storage.user['repeat_penalty'] = self.repeat_penalty_slider.value
-        app.storage.user['system_prompt'] = self.system_prompt.value
-        ui.notify('Settings saved and persisted', type='positive')
-        self.dialog.close()
-
-    async def restore_defaults(self):
-        model = self.model_select_component.value if self.model_select_component else app.storage.user.get('selected_model')
-        if not model:
-            ui.notify("No model selected", type='warning')
-            return
-        
-        try:
-            params = await client.get_model_parameters(model)
-            self.temp_slider.value = params.get('temperature', 0.7)
-            self.top_p_slider.value = params.get('top_p', 0.9)
-            self.repeat_penalty_slider.value = params.get('repeat_penalty', 1.1)
-            self.system_prompt.value = params.get('system', '')
-            ui.notify(f"Restored defaults for {model}", type='info')
-        except Exception as e:
-            ui.notify(f"Error restoring defaults: {e}", type='negative')
 
     async def update_ratings_display(self, model: str):
         stats = rating_service.get_model_stats(model)

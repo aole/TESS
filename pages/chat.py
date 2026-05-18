@@ -336,10 +336,6 @@ async def create_page(model_param: str = None, new_chat: bool = False):
             model_configs = app.storage.general.get('model_configurations', {})
             model_cfg = model_configs.get(model_select.value)
             if model_cfg:
-                app.storage.user['temperature'] = model_cfg.get('temperature', 0.7)
-                app.storage.user['top_p'] = model_cfg.get('top_p', 0.9)
-                app.storage.user['repeat_penalty'] = model_cfg.get('repeat_penalty', 1.1)
-                
                 # Apply system prompt / persona
                 persona_id = model_cfg.get('persona_id', NO_PERSONA_ID)
                 app.storage.user['selected_persona_id'] = persona_id
@@ -387,47 +383,12 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 return
 
             # If this is the initial load and we have saved settings, don't overwrite them with model defaults
-            has_saved = any(k in app.storage.user for k in ['temperature', 'top_p', 'repeat_penalty', 'system_prompt'])
-            if initial and has_saved:
+            has_saved = any(k in app.storage.user for k in ['system_prompt'])
+            if initial and has_saved and app.storage.user.get('system_prompt'):
                 return
 
             new_params = await client.get_model_parameters(model_select.value)
             
-            # Check for differences
-            diffs = []
-            if 'temperature' in new_params and abs(new_params['temperature'] - app.storage.user.get('temperature', 0.7)) > 0.01:
-                diffs.append(f"Temperature: {app.storage.user.get('temperature', 0.7)} → {new_params['temperature']}")
-            if 'top_p' in new_params and abs(new_params['top_p'] - app.storage.user.get('top_p', 0.9)) > 0.01:
-                diffs.append(f"Top P: {app.storage.user.get('top_p', 0.9)} → {new_params['top_p']}")
-            if 'repeat_penalty' in new_params and abs(new_params['repeat_penalty'] - app.storage.user.get('repeat_penalty', 1.1)) > 0.01:
-                diffs.append(f"Repeat Penalty: {app.storage.user.get('repeat_penalty', 1.1)} → {new_params['repeat_penalty']}")
-            
-            new_sys = new_params.get('system', '')
-            if new_sys != app.storage.user.get('system_prompt', ''):
-                diffs.append("System Prompt will change")
-
-            if not initial and diffs:
-                with ui.dialog() as confirm_dialog, ui.card().classes('p-6 bg-[#18181b] border border-white/10'):
-                    ui.label('Apply Model Defaults?').classes('text-xl font-bold text-gray-200 mb-2')
-                    ui.label('The new model has different default parameters:').classes('text-sm text-gray-400 mb-4')
-                    for d in diffs:
-                        ui.label(f"• {d}").classes('text-xs text-gray-500 ml-2')
-                    
-                    with ui.row().classes('w-full justify-end gap-2 mt-6'):
-                        ui.button('Keep Current', on_click=lambda: confirm_dialog.submit(False)).props('flat color=grey')
-                        ui.button('Apply New', on_click=lambda: confirm_dialog.submit(True)).props('flat color=primary')
-                
-                should_update = await confirm_dialog
-                if not should_update:
-                    return
-
-            # Apply updates
-            if 'temperature' in new_params:
-                app.storage.user['temperature'] = new_params['temperature']
-            if 'top_p' in new_params:
-                app.storage.user['top_p'] = new_params['top_p']
-            if 'repeat_penalty' in new_params:
-                app.storage.user['repeat_penalty'] = new_params['repeat_penalty']
             if 'system' in new_params:
                 app.storage.user['system_prompt'] = new_params['system']
             
@@ -728,13 +689,23 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         memory_enabled = bool(app.storage.user.get('memory_enabled', True) and config_manager.is_tool_active('user_memory_tool'))
                         has_attachments = bool(state.get('has_attachments'))
 
+                        # Fetch parameters directly from model's configurations or model's defaults
+                        model_configs = app.storage.general.get('model_configurations', {})
+                        model_cfg = model_configs.get(model_select.value) or {}
+                        
+                        model_params = await client.get_model_parameters(model_select.value)
+                        
+                        temperature = model_cfg.get('temperature') or model_params.get('temperature', 0.7)
+                        top_p = model_cfg.get('top_p') or model_params.get('top_p', 0.9)
+                        repeat_penalty = model_cfg.get('repeat_penalty') or model_params.get('repeat_penalty', 1.1)
+
                         await stream_service.start_generation(
                             stream_id=current_chat_id,
                             messages=messages,
                             model=model_select.value,
-                            temperature=app.storage.user.get('temperature', 0.7),
-                            top_p=app.storage.user.get('top_p', 0.9),
-                            repeat_penalty=app.storage.user.get('repeat_penalty', 1.1),
+                            temperature=temperature,
+                            top_p=top_p,
+                            repeat_penalty=repeat_penalty,
                             system_prompt=app.storage.user.get('system_prompt', ''),
                             tool_funcs_map=tool_funcs_map,
                             log_requests=config_manager.is_logging_enabled('chat'),
