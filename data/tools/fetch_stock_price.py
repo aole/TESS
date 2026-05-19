@@ -67,8 +67,8 @@ def fetch_stock_price(ticker: str) -> dict[str, any]:
             "exchange": meta.get("exchangeName"),
             "change_percent": f"{change_pct:+.2f}%",
             "day_high": meta.get("regularMarketDayHigh"),
-            "day_low": meta.get("regularMarketDayLow"),
-            "market_state": "Open" if meta.get("marketState") == "REGULAR" else "Closed/Post-Market"
+            "day_low": meta.get("regularMarketDayLow")
+            # "market_state": "Open" if meta.get("marketState") == "REGULAR" else "Closed/Post-Market"
         }
 
     except requests.exceptions.HTTPError as e:

@@ -113,15 +113,25 @@ class BatchService:
             # But simpler to verify basic functionality first.
 
             # Fetch model-specific parameters
+            from nicegui import app
+            model_configs = app.storage.general.get('model_configurations', {})
+            model_cfg = model_configs.get(model) or {}
+            
             params = await client.get_model_parameters(model)
+            
+            temperature = model_cfg.get('temperature') or params.get('temperature', 0.7)
+            top_p = model_cfg.get('top_p') or params.get('top_p', 0.9)
+            repeat_penalty = model_cfg.get('repeat_penalty') or params.get('repeat_penalty', 1.1)
+            top_k = model_cfg.get('top_k') or params.get('top_k', 40)
             
             await stream_service.start_generation(
                 stream_id=stream_id,
                 messages=m_state['messages'], # Use messages from state
                 model=model,
-                temperature=params.get('temperature', 0.7),
-                top_p=params.get('top_p', 0.9),
-                repeat_penalty=params.get('repeat_penalty', 1.1),
+                temperature=temperature,
+                top_p=top_p,
+                repeat_penalty=repeat_penalty,
+                top_k=top_k,
                 system_prompt=state['system_prompt'],
                 log_requests=config_manager.is_logging_enabled('batch'),
                 keep_alive=0

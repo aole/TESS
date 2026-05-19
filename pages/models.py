@@ -238,6 +238,7 @@ def create_page():
         saved_temp = model_cfg.get('temperature', 0.7)
         saved_top_p = model_cfg.get('top_p', 0.9)
         saved_repeat_penalty = model_cfg.get('repeat_penalty', 1.1)
+        saved_top_k = model_cfg.get('top_k', 40)
         saved_sys = model_cfg.get('system_prompt', '')
         saved_persona = model_cfg.get('persona_id', NO_PERSONA_ID)
         tools_permanently_disabled = not supports_tools(model_name, family_str)
@@ -314,6 +315,14 @@ def create_page():
                         repeat_penalty_slider = ui.slider(min=0.0, max=2.0, step=0.1, value=saved_repeat_penalty).props('label-always')
                         rep_val.bind_text_from(repeat_penalty_slider, 'value', backward=lambda v: f"{v:.1f}")
 
+                    # Top K
+                    with ui.column().classes('w-full gap-1'):
+                        with ui.row().classes('w-full justify-between'):
+                            ui.label('Top K').classes('text-xs text-gray-400')
+                            top_k_val = ui.label().classes('text-xs text-indigo-400 font-mono')
+                        top_k_slider = ui.slider(min=1, max=100, step=1, value=saved_top_k).props('label-always')
+                        top_k_val.bind_text_from(top_k_slider, 'value', backward=lambda v: f"{int(v)}")
+
             # Checkboxes
             with ui.row().classes('w-full gap-6 mb-6'):
                 tools_checkbox = ui.checkbox('Can use Tools', value=saved_tools).classes('text-sm text-gray-300')
@@ -348,6 +357,7 @@ def create_page():
                     'temperature': temp_slider.value,
                     'top_p': top_p_slider.value,
                     'repeat_penalty': repeat_penalty_slider.value,
+                    'top_k': int(top_k_slider.value),
                     'system_prompt': sys_prompt_input.value,
                     'persona_id': persona_select.value,
                     'tools_enabled': tools_checkbox.value,
@@ -388,6 +398,7 @@ def create_page():
                     temp_slider.value = defaults.get('temperature', 0.7)
                     top_p_slider.value = defaults.get('top_p', 0.9)
                     repeat_penalty_slider.value = defaults.get('repeat_penalty', 1.1)
+                    top_k_slider.value = defaults.get('top_k', 40)
                     sys_prompt_input.value = defaults.get('system', '')
                 except Exception:
                     pass

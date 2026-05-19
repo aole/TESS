@@ -274,10 +274,34 @@ async def create_page():
             await scroll_to_bottom('arena-scroll-1')
             await scroll_to_bottom('arena-scroll-2')
 
+            # Fetch parameters directly from model's configurations or model's defaults
+            model_configs = app.storage.general.get('model_configurations', {})
+            
+            model_params1, model_params2 = await asyncio.gather(
+                client.get_model_parameters(model1),
+                client.get_model_parameters(model2)
+            )
+            
+            model_cfg1 = model_configs.get(model1) or {}
+            temperature1 = model_cfg1.get('temperature') or model_params1.get('temperature', 0.7)
+            top_p1 = model_cfg1.get('top_p') or model_params1.get('top_p', 0.9)
+            repeat_penalty1 = model_cfg1.get('repeat_penalty') or model_params1.get('repeat_penalty', 1.1)
+            top_k1 = model_cfg1.get('top_k') or model_params1.get('top_k', 40)
+
+            model_cfg2 = model_configs.get(model2) or {}
+            temperature2 = model_cfg2.get('temperature') or model_params2.get('temperature', 0.7)
+            top_p2 = model_cfg2.get('top_p') or model_params2.get('top_p', 0.9)
+            repeat_penalty2 = model_cfg2.get('repeat_penalty') or model_params2.get('repeat_penalty', 1.1)
+            top_k2 = model_cfg2.get('top_k') or model_params2.get('top_k', 40)
+
             t1 = await stream_service.start_generation(
                 stream_id=sid1,
                 messages=messages1,
                 model=model1,
+                temperature=temperature1,
+                top_p=top_p1,
+                repeat_penalty=repeat_penalty1,
+                top_k=top_k1,
                 system_prompt=system_prompt.value,
                 log_requests=config_manager.is_logging_enabled('arena'),
                 listener=on_stream_event_1,
@@ -288,6 +312,10 @@ async def create_page():
                 stream_id=sid2,
                 messages=messages2,
                 model=model2,
+                temperature=temperature2,
+                top_p=top_p2,
+                repeat_penalty=repeat_penalty2,
+                top_k=top_k2,
                 system_prompt=system_prompt.value,
                 log_requests=config_manager.is_logging_enabled('arena'),
                 listener=on_stream_event_2,

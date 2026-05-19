@@ -254,6 +254,8 @@ class OllamaClient(BaseLLMClient):
                                 params['top_p'] = float(value)
                             elif key == 'repeat_penalty':
                                 params['repeat_penalty'] = float(value)
+                            elif key == 'top_k':
+                                params['top_k'] = int(value)
                             # Add more parsers as needed
                         except ValueError:
                             pass
