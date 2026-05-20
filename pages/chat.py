@@ -371,18 +371,23 @@ async def create_page(model_param: str = None, new_chat: bool = False):
 
                 # Tools configuration
                 tools_enabled = model_cfg.get('tools_enabled', True)
+                app.storage.user['tools_enabled'] = tools_enabled
                 if 'models_without_tools' not in app.storage.general:
                     app.storage.general['models_without_tools'] = []
-                
+
                 if not tools_enabled:
                     if model_select.value not in app.storage.general['models_without_tools']:
                         app.storage.general['models_without_tools'].append(model_select.value)
+                    app.storage.user['web_search_enabled'] = False
+                    app.storage.user['visual_enabled'] = False
+                    app.storage.user['memory_enabled'] = False
                 else:
                     if model_select.value in app.storage.general['models_without_tools']:
                         app.storage.general['models_without_tools'].remove(model_select.value)
 
                 # Memory configuration
-                app.storage.user['memory_enabled'] = model_cfg.get('memory_enabled', True)
+                if tools_enabled:
+                    app.storage.user['memory_enabled'] = model_cfg.get('memory_enabled', True)
 
                 # Sync UI components
                 try:
@@ -664,34 +669,37 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     state['stopping'] = False
                     update_button_state()
 
+                    tools_enabled = app.storage.user.get('tools_enabled', True)
                     tool_funcs_map = {}
-                    available_tools = [t for t in tool_service.get_all_tools() if t.active]
-                    
-                    for t in available_tools:
-                        if not t.is_builtin:
-                            func = load_tool_function(t.name, t.code)
-                            if func: tool_funcs_map[func.__name__] = func
-                                    
-                    if app.storage.user.get('web_search_enabled', False) and config_manager.is_tool_active('web_search_tool'):
-                        try:
-                            from utils.web_search_tool import web_search, extract_url
-                            tool_funcs_map['web_search'] = web_search
-                            tool_funcs_map['extract_url'] = extract_url
-                        except ImportError: pass
-                            
-                    if app.storage.user.get('visual_enabled', False) and config_manager.is_tool_active('visual_tool'):
-                        try:
-                            from utils.visual_tool import generate_image
-                            tool_funcs_map['generate_image'] = generate_image
-                        except ImportError: pass
-                    
-                    if app.storage.user.get('memory_enabled', True) and config_manager.is_tool_active('user_memory_tool'):
-                        try:
-                            from utils.memory_tool import update_user_info, get_user_info, delete_user_info
-                            tool_funcs_map['update_user_info'] = update_user_info
-                            tool_funcs_map['get_user_info'] = get_user_info
-                            tool_funcs_map['delete_user_info'] = delete_user_info
-                        except ImportError: pass
+
+                    if tools_enabled:
+                        available_tools = [t for t in tool_service.get_all_tools() if t.active]
+
+                        for t in available_tools:
+                            if not t.is_builtin:
+                                func = load_tool_function(t.name, t.code)
+                                if func: tool_funcs_map[func.__name__] = func
+
+                        if app.storage.user.get('web_search_enabled', False) and config_manager.is_tool_active('web_search_tool'):
+                            try:
+                                from utils.web_search_tool import web_search, extract_url
+                                tool_funcs_map['web_search'] = web_search
+                                tool_funcs_map['extract_url'] = extract_url
+                            except ImportError: pass
+
+                        if app.storage.user.get('visual_enabled', False) and config_manager.is_tool_active('visual_tool'):
+                            try:
+                                from utils.visual_tool import generate_image
+                                tool_funcs_map['generate_image'] = generate_image
+                            except ImportError: pass
+
+                        if app.storage.user.get('memory_enabled', True) and config_manager.is_tool_active('user_memory_tool'):
+                            try:
+                                from utils.memory_tool import update_user_info, get_user_info, delete_user_info
+                                tool_funcs_map['update_user_info'] = update_user_info
+                                tool_funcs_map['get_user_info'] = get_user_info
+                                tool_funcs_map['delete_user_info'] = delete_user_info
+                            except ImportError: pass
                     
                     if not current_chat_id: await save_current_chat()
                     
@@ -704,7 +712,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                                     chat.messages = updated_messages
                                     chat_service.save_chat(chat)
 
-                        memory_enabled = bool(app.storage.user.get('memory_enabled', True) and config_manager.is_tool_active('user_memory_tool'))
+                        memory_enabled = bool(tools_enabled and app.storage.user.get('memory_enabled', True) and config_manager.is_tool_active('user_memory_tool'))
                         has_attachments = bool(state.get('has_attachments'))
 
                         # Fetch parameters directly from model's configurations or model's defaults
@@ -824,40 +832,72 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     tts_btn.on('click', toggle_tts)
                     if config_manager.is_tts_enabled(): tts_btn.props("icon=volume_up color=primary")
 
-                        
+
+                    tools_btn = ui.button(icon='construction').props('flat round color=grey').tooltip('Toggle Tools')
+                    def toggle_tools():
+                        is_on = not app.storage.user.get('tools_enabled', True)
+                        app.storage.user['tools_enabled'] = is_on
+                        if not is_on:
+                            app.storage.user['web_search_enabled'] = False
+                            app.storage.user['visual_enabled'] = False
+                            app.storage.user['memory_enabled'] = False
+                        update_tool_buttons()
+                    tools_btn.on('click', toggle_tools)
+
                     web_search_btn = ui.button(icon='public_off').props('flat round color=grey').tooltip('Toggle Web Search')
                     if not config_manager.is_tool_active('web_search_tool'):
                         web_search_btn.classes('hidden')
                     def toggle_web_search():
+                        if not app.storage.user.get('tools_enabled', True):
+                            return
                         app.storage.user['web_search_enabled'] = not app.storage.user.get('web_search_enabled', False)
-                        is_on = app.storage.user['web_search_enabled']
-                        web_search_btn.props(f"icon={'public' if is_on else 'public_off'} color={'primary' if is_on else 'grey'}")
+                        update_tool_buttons()
                     web_search_btn.on('click', toggle_web_search)
-                    if app.storage.user.get('web_search_enabled', False): web_search_btn.props("icon=public color=primary")
-                        
+
                     visual_btn = ui.button(icon='brush').props('flat round color=grey').tooltip('Toggle Image Generation')
                     if not config_manager.is_tool_active('visual_tool'):
                         visual_btn.classes('hidden')
                     def toggle_visual():
+                        if not app.storage.user.get('tools_enabled', True):
+                            return
                         app.storage.user['visual_enabled'] = not app.storage.user.get('visual_enabled', False)
-                        is_on = app.storage.user['visual_enabled']
-                        visual_btn.props(f"color={'primary' if is_on else 'grey'}")
+                        update_tool_buttons()
                     visual_btn.on('click', toggle_visual)
-                    if app.storage.user.get('visual_enabled', False): visual_btn.props("color=primary")
-                    
-                    def update_tool_buttons():
-                        is_on = app.storage.user.get('memory_enabled', True)
-                        memory_btn.props(f"icon={'psychology' if is_on else 'psychology_alt'} color={'primary' if is_on else 'grey'}")
 
                     memory_btn = ui.button(icon='psychology').props('flat round color=grey').tooltip('Toggle User Memory')
                     if not config_manager.is_tool_active('user_memory_tool'):
                         memory_btn.classes('hidden')
                     def toggle_memory():
+                        if not app.storage.user.get('tools_enabled', True):
+                            return
                         app.storage.user['memory_enabled'] = not app.storage.user.get('memory_enabled', True)
                         update_tool_buttons()
                     memory_btn.on('click', toggle_memory)
+
+                    def update_tool_buttons():
+                        tools_on = app.storage.user.get('tools_enabled', True)
+                        tools_btn.props(f"icon=construction color={'primary' if tools_on else 'grey'}")
+
+                        web_on = tools_on and app.storage.user.get('web_search_enabled', False)
+                        web_search_btn.props(f"icon={'public' if web_on else 'public_off'} color={'primary' if web_on else 'grey'}")
+
+                        visual_on = tools_on and app.storage.user.get('visual_enabled', False)
+                        visual_btn.props(f"color={'primary' if visual_on else 'grey'}")
+
+                        memory_on = tools_on and app.storage.user.get('memory_enabled', True)
+                        memory_btn.props(f"icon={'psychology' if memory_on else 'psychology_alt'} color={'primary' if memory_on else 'grey'}")
+
+                        if tools_on:
+                            if config_manager.is_tool_active('web_search_tool'): web_search_btn.enable()
+                            if config_manager.is_tool_active('visual_tool'): visual_btn.enable()
+                            if config_manager.is_tool_active('user_memory_tool'): memory_btn.enable()
+                        else:
+                            web_search_btn.disable()
+                            visual_btn.disable()
+                            memory_btn.disable()
+
                     update_tool_buttons()
-                    
+
                     ui.space()
                     send_btn = ui.button(icon='send', on_click=send_message).props('flat round color=primary')
                     

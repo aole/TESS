@@ -100,8 +100,9 @@ class StreamService:
                     app.storage.general['models_without_tools'] = []
                 if model in app.storage.general['models_without_tools']:
                     tool_funcs_map = None
+                    memory_enabled = False
             except Exception: pass
-            
+
             # Prepare API messages
             api_messages = []
             from services.system_message_service import system_message_service
@@ -111,9 +112,9 @@ class StreamService:
                 has_attachments=has_attachments,
                 tool_funcs_map=tool_funcs_map
             )
-            
+
             api_messages.append({'role': 'system', 'content': sys_content})
-                
+            
             for msg in messages:
                 if msg['role'] in ['user', 'assistant', 'tool']:
                     clean_msg = {k:v for k,v in msg.items() if k in ['role', 'content', 'images', 'tool_calls']}

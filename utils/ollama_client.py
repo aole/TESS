@@ -158,8 +158,9 @@ class OllamaClient(BaseLLMClient):
                 'messages': messages,
                 'stream': stream,
                 'options': options,
-                'tools': tools
             }
+            if tools:
+                chat_args['tools'] = tools
             if keep_alive is not None:
                 chat_args['keep_alive'] = keep_alive
 
