@@ -304,8 +304,9 @@ def create_page():
                         with ui.row().classes('w-full justify-between'):
                             ui.label('Top P').classes('text-xs text-gray-400')
                             top_p_val = ui.label().classes('text-xs text-indigo-400 font-mono')
-                        top_p_slider = ui.slider(min=0.0, max=1.0, step=0.1, value=saved_top_p).props('label-always')
-                        top_p_val.bind_text_from(top_p_slider, 'value', backward=lambda v: f"{v:.1f}")
+                        # Allow finer control (e.g. 0.95) for nucleus sampling.
+                        top_p_slider = ui.slider(min=0.0, max=1.0, step=0.05, value=saved_top_p).props('label-always')
+                        top_p_val.bind_text_from(top_p_slider, 'value', backward=lambda v: f"{v:.2f}")
 
                     # Repeat Penalty
                     with ui.column().classes('w-full gap-1'):
