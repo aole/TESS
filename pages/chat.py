@@ -21,9 +21,30 @@ async def create_page(model_param: str = None, new_chat: bool = False):
     # State
     page_client = ui.context.client
 
+    def _get_most_recent_empty_chat():
+        """Return the most recently updated chat if it has no messages; otherwise None."""
+        try:
+            chats = chat_service.list_chats()
+            if not chats:
+                return None
+            last = chats[0]
+            chat = chat_service.load_chat(last.get('id'))
+            if chat and not chat.messages:
+                return chat
+        except Exception:
+            pass
+        return None
+
+    def _create_or_reuse_empty_chat(title: str = "New Chat"):
+        """Avoid creating duplicate empty chats when the last chat is already empty."""
+        chat = _get_most_recent_empty_chat()
+        if chat:
+            return chat
+        return chat_service.create_chat(title=title)
+
     if new_chat:
-        # Create a new chat session immediately
-        chat = chat_service.create_chat(title="New Chat")
+        # If the most recent chat is empty, reuse it instead of creating another empty chat.
+        chat = _create_or_reuse_empty_chat(title="New Chat")
         app.storage.user['chat_id'] = chat.id
         app.storage.user['messages'] = []
         
@@ -214,8 +235,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
         if current_chat_id:
             app.storage.user['unlocked_chats'].pop(current_chat_id, None)
 
-        # Create a new chat session immediately so it appears in history
-        chat = chat_service.create_chat(title="New Chat")
+        # If the most recent chat is empty, reuse it instead of creating another empty chat.
+        chat = _create_or_reuse_empty_chat(title="New Chat")
         current_chat_id = chat.id
         messages = []
         
