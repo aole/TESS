@@ -240,7 +240,6 @@ def create_page():
         saved_min_p = model_cfg.get('min_p', 0.0)
         saved_repeat_penalty = model_cfg.get('repeat_penalty', 1.1)
         saved_top_k = model_cfg.get('top_k', 40)
-        saved_sys = model_cfg.get('system_prompt', '')
         saved_persona = model_cfg.get('persona_id', NO_PERSONA_ID)
         tools_permanently_disabled = not supports_tools(model_name, family_str)
         saved_tools = False if tools_permanently_disabled else model_cfg.get('tools_enabled', True)
@@ -268,26 +267,11 @@ def create_page():
             # Persona dropdown
             ui.label('Default Persona').classes('text-sm font-medium text-gray-400 mb-1')
             persona_opts = {p['id']: p['name'] for p in persona_service.get_all_persona_options()}
-            
-            def on_persona_change(e):
-                pid = e.value
-                if pid != NO_PERSONA_ID:
-                    persona = persona_service.get_persona(pid)
-                    if persona:
-                        sys_prompt_input.value = persona['system_prompt']
-            
+
             persona_select = ui.select(
                 options=persona_opts,
-                value=saved_persona,
-                on_change=on_persona_change
+                value=saved_persona
             ).props('dense options-dense outlined dark').classes('w-full text-sm mb-4')
-
-            # System Prompt
-            ui.label('Default System Message / Persona Prompt').classes('text-sm font-medium text-gray-400 mb-1')
-            sys_prompt_input = ui.textarea(
-                placeholder='You are a helpful assistant...',
-                value=saved_sys
-            ).props('dense rows=3 filled flat').classes('w-full text-sm mb-4 bg-white/5 rounded-md text-gray-200')
 
             # Sliders for parameters
             with ui.expansion('Model Parameters', icon='tune', value=True).classes('w-full bg-white/5 rounded-lg mb-4').props('dense'):
@@ -297,8 +281,8 @@ def create_page():
                         with ui.row().classes('w-full justify-between'):
                             ui.label('Temperature').classes('text-xs text-gray-400')
                             temp_val = ui.label().classes('text-xs text-indigo-400 font-mono')
-                        temp_slider = ui.slider(min=0.0, max=2.0, step=0.1, value=saved_temp).props('label-always thumb-path=""')
-                        temp_val.bind_text_from(temp_slider, 'value', backward=lambda v: f"{v:.1f}")
+                        temp_slider = ui.slider(min=0.0, max=2.0, step=0.1, value=saved_temp)
+                        temp_val.bind_text_from(temp_slider, 'value', backward=lambda v: f"{v:.2f}")
 
                     # Top P
                     with ui.column().classes('w-full gap-1'):
@@ -306,7 +290,7 @@ def create_page():
                             ui.label('Top P').classes('text-xs text-gray-400')
                             top_p_val = ui.label().classes('text-xs text-indigo-400 font-mono')
                         # Allow finer control (e.g. 0.95) for nucleus sampling.
-                        top_p_slider = ui.slider(min=0.0, max=1.0, step=0.05, value=saved_top_p).props('label-always')
+                        top_p_slider = ui.slider(min=0.0, max=1.0, step=0.05, value=saved_top_p)
                         top_p_val.bind_text_from(top_p_slider, 'value', backward=lambda v: f"{v:.2f}")
 
                     # Min P
@@ -314,7 +298,7 @@ def create_page():
                         with ui.row().classes('w-full justify-between'):
                             ui.label('Min P').classes('text-xs text-gray-400')
                             min_p_val = ui.label().classes('text-xs text-indigo-400 font-mono')
-                        min_p_slider = ui.slider(min=0.0, max=1.0, step=0.05, value=saved_min_p).props('label-always')
+                        min_p_slider = ui.slider(min=0.0, max=1.0, step=0.05, value=saved_min_p)
                         min_p_val.bind_text_from(min_p_slider, 'value', backward=lambda v: f"{v:.2f}")
 
                     # Repeat Penalty
@@ -322,7 +306,7 @@ def create_page():
                         with ui.row().classes('w-full justify-between'):
                             ui.label('Repeat Penalty').classes('text-xs text-gray-400')
                             rep_val = ui.label().classes('text-xs text-indigo-400 font-mono')
-                        repeat_penalty_slider = ui.slider(min=0.0, max=1.5, step=0.1, value=saved_repeat_penalty).props('label-always')
+                        repeat_penalty_slider = ui.slider(min=0.0, max=1.5, step=0.1, value=saved_repeat_penalty)
                         rep_val.bind_text_from(repeat_penalty_slider, 'value', backward=lambda v: f"{v:.1f}")
 
                     # Top K
@@ -330,7 +314,7 @@ def create_page():
                         with ui.row().classes('w-full justify-between'):
                             ui.label('Top K').classes('text-xs text-gray-400')
                             top_k_val = ui.label().classes('text-xs text-indigo-400 font-mono')
-                        top_k_slider = ui.slider(min=1, max=200, step=1, value=saved_top_k).props('label-always')
+                        top_k_slider = ui.slider(min=1, max=200, step=1, value=saved_top_k)
                         top_k_val.bind_text_from(top_k_slider, 'value', backward=lambda v: f"{int(v)}")
 
             # Checkboxes
@@ -362,6 +346,9 @@ def create_page():
                 # Store configurations in app.storage.general
                 if 'model_configurations' not in app.storage.general:
                     app.storage.general['model_configurations'] = {}
+
+                selected_persona = persona_service.get_persona(persona_select.value)
+                system_prompt = selected_persona['system_prompt'] if selected_persona else ''
                 
                 app.storage.general['model_configurations'][model_name] = {
                     'temperature': temp_slider.value,
@@ -369,7 +356,7 @@ def create_page():
                     'min_p': min_p_slider.value,
                     'repeat_penalty': repeat_penalty_slider.value,
                     'top_k': int(top_k_slider.value),
-                    'system_prompt': sys_prompt_input.value,
+                    'system_prompt': system_prompt,
                     'persona_id': persona_select.value,
                     'tools_enabled': tools_checkbox.value,
                     'memory_enabled': memory_checkbox.value
@@ -411,7 +398,6 @@ def create_page():
                     min_p_slider.value = defaults.get('min_p', 0.0)
                     repeat_penalty_slider.value = defaults.get('repeat_penalty', 1.1)
                     top_k_slider.value = defaults.get('top_k', 40)
-                    sys_prompt_input.value = defaults.get('system', '')
                 except Exception:
                     pass
                 finally:
