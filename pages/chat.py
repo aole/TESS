@@ -715,6 +715,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         
                         temperature = model_cfg.get('temperature') or model_params.get('temperature', 0.7)
                         top_p = model_cfg.get('top_p') or model_params.get('top_p', 0.9)
+                        min_p = model_cfg.get('min_p', model_params.get('min_p', 0.0))
                         repeat_penalty = model_cfg.get('repeat_penalty') or model_params.get('repeat_penalty', 1.1)
                         top_k = model_cfg.get('top_k') or model_params.get('top_k', 40)
 
@@ -724,6 +725,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                             model=model_select.value,
                             temperature=temperature,
                             top_p=top_p,
+                            min_p=min_p,
                             repeat_penalty=repeat_penalty,
                             top_k=top_k,
                             system_prompt=app.storage.user.get('system_prompt', ''),

@@ -252,6 +252,8 @@ class OllamaClient(BaseLLMClient):
                                 params['temperature'] = float(value)
                             elif key == 'top_p':
                                 params['top_p'] = float(value)
+                            elif key == 'min_p':
+                                params['min_p'] = float(value)
                             elif key == 'repeat_penalty':
                                 params['repeat_penalty'] = float(value)
                             elif key == 'top_k':

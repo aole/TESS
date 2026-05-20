@@ -121,6 +121,7 @@ class BatchService:
             
             temperature = model_cfg.get('temperature') or params.get('temperature', 0.7)
             top_p = model_cfg.get('top_p') or params.get('top_p', 0.9)
+            min_p = model_cfg.get('min_p', params.get('min_p', 0.0))
             repeat_penalty = model_cfg.get('repeat_penalty') or params.get('repeat_penalty', 1.1)
             top_k = model_cfg.get('top_k') or params.get('top_k', 40)
             
@@ -130,6 +131,7 @@ class BatchService:
                 model=model,
                 temperature=temperature,
                 top_p=top_p,
+                min_p=min_p,
                 repeat_penalty=repeat_penalty,
                 top_k=top_k,
                 system_prompt=state['system_prompt'],

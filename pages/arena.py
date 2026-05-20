@@ -285,12 +285,14 @@ async def create_page():
             model_cfg1 = model_configs.get(model1) or {}
             temperature1 = model_cfg1.get('temperature') or model_params1.get('temperature', 0.7)
             top_p1 = model_cfg1.get('top_p') or model_params1.get('top_p', 0.9)
+            min_p1 = model_cfg1.get('min_p', model_params1.get('min_p', 0.0))
             repeat_penalty1 = model_cfg1.get('repeat_penalty') or model_params1.get('repeat_penalty', 1.1)
             top_k1 = model_cfg1.get('top_k') or model_params1.get('top_k', 40)
 
             model_cfg2 = model_configs.get(model2) or {}
             temperature2 = model_cfg2.get('temperature') or model_params2.get('temperature', 0.7)
             top_p2 = model_cfg2.get('top_p') or model_params2.get('top_p', 0.9)
+            min_p2 = model_cfg2.get('min_p', model_params2.get('min_p', 0.0))
             repeat_penalty2 = model_cfg2.get('repeat_penalty') or model_params2.get('repeat_penalty', 1.1)
             top_k2 = model_cfg2.get('top_k') or model_params2.get('top_k', 40)
 
@@ -300,6 +302,7 @@ async def create_page():
                 model=model1,
                 temperature=temperature1,
                 top_p=top_p1,
+                min_p=min_p1,
                 repeat_penalty=repeat_penalty1,
                 top_k=top_k1,
                 system_prompt=system_prompt.value,
@@ -314,6 +317,7 @@ async def create_page():
                 model=model2,
                 temperature=temperature2,
                 top_p=top_p2,
+                min_p=min_p2,
                 repeat_penalty=repeat_penalty2,
                 top_k=top_k2,
                 system_prompt=system_prompt.value,

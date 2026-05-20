@@ -48,6 +48,7 @@ class StreamService:
                              model: str, 
                              temperature: float = 0.7,
                              top_p: float = 0.9,
+                             min_p: float = 0.0,
                              repeat_penalty: float = 1.1,
                              top_k: int = 40,
                              system_prompt: str = "",
@@ -74,7 +75,7 @@ class StreamService:
             print(f"Failed to unload visual pipeline: {e}")
         
         task = asyncio.create_task(self._process_stream(
-            stream_id, messages, model, temperature, top_p, repeat_penalty, top_k, system_prompt, 
+            stream_id, messages, model, temperature, top_p, min_p, repeat_penalty, top_k, system_prompt, 
             tool_funcs_map, log_requests, persist_callback, listener, keep_alive,
             memory_enabled, has_attachments
         ))
@@ -88,7 +89,7 @@ class StreamService:
         task.add_done_callback(cleanup)
         return task
 
-    async def _process_stream(self, stream_id, messages, model, temperature, top_p, repeat_penalty, top_k, system_prompt, tool_funcs_map, log_requests, persist_callback, listener=None, keep_alive="5m", memory_enabled=False, has_attachments=False):
+    async def _process_stream(self, stream_id, messages, model, temperature, top_p, min_p, repeat_penalty, top_k, system_prompt, tool_funcs_map, log_requests, persist_callback, listener=None, keep_alive="5m", memory_enabled=False, has_attachments=False):
         try:
             import time
             from datetime import datetime
@@ -170,6 +171,7 @@ class StreamService:
                             options={
                                 'temperature': temperature,
                                 'top_p': top_p,
+                                'min_p': min_p,
                                 'repeat_penalty': repeat_penalty,
                                 'top_k': top_k
                             },

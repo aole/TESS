@@ -237,6 +237,7 @@ def create_page():
         # Use standard settings as fallback while loading
         saved_temp = model_cfg.get('temperature', 0.7)
         saved_top_p = model_cfg.get('top_p', 0.9)
+        saved_min_p = model_cfg.get('min_p', 0.0)
         saved_repeat_penalty = model_cfg.get('repeat_penalty', 1.1)
         saved_top_k = model_cfg.get('top_k', 40)
         saved_sys = model_cfg.get('system_prompt', '')
@@ -296,7 +297,7 @@ def create_page():
                         with ui.row().classes('w-full justify-between'):
                             ui.label('Temperature').classes('text-xs text-gray-400')
                             temp_val = ui.label().classes('text-xs text-indigo-400 font-mono')
-                        temp_slider = ui.slider(min=0.0, max=1.0, step=0.1, value=saved_temp).props('label-always thumb-path=""')
+                        temp_slider = ui.slider(min=0.0, max=2.0, step=0.1, value=saved_temp).props('label-always thumb-path=""')
                         temp_val.bind_text_from(temp_slider, 'value', backward=lambda v: f"{v:.1f}")
 
                     # Top P
@@ -308,12 +309,20 @@ def create_page():
                         top_p_slider = ui.slider(min=0.0, max=1.0, step=0.05, value=saved_top_p).props('label-always')
                         top_p_val.bind_text_from(top_p_slider, 'value', backward=lambda v: f"{v:.2f}")
 
+                    # Min P
+                    with ui.column().classes('w-full gap-1'):
+                        with ui.row().classes('w-full justify-between'):
+                            ui.label('Min P').classes('text-xs text-gray-400')
+                            min_p_val = ui.label().classes('text-xs text-indigo-400 font-mono')
+                        min_p_slider = ui.slider(min=0.0, max=1.0, step=0.05, value=saved_min_p).props('label-always')
+                        min_p_val.bind_text_from(min_p_slider, 'value', backward=lambda v: f"{v:.2f}")
+
                     # Repeat Penalty
                     with ui.column().classes('w-full gap-1'):
                         with ui.row().classes('w-full justify-between'):
                             ui.label('Repeat Penalty').classes('text-xs text-gray-400')
                             rep_val = ui.label().classes('text-xs text-indigo-400 font-mono')
-                        repeat_penalty_slider = ui.slider(min=0.0, max=2.0, step=0.1, value=saved_repeat_penalty).props('label-always')
+                        repeat_penalty_slider = ui.slider(min=0.0, max=1.5, step=0.1, value=saved_repeat_penalty).props('label-always')
                         rep_val.bind_text_from(repeat_penalty_slider, 'value', backward=lambda v: f"{v:.1f}")
 
                     # Top K
@@ -321,7 +330,7 @@ def create_page():
                         with ui.row().classes('w-full justify-between'):
                             ui.label('Top K').classes('text-xs text-gray-400')
                             top_k_val = ui.label().classes('text-xs text-indigo-400 font-mono')
-                        top_k_slider = ui.slider(min=1, max=100, step=1, value=saved_top_k).props('label-always')
+                        top_k_slider = ui.slider(min=1, max=200, step=1, value=saved_top_k).props('label-always')
                         top_k_val.bind_text_from(top_k_slider, 'value', backward=lambda v: f"{int(v)}")
 
             # Checkboxes
@@ -357,6 +366,7 @@ def create_page():
                 app.storage.general['model_configurations'][model_name] = {
                     'temperature': temp_slider.value,
                     'top_p': top_p_slider.value,
+                    'min_p': min_p_slider.value,
                     'repeat_penalty': repeat_penalty_slider.value,
                     'top_k': int(top_k_slider.value),
                     'system_prompt': sys_prompt_input.value,
@@ -398,6 +408,7 @@ def create_page():
                     
                     temp_slider.value = defaults.get('temperature', 0.7)
                     top_p_slider.value = defaults.get('top_p', 0.9)
+                    min_p_slider.value = defaults.get('min_p', 0.0)
                     repeat_penalty_slider.value = defaults.get('repeat_penalty', 1.1)
                     top_k_slider.value = defaults.get('top_k', 40)
                     sys_prompt_input.value = defaults.get('system', '')
