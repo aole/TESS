@@ -245,6 +245,72 @@ def create_page():
         saved_tools = False if tools_permanently_disabled else model_cfg.get('tools_enabled', True)
         saved_memory = False if (tools_permanently_disabled or not saved_tools) else model_cfg.get('memory_enabled', True)
 
+        def temperature_feel(value):
+            value = float(value)
+            if value < 0.2:
+                return 'Rigid'
+            if value < 0.5:
+                return 'Precise'
+            if value < 0.8:
+                return 'Balanced'
+            if value < 1.1:
+                return 'Expressive'
+            if value < 1.5:
+                return 'Creative'
+            return 'Chaotic'
+
+        def top_k_feel(value):
+            value = int(value)
+            if value <= 10:
+                return 'Narrow'
+            if value <= 30:
+                return 'Focused'
+            if value <= 60:
+                return 'Flexible'
+            if value <= 100:
+                return 'Explorative'
+            if value <= 200:
+                return 'Diverse'
+            return 'Unbounded'
+
+        def top_p_feel(value):
+            value = float(value)
+            if value < 0.3:
+                return 'Restrained'
+            if value < 0.6:
+                return 'Careful'
+            if value < 0.85:
+                return 'Natural'
+            if value < 0.95:
+                return 'Open'
+            return 'Adventurous'
+
+        def min_p_feel(value):
+            value = float(value)
+            if value <= 0.01:
+                return 'Permissive'
+            if value <= 0.03:
+                return 'Relaxed'
+            if value <= 0.07:
+                return 'Balanced'
+            if value <= 0.12:
+                return 'Selective'
+            return 'Strict'
+
+        def repeat_penalty_feel(value):
+            value = float(value)
+            if value <= 1.0:
+                return 'Neutral'
+            if value <= 1.05:
+                return 'Gentle'
+            if value <= 1.15:
+                return 'Controlled'
+            if value <= 1.3:
+                return 'Assertive'
+            if value <= 1.5:
+                return 'Aggressive'
+            return 'Distorted'
+
         with ui.dialog() as dialog, ui.card().classes('w-full max-w-lg p-6 bg-[#18181b] border border-white/10 text-gray-200 rounded-xl shadow-2xl'):
             # Header with loading spinner
             with ui.row().classes('w-full justify-between items-center mb-1'):
@@ -275,47 +341,57 @@ def create_page():
 
             # Sliders for parameters
             with ui.expansion('Model Parameters', icon='tune', value=True).classes('w-full bg-white/5 rounded-lg mb-4').props('dense'):
-                with ui.column().classes('w-full p-4 gap-4'):
+                with ui.column().classes('w-full px-4 py-3 gap-2'):
                     # Temperature
-                    with ui.column().classes('w-full gap-1'):
+                    with ui.column().classes('w-full gap-0'):
                         with ui.row().classes('w-full justify-between'):
                             ui.label('Temperature').classes('text-xs text-gray-400')
-                            temp_val = ui.label().classes('text-xs text-indigo-400 font-mono')
-                        temp_slider = ui.slider(min=0.0, max=2.0, step=0.1, value=saved_temp)
-                        temp_val.bind_text_from(temp_slider, 'value', backward=lambda v: f"{v:.2f}")
+                            temp_val = ui.label().classes('text-xs text-indigo-400 font-mono text-right')
+                        temp_slider = ui.slider(min=0.0, max=2.0, step=0.1, value=saved_temp).tooltip(
+                            'Controls randomness. Lower values are more deterministic; higher values are more varied and surprising.'
+                        )
+                        temp_val.bind_text_from(temp_slider, 'value', backward=lambda v: f"{temperature_feel(v)} {float(v):.2f}")
 
                     # Top P
-                    with ui.column().classes('w-full gap-1'):
+                    with ui.column().classes('w-full gap-0'):
                         with ui.row().classes('w-full justify-between'):
                             ui.label('Top P').classes('text-xs text-gray-400')
-                            top_p_val = ui.label().classes('text-xs text-indigo-400 font-mono')
+                            top_p_val = ui.label().classes('text-xs text-indigo-400 font-mono text-right')
                         # Allow finer control (e.g. 0.95) for nucleus sampling.
-                        top_p_slider = ui.slider(min=0.0, max=1.0, step=0.05, value=saved_top_p)
-                        top_p_val.bind_text_from(top_p_slider, 'value', backward=lambda v: f"{v:.2f}")
+                        top_p_slider = ui.slider(min=0.0, max=1.0, step=0.05, value=saved_top_p).tooltip(
+                            'Limits token choices to the smallest probability mass. Lower values narrow responses; higher values allow more variety.'
+                        )
+                        top_p_val.bind_text_from(top_p_slider, 'value', backward=lambda v: f"{top_p_feel(v)} {float(v):.2f}")
 
                     # Min P
-                    with ui.column().classes('w-full gap-1'):
+                    with ui.column().classes('w-full gap-0'):
                         with ui.row().classes('w-full justify-between'):
                             ui.label('Min P').classes('text-xs text-gray-400')
-                            min_p_val = ui.label().classes('text-xs text-indigo-400 font-mono')
-                        min_p_slider = ui.slider(min=0.0, max=1.0, step=0.05, value=saved_min_p)
-                        min_p_val.bind_text_from(min_p_slider, 'value', backward=lambda v: f"{v:.2f}")
+                            min_p_val = ui.label().classes('text-xs text-indigo-400 font-mono text-right')
+                        min_p_slider = ui.slider(min=0.0, max=0.5, step=0.05, value=saved_min_p).tooltip(
+                            'Filters out tokens below a probability threshold relative to the best token. Higher values are more selective.'
+                        )
+                        min_p_val.bind_text_from(min_p_slider, 'value', backward=lambda v: f"{min_p_feel(v)} {float(v):.2f}")
 
                     # Repeat Penalty
-                    with ui.column().classes('w-full gap-1'):
+                    with ui.column().classes('w-full gap-0'):
                         with ui.row().classes('w-full justify-between'):
                             ui.label('Repeat Penalty').classes('text-xs text-gray-400')
-                            rep_val = ui.label().classes('text-xs text-indigo-400 font-mono')
-                        repeat_penalty_slider = ui.slider(min=0.0, max=1.5, step=0.1, value=saved_repeat_penalty)
-                        rep_val.bind_text_from(repeat_penalty_slider, 'value', backward=lambda v: f"{v:.1f}")
+                            rep_val = ui.label().classes('text-xs text-indigo-400 font-mono text-right')
+                        repeat_penalty_slider = ui.slider(min=1.0, max=2.0, step=0.05, value=saved_repeat_penalty).tooltip(
+                            'Discourages repeated words and phrases. Higher values reduce repetition but can make text less natural.'
+                        )
+                        rep_val.bind_text_from(repeat_penalty_slider, 'value', backward=lambda v: f"{repeat_penalty_feel(v)} {float(v):.1f}")
 
                     # Top K
-                    with ui.column().classes('w-full gap-1'):
+                    with ui.column().classes('w-full gap-0'):
                         with ui.row().classes('w-full justify-between'):
                             ui.label('Top K').classes('text-xs text-gray-400')
-                            top_k_val = ui.label().classes('text-xs text-indigo-400 font-mono')
-                        top_k_slider = ui.slider(min=1, max=200, step=1, value=saved_top_k)
-                        top_k_val.bind_text_from(top_k_slider, 'value', backward=lambda v: f"{int(v)}")
+                            top_k_val = ui.label().classes('text-xs text-indigo-400 font-mono text-right')
+                        top_k_slider = ui.slider(min=1, max=250, step=1, value=saved_top_k).tooltip(
+                            'Limits sampling to the top K likely tokens. Lower values are focused; higher values permit broader word choices.'
+                        )
+                        top_k_val.bind_text_from(top_k_slider, 'value', backward=lambda v: f"{top_k_feel(v)} {int(v)}")
 
             # Checkboxes
             with ui.row().classes('w-full gap-6 mb-6'):
