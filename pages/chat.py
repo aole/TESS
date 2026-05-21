@@ -637,6 +637,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
             ui.timer(1.0, audio_player.sync_tts_state)
             
             async def on_stream_event(event_type, *args):
+                if page_client._deleted:
+                    return
                 with page_client:
                     if event_type == 'new_message':
                         msg = args[0]

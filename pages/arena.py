@@ -182,6 +182,8 @@ async def create_page():
         # --- Event Handlers ---
 
         async def on_stream_event_1(event_type, *args):
+            if page_client._deleted:
+                return
             with page_client:
                 if event_type == 'update_message':
                     msg_id, content, thinking, tool_calls = args[:4]
@@ -202,6 +204,8 @@ async def create_page():
                     ui.notify(f"Model 1 Error: {args[0]}", type='negative')
 
         async def on_stream_event_2(event_type, *args):
+            if page_client._deleted:
+                return
             with page_client:
                 if event_type == 'update_message':
                     msg_id, content, thinking, tool_calls = args[:4]

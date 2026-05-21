@@ -499,7 +499,7 @@ def create_page():
         def safe_notify(msg, **kwargs):
             try:
                 client = _gen_state.get('client')
-                if client:
+                if client and not client._deleted:
                     client.notify(msg, **kwargs)
             except Exception:
                 pass

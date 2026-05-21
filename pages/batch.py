@@ -240,6 +240,8 @@ async def create_page():
             # Capture the client context where this poller was started
             # page_client captured from outer scope
             while current_batch_id:
+                if page_client._deleted:
+                    break
                 try:
                     with page_client:
                          pass # Just ensuring context is alive

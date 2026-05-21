@@ -257,7 +257,7 @@ class ConversationRenderer:
         # 3.5 Stats (Assistant only)
         stats_container = None
         if role == 'assistant':
-            stats_container = ui.row().classes('w-full items-center gap-3 text-[10px] text-gray-500 font-mono mt-1 border-t border-white/5 pt-1.5 opacity-60 hover:opacity-100 transition-opacity')
+            stats_container = ui.row().classes('w-full justify-end items-center gap-3 text-[10px] text-gray-500 font-mono mt-1 border-t border-white/5 pt-1.5 opacity-60 hover:opacity-100 transition-opacity')
             self._render_stats_content(stats_container, msg.get('stats'))
             if not msg.get('stats'):
                 stats_container.classes('hidden')

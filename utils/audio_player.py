@@ -63,17 +63,20 @@ class AudioPlayer:
 
     async def play_audio_js(self, b64_str):
         """Pushes a base64 audio chunk to the JavaScript queue."""
+        if self.page_client._deleted:
+            return
         await self._inject_js()
         await ui.run_javascript(f"window.audioQueue.push('{b64_str}'); window.playNextAudio();")
 
     async def stop(self):
         """Stops all playback and resets state."""
         async with self._lock:
-            with self.page_client:
-                await ui.run_javascript("if(window.stopAudio) window.stopAudio();")
+            if not self.page_client._deleted:
+                with self.page_client:
+                    await ui.run_javascript("if(window.stopAudio) window.stopAudio();")
             self.playing_tts_id = None
             self.tts_generation_complete = False
-            if self.on_state_change:
+            if self.on_state_change and not self.page_client._deleted:
                 self.on_state_change()
 
     async def play_message(self, msg):
@@ -124,6 +127,8 @@ class AudioPlayer:
             if self.playing_tts_id != msg_id:
                 return
             for b64 in b64_list:
+                if self.page_client._deleted:
+                    return
                 with self.page_client:
                     await self.play_audio_js(b64)
         except Exception as e:
@@ -132,13 +137,15 @@ class AudioPlayer:
     async def sync_tts_state(self):
         """Checks if JS playback has finished and updates state accordingly."""
         if self.playing_tts_id and self.tts_generation_complete:
+            if self.page_client._deleted:
+                return
             with self.page_client:
                 try:
                     is_playing = await ui.run_javascript('return !!(window.isPlayingAudio || (window.audioQueue && window.audioQueue.length > 0));')
                     if not is_playing:
                         self.playing_tts_id = None
                         self.tts_generation_complete = False
-                        if self.on_state_change:
+                        if self.on_state_change and not self.page_client._deleted:
                             self.on_state_change()
                 except Exception:
                     pass
