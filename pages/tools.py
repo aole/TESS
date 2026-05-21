@@ -232,17 +232,36 @@ def create_page():
                     args = json.loads(args_input.value or '{}')
 
                     # Setup namespace and exec code
-                    ns = {}
+                    ns = {'__name__': 'test_tool_module'}
                     # Inject common utilities if needed
                     exec(code, ns)
 
-                    # Find the tool function (first callable that is not a builtin/import)
-                    funcs = [v for k, v in ns.items() if callable(v) and not k.startswith('__')]
-                    if not funcs:
+                    # Find the tool function
+                    func_name, _ = parse_code_metadata(code)
+                    target_func = None
+                    if func_name and func_name in ns and callable(ns[func_name]):
+                        target_func = ns[func_name]
+
+                    if not target_func:
+                        # Find callables defined in the executed code module itself
+                        funcs = [
+                            v for k, v in ns.items()
+                            if callable(v)
+                            and not k.startswith('__')
+                            and getattr(v, '__module__', None) == 'test_tool_module'
+                        ]
+                        if funcs:
+                            target_func = funcs[0]
+
+                    if not target_func:
+                        # Fallback to any callable that is not a builtin
+                        funcs = [v for k, v in ns.items() if callable(v) and not k.startswith('__')]
+                        if funcs:
+                            target_func = funcs[0]
+
+                    if not target_func:
                         output_area.set_text('Error: No function found in code.')
                         return
-
-                    target_func = funcs[0]
                     ui.notify(f'Running {target_func.__name__}...', type='info')
 
                     # Execute (handle both async and sync)
