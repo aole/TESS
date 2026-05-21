@@ -287,7 +287,8 @@ async def create_page():
                                             last_msg['id'], 
                                             last_msg.get('content',''), 
                                             last_msg.get('thinking',''), 
-                                            last_msg.get('tool_calls', [])
+                                            last_msg.get('tool_calls', []),
+                                            last_msg.get('stats')
                                         )
                                         # Auto-scroll
                                         # Ensure context for scroll js

@@ -184,13 +184,14 @@ async def create_page():
         async def on_stream_event_1(event_type, *args):
             with page_client:
                 if event_type == 'update_message':
-                    msg_id, content, thinking, tool_calls = args
+                    msg_id, content, thinking, tool_calls = args[:4]
+                    stats = args[4] if len(args) > 4 else None
                     if msg_id not in renderer1._msg_elements:
                         msg = next((m for m in messages1 if m.get('id') == msg_id), None)
                         if msg:
                             renderer1.render_message(msg)
                     
-                    await renderer1.update_message(msg_id, content, thinking, tool_calls)
+                    await renderer1.update_message(msg_id, content, thinking, tool_calls, stats)
                     await scroll_to_bottom('arena-scroll-1', check_position=True)
                 elif event_type == 'new_message':
                      msg = args[0]
@@ -203,13 +204,14 @@ async def create_page():
         async def on_stream_event_2(event_type, *args):
             with page_client:
                 if event_type == 'update_message':
-                    msg_id, content, thinking, tool_calls = args
+                    msg_id, content, thinking, tool_calls = args[:4]
+                    stats = args[4] if len(args) > 4 else None
                     if msg_id not in renderer2._msg_elements:
                         msg = next((m for m in messages2 if m.get('id') == msg_id), None)
                         if msg:
                             renderer2.render_message(msg)
 
-                    await renderer2.update_message(msg_id, content, thinking, tool_calls)
+                    await renderer2.update_message(msg_id, content, thinking, tool_calls, stats)
                     await scroll_to_bottom('arena-scroll-2', check_position=True)
                 elif event_type == 'new_message':
                      msg = args[0]

@@ -184,6 +184,7 @@ class StreamService:
                         response_content = ""
                         full_thinking = ""
                         tool_calls = []
+                        stats = None
 
                         async for chunk in stream:
                             if self.stop_flags.get(stream_id):
@@ -206,17 +207,29 @@ class StreamService:
                             if chunk.get("error"):
                                 raise Exception(chunk["error"])
                             
+                            # Extract stats if present in chunk
+                            if chunk.get('done') or 'total_duration' in chunk:
+                                stats = {
+                                    'total_duration': chunk.get('total_duration'),
+                                    'load_duration': chunk.get('load_duration'),
+                                    'prompt_eval_count': chunk.get('prompt_eval_count'),
+                                    'prompt_eval_duration': chunk.get('prompt_eval_duration'),
+                                    'eval_count': chunk.get('eval_count'),
+                                    'eval_duration': chunk.get('eval_duration'),
+                                }
+                            
                             # Update local msg
                             assistant_msg['content'] = response_content
                             assistant_msg['thinking'] = full_thinking
                             if tool_calls: assistant_msg['tool_calls'] = tool_calls
+                            if stats: assistant_msg['stats'] = stats
                             
                             # Notify Listener: Update
                             try:
                                 if listener:
-                                    await listener('update_message', msg_id, response_content, full_thinking, tool_calls)
+                                    await listener('update_message', msg_id, response_content, full_thinking, tool_calls, stats)
                                 if stream_id in self.listeners:
-                                   await self.listeners[stream_id]('update_message', msg_id, response_content, full_thinking, tool_calls)
+                                   await self.listeners[stream_id]('update_message', msg_id, response_content, full_thinking, tool_calls, stats)
                             except: pass
                         break
                     except Exception as e:
@@ -254,6 +267,7 @@ class StreamService:
                 assistant_msg['content'] = response_content
                 assistant_msg['thinking'] = full_thinking
                 if tool_calls: assistant_msg['tool_calls'] = tool_calls
+                if stats: assistant_msg['stats'] = stats
                 
                 # Update API messages
                 clean_assist = {k:v for k,v in assistant_msg.items() if k in ['role', 'content', 'tool_calls']}

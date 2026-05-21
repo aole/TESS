@@ -254,6 +254,14 @@ class ConversationRenderer:
                     safe_content = display_content.replace('<', '&lt;')
                     content_markdown = ui.markdown(safe_content).classes('w-full prose dark:prose-invert text-gray-100')
 
+        # 3.5 Stats (Assistant only)
+        stats_container = None
+        if role == 'assistant':
+            stats_container = ui.row().classes('w-full items-center gap-3 text-[10px] text-gray-500 font-mono mt-1 border-t border-white/5 pt-1.5 opacity-60 hover:opacity-100 transition-opacity')
+            self._render_stats_content(stats_container, msg.get('stats'))
+            if not msg.get('stats'):
+                stats_container.classes('hidden')
+
         # 4. Ratings (Assistant only)
         if role == 'assistant' and self.get_ratings:
             self._render_ratings(msg)
@@ -263,7 +271,8 @@ class ConversationRenderer:
             'thinking_container': thinking_container,
             'thinking_label': thinking_label,
             'tools': tool_container,
-            'content': content_markdown
+            'content': content_markdown,
+            'stats_container': stats_container
         }
 
     def _render_tool_call(self, tc: Dict):
@@ -294,7 +303,64 @@ class ConversationRenderer:
                  for i in range(1, 6):
                      ui.icon('star_border').classes('cursor-pointer hover:text-yellow-400').on('click', lambda _, r=i, m=msg, t=tag_select: self.on_rate(m, r, t.value))
 
-    async def update_message(self, msg_id: str, content: str, thinking: str, tool_calls: List[Dict]):
+    def _render_stats_content(self, container: ui.element, stats: Optional[Dict]):
+        if not stats:
+            return
+            
+        total_duration_ns = stats.get('total_duration', 0)
+        load_duration_ns = stats.get('load_duration', 0)
+        prompt_eval_count = stats.get('prompt_eval_count', 0)
+        prompt_eval_duration_ns = stats.get('prompt_eval_duration', 0)
+        eval_count = stats.get('eval_count', 0)
+        eval_duration_ns = stats.get('eval_duration', 0)
+        
+        # Convert nanoseconds to seconds
+        total_sec = total_duration_ns / 1e9 if total_duration_ns else 0
+        load_sec = load_duration_ns / 1e9 if load_duration_ns else 0
+        prompt_sec = prompt_eval_duration_ns / 1e9 if prompt_eval_duration_ns else 0
+        eval_sec = eval_duration_ns / 1e9 if eval_duration_ns else 0
+        
+        # Compute rates
+        eval_tps = eval_count / eval_sec if (eval_count and eval_sec) else 0
+        prompt_tps = prompt_eval_count / prompt_sec if (prompt_eval_count and prompt_sec) else 0
+        
+        with container:
+            def stats_item(icon_name, text, tooltip_text, icon_color_class='text-indigo-400'):
+                with ui.row().classes('items-center gap-1 bg-white/5 px-2 py-0.5 rounded border border-white/10 hover:bg-white/10 transition-colors') as item:
+                    ui.icon(icon_name, size='14px').classes(icon_color_class)
+                    ui.label(text).classes('text-[10px] text-gray-300 font-medium')
+                    if tooltip_text:
+                        item.tooltip(tooltip_text)
+
+            # 1. Total Time
+            if total_sec > 0:
+                stats_item(
+                    icon_name='schedule',
+                    text=f"{total_sec:.2f}s",
+                    tooltip_text=f"Total time. Model load: {load_sec:.2f}s, Prompt eval: {prompt_sec:.2f}s, Response gen: {eval_sec:.2f}s",
+                    icon_color_class='text-amber-400'
+                )
+            
+            # 2. Token generation speed (t/s)
+            if eval_tps > 0:
+                stats_item(
+                    icon_name='speed',
+                    text=f"{eval_tps:.1f} t/s",
+                    tooltip_text=f"Response generation speed: {eval_count} tokens generated in {eval_sec:.2f}s",
+                    icon_color_class='text-emerald-400'
+                )
+                
+            # 3. Token counts (prompt + response)
+            if prompt_eval_count > 0 or eval_count > 0:
+                total_tokens = prompt_eval_count + eval_count
+                stats_item(
+                    icon_name='toll',
+                    text=f"{total_tokens} tkn",
+                    tooltip_text=f"Tokens - Prompt: {prompt_eval_count} ({prompt_tps:.1f} t/s), Response: {eval_count}",
+                    icon_color_class='text-blue-400'
+                )
+
+    async def update_message(self, msg_id: str, content: str, thinking: str, tool_calls: List[Dict], stats: Optional[Dict] = None):
         """
         Updates the displayed content of a message.
         Expected to be used during streaming.
@@ -330,4 +396,12 @@ class ConversationRenderer:
                  for tc in tool_calls:
                      self._render_tool_call(tc)
              elements['tools'].update()
+
+        # Update Stats
+        if stats and elements.get('stats_container'):
+             elements['stats_container'].classes(remove='hidden')
+             elements['stats_container'].clear()
+             with elements['stats_container']:
+                 self._render_stats_content(elements['stats_container'], stats)
+             elements['stats_container'].update()
 

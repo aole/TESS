@@ -543,8 +543,9 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                             await scroll_to_bottom()
                             
                     elif event_type == 'update_message':
-                        msg_id, content, thinking, tool_calls = args
-                        await chat_renderer.update_message(msg_id, content, thinking, tool_calls)
+                        msg_id, content, thinking, tool_calls = args[:4]
+                        stats = args[4] if len(args) > 4 else None
+                        await chat_renderer.update_message(msg_id, content, thinking, tool_calls, stats)
                         await scroll_to_bottom(check_position=True)
                         
                         state['last_update_msg_id'] = msg_id
