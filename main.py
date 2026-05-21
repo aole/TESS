@@ -1,6 +1,7 @@
 from nicegui import ui, app, run
 from pages import models, chat, arena, batch, tools, create, settings, google, playground, audio, visual, apps, python_page, personas
 from services import system_service
+from utils.llm_client import client
 
 # Page styling and configuration
 def layout(page_path: str = ''):
@@ -45,6 +46,17 @@ def layout(page_path: str = ''):
                 -webkit-backdrop-filter: blur(10px);
                 border: 1px solid rgba(255, 255, 255, 0.1);
             }
+            .toolbar-unload-button {
+                min-width: 28px !important;
+                width: 28px !important;
+                height: 28px !important;
+                padding: 0 !important;
+                background: transparent !important;
+                border: 0 !important;
+            }
+            .toolbar-unload-button .q-icon {
+                font-size: 14px !important;
+            }
         </style>
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
         <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
@@ -59,13 +71,33 @@ def layout(page_path: str = ''):
         with ui.row().classes('gap-4 items-center'):
             # GPU Indicators
             with ui.row().classes('items-center gap-2'):
+                async def unload_loaded_models():
+                    unload_button.disable()
+                    try:
+                        ui.notify('Unloading loaded models...', type='info')
+                        success = await client.unload_all_models()
+                        if success:
+                            ui.notify('Loaded models unloaded', type='positive')
+                        else:
+                            ui.notify('Failed to unload loaded models', type='negative')
+                        await update_gpu_metrics()
+                    except RuntimeError as e:
+                        if "deleted" not in str(e):
+                            raise
+                    finally:
+                        unload_button.enable()
+
+                unload_button = ui.button(icon='layers_clear', on_click=unload_loaded_models).props('flat dense color=amber-4 size=sm')
+                unload_button.classes('toolbar-unload-button')
+                unload_button.tooltip('Unload loaded model')
+
                 # VRAM
-                with ui.row().classes('items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10') as vram_container:
+                with ui.row().classes('items-center gap-2 px-1 py-1') as vram_container:
                     vram_progress = ui.linear_progress(value=0, show_value=False).classes('w-12 h-3 rounded-full bg-white/10').props('color=indigo-400')
                     vram_tooltip = ui.tooltip('VRAM: --')
                 
                 # Activity
-                with ui.row().classes('items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10') as activity_container:
+                with ui.row().classes('items-center gap-2 px-1 py-1') as activity_container:
                     activity_progress = ui.linear_progress(value=0, show_value=False).classes('w-12 h-3 rounded-full bg-white/10').props('color=emerald-400')
                     activity_tooltip = ui.tooltip('Activity: --')
                 
