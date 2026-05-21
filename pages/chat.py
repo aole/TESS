@@ -302,12 +302,17 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     subtitle_icon='lock' if c.get('is_encrypted') else None,
                     active=is_active,
                     on_click=lambda cid=c['id']: load_chat_by_id(cid),
-                    action_icon='delete',
-                    action_color='red-4',
-                    action_tooltip='Delete chat',
-                    on_action=lambda cid=c['id']: delete_chat_history(cid),
                 ):
-                    pass
+                    with ui.button(icon='more_vert').props('flat round dense size=sm color=grey').classes(
+                        'absolute right-1 top-1/2 -translate-y-1/2 '
+                        'opacity-0 group-hover:opacity-100 transition-opacity bg-black/60'
+                    ).on('click.stop', lambda _: None):
+                        with ui.menu().classes('bg-[#1e1f20] border border-white/10'):
+                            with ui.menu_item(on_click=lambda _, cid=c['id']: delete_chat_history(cid)):
+                                with ui.item_section().props('avatar'):
+                                    ui.icon('delete').classes('text-red-4')
+                                with ui.item_section():
+                                    ui.label('Delete')
 
     # Initial Refresh
     refresh_chat_list()
