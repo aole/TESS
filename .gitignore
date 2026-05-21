@@ -28,6 +28,9 @@ data/voices/
 data/visual/
 models/
 config.json
+data/playground/canvas.js
+data/user_memory.json
+data/tmp/
 
 # Google Auth
 client_secret.json
@@ -35,5 +38,3 @@ token_*.json
 data/google_tokens/
 data/google_accounts.json
 credentials/
-data/playground/canvas.js
-data/user_memory.json

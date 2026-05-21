@@ -360,7 +360,7 @@ def create_page():
                     <q-td key="active" :props="props">
                         <q-icon :name="props.row.active ? 'toggle_on' : 'toggle_off'"
                                 :class="props.row.active ? 'text-green-400 cursor-pointer' : 'text-gray-500 cursor-pointer'"
-                                size="md"
+                                size="sm"
                                 @click="$parent.$emit('toggle', props.row)">
                             <q-tooltip>Click to Toggle</q-tooltip>
                         </q-icon>
@@ -375,11 +375,15 @@ def create_page():
                 ''')
 
                 table.add_slot('body-cell-actions', r'''
-                    <q-td key="actions" :props="props" class="flex gap-2 justify-end">
-                        <q-btn v-if="!props.row.is_builtin" flat round color="secondary" icon="edit" size="sm"
-                               @click="$parent.$emit('edit', props.row)" />
-                        <q-btn v-if="!props.row.is_builtin" flat round color="negative" icon="delete" size="sm"
-                               @click="$parent.$emit('delete', props.row)" />
+                    <q-td key="actions" :props="props" class="text-right">
+                        <div class="inline-flex items-center justify-end gap-1.5 whitespace-nowrap">
+                            <q-btn v-if="!props.row.is_builtin" flat round dense color="secondary" icon="edit" size="xs"
+                                   style="width: 24px; height: 24px; min-width: 24px;"
+                                   @click.stop="$parent.$emit('edit', props.row)" />
+                            <q-btn v-if="!props.row.is_builtin" flat round dense color="negative" icon="delete" size="xs"
+                                   style="width: 24px; height: 24px; min-width: 24px;"
+                                   @click.stop="$parent.$emit('delete', props.row)" />
+                        </div>
                     </q-td>
                 ''')
 
