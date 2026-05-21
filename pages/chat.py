@@ -10,10 +10,10 @@ from services.batch_service import batch_service
 from services.tts_service import tts_service
 from utils.ui_components import ui_list, ui_list_item
 from utils.audio_player import AudioPlayer
-from utils.settings_dialog import SettingsDialog
 from services.persona_service import persona_service, NO_PERSONA_ID
 import asyncio
 import uuid
+import secrets
 
 async def create_page(model_param: str = None, new_chat: bool = False):
     # Use the passed parameter
@@ -287,6 +287,101 @@ async def create_page(model_param: str = None, new_chat: bool = False):
         else:
             refresh_chat_list()
 
+    async def prompt_encryption(chat_id):
+        with page_client:
+            with ui.dialog() as d, ui.card().classes('bg-[#18181b] border border-white/10'):
+                ui.label('Encrypt Chat').classes('text-lg font-bold text-gray-200')
+                pw1 = ui.input('Password', password=True, password_toggle_button=True).classes('w-full')
+                pw2 = ui.input('Confirm Password', password=True, password_toggle_button=True).classes('w-full')
+                
+                async def do_encrypt():
+                    if not pw1.value or pw1.value != pw2.value:
+                        ui.notify('Passwords do not match or empty', type='negative')
+                        return
+                    chat = chat_service.load_chat(chat_id)
+                    if chat:
+                        chat.salt = secrets.token_hex(16)
+                        chat.is_encrypted = True
+                        nonlocal messages
+                        chat_msgs = messages if chat_id == current_chat_id else chat.messages
+                        garbage_messages = chat_service.encrypt_messages(chat_msgs, pw1.value, chat.salt)
+                        chat.messages = garbage_messages
+                        chat_service.save_chat(chat, update_timestamp=False)
+                        
+                        if 'unlocked_chats' in app.storage.user:
+                            app.storage.user['unlocked_chats'].pop(chat_id, None)
+                        
+                        if chat_id == current_chat_id:
+                            messages.clear()
+                            messages.extend(garbage_messages)
+                            app.storage.user['messages'] = messages
+                            refresh_chat_ui()
+                            update_encryption_ui()
+                        
+                        ui.notify('Chat encrypted', type='positive')
+                        refresh_chat_list()
+                    d.close()
+                ui.button('Encrypt', on_click=do_encrypt).props('color=primary').classes('w-full mt-2')
+            await d
+
+    async def prompt_unlock(chat_id):
+        with page_client:
+            with ui.dialog() as d, ui.card().classes('bg-[#18181b] border border-white/10'):
+                ui.label('Unlock Chat').classes('text-lg font-bold text-gray-200')
+                pw = ui.input('Password', password=True, password_toggle_button=True).classes('w-full').on('keydown.enter', lambda: do_unlock())
+                
+                async def do_unlock():
+                    if chat_service.verify_password(chat_id, pw.value):
+                        if 'unlocked_chats' not in app.storage.user:
+                            app.storage.user['unlocked_chats'] = {}
+                        app.storage.user['unlocked_chats'][chat_id] = pw.value
+                        if chat_id == current_chat_id:
+                            load_chat_by_id(chat_id)
+                        else:
+                            refresh_chat_list()
+                        ui.notify('Chat unlocked', type='positive')
+                        d.close()
+                    else:
+                        ui.notify('Incorrect password', type='negative')
+                ui.button('Unlock', on_click=do_unlock).props('color=warning').classes('w-full mt-2')
+            await d
+
+    def do_lock(chat_id):
+        if 'unlocked_chats' in app.storage.user:
+            app.storage.user['unlocked_chats'].pop(chat_id, None)
+        if chat_id == current_chat_id:
+            load_chat_by_id(chat_id)
+        else:
+            refresh_chat_list()
+        ui.notify('Chat locked', type='info')
+
+    def do_remove_encryption(chat_id):
+        pw = app.storage.user.get('unlocked_chats', {}).get(chat_id)
+        if not pw:
+            ui.notify('Error: Chat is not unlocked', type='negative')
+            return
+        chat = chat_service.load_chat(chat_id)
+        if chat:
+            decrypted = chat_service.decrypt_messages(chat.messages, pw, chat.salt)
+            chat.is_encrypted = False
+            chat.salt = None
+            chat.messages = decrypted
+            chat_service.save_chat(chat, update_timestamp=False)
+            
+            if 'unlocked_chats' in app.storage.user:
+                app.storage.user['unlocked_chats'].pop(chat_id, None)
+                
+            if chat_id == current_chat_id:
+                nonlocal messages
+                messages.clear()
+                messages.extend(decrypted)
+                app.storage.user['messages'] = messages
+                refresh_chat_ui()
+                update_encryption_ui()
+                
+            ui.notify('Encryption removed', type='info')
+            refresh_chat_list()
+
     def refresh_chat_list():
         chat_list_container.clear()
         chats = chat_service.list_chats()
@@ -296,10 +391,17 @@ async def create_page(model_param: str = None, new_chat: bool = False):
 
             for c in chats:
                 is_active = c['id'] == current_chat_id
+                
+                is_encrypted = c.get('is_encrypted', False)
+                is_unlocked = c['id'] in app.storage.user.get('unlocked_chats', {})
+                sub_icon = None
+                if is_encrypted:
+                    sub_icon = 'lock_open' if is_unlocked else 'lock'
+
                 with ui_list_item(
                     title=c['title'],
                     subtitle=c['updated_at'][:10],
-                    subtitle_icon='lock' if c.get('is_encrypted') else None,
+                    subtitle_icon=sub_icon,
                     active=is_active,
                     on_click=lambda cid=c['id']: load_chat_by_id(cid),
                 ):
@@ -308,6 +410,31 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         'opacity-0 group-hover:opacity-100 transition-opacity bg-black/60'
                     ).on('click.stop', lambda _: None):
                         with ui.menu().classes('bg-[#1e1f20] border border-white/10'):
+                            if not is_encrypted:
+                                with ui.menu_item(on_click=lambda _, cid=c['id']: asyncio.create_task(prompt_encryption(cid))):
+                                    with ui.item_section().props('avatar'):
+                                        ui.icon('lock').classes('text-blue-4')
+                                    with ui.item_section():
+                                        ui.label('Encrypt Chat')
+                            else:
+                                if is_unlocked:
+                                    with ui.menu_item(on_click=lambda _, cid=c['id']: do_lock(cid)):
+                                        with ui.item_section().props('avatar'):
+                                            ui.icon('lock').classes('text-amber-4')
+                                        with ui.item_section():
+                                            ui.label('Lock Chat')
+                                    with ui.menu_item(on_click=lambda _, cid=c['id']: do_remove_encryption(cid)):
+                                        with ui.item_section().props('avatar'):
+                                            ui.icon('lock_open').classes('text-green-4')
+                                        with ui.item_section():
+                                            ui.label('Remove Encryption')
+                                else:
+                                    with ui.menu_item(on_click=lambda _, cid=c['id']: asyncio.create_task(prompt_unlock(cid))):
+                                        with ui.item_section().props('avatar'):
+                                            ui.icon('key').classes('text-amber-4')
+                                        with ui.item_section():
+                                            ui.label('Unlock Chat')
+
                             with ui.menu_item(on_click=lambda _, cid=c['id']: delete_chat_history(cid)):
                                 with ui.item_section().props('avatar'):
                                     ui.icon('delete').classes('text-red-4')
@@ -327,22 +454,6 @@ async def create_page(model_param: str = None, new_chat: bool = False):
         except Exception as e:
             print(f"Error loading tool code: {e}")
         return None
-    
-    # Settings Dialog
-    def clear_chat():
-        messages.clear()
-        app.storage.user['messages'] = []
-        refresh_chat_ui()
-        settings_dialog.close()
-
-    settings_dialog = SettingsDialog(
-        model_options=model_options,
-        on_clear_chat=clear_chat,
-        on_chat_updated=lambda chat_id=None: load_chat_by_id(chat_id) if chat_id else refresh_chat_ui(),
-        get_current_chat_id=lambda: current_chat_id,
-        get_messages=lambda: messages,
-        model_select_component=model_select
-    )
 
     # Parameter update logic
     async def update_params(initial=False):
@@ -584,10 +695,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 refresh_chat_ui()
                 await scroll_to_bottom()
 
-            # Encryption Controls
-            encryption_controls = ui.row().classes('w-full items-center justify-end gap-2 px-2 pb-2')
-            
-            # Encryption UI is now handled by settings_dialog for the buttons there.
+            # Encryption UI is handled by context menu actions in the sidebar.
             # We still need a way to disable input if locked.
 
             # --- Input Area ---
@@ -597,9 +705,6 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 # Forward declaration for button
                 send_btn = None
                 attached_files = []
-
-                def open_settings():
-                    settings_dialog.open()
 
                 # --- File Attachment Logic ---
                 async def handle_upload(e):
@@ -653,7 +758,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     if is_chat_locked():
                         if 'user_input' in locals() and user_input:
                             user_input.props('disable=true')
-                            user_input.placeholder = 'Chat is locked. Unlock in settings to continue.'
+                            user_input.placeholder = 'Chat is locked. Unlock in history menu to continue.'
                             if send_btn: send_btn.props('disable=true')
                     else:
                         if 'user_input' in locals() and user_input:
@@ -827,7 +932,6 @@ async def create_page(model_param: str = None, new_chat: bool = False):
 
                 with ui.row().classes('w-full gap-1 items-center'):
                     ui.button(icon='add', on_click=lambda: uploader.run_method('pickFiles')).props('flat round color=primary').tooltip('Attach text files')
-                    ui.button(icon='settings', on_click=open_settings).props('flat round color=grey')
 
                     tts_btn = ui.button(icon='volume_off').props('flat round color=grey').tooltip('Toggle Automatic Text-to-Speech')
                     def toggle_tts():
@@ -930,7 +1034,7 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                             else:
                                 if 'user_input' in locals() and user_input:
                                     user_input.props('disable=true')
-                                    user_input.placeholder = 'Chat is locked. Unlock in settings to continue.'
+                                    user_input.placeholder = 'Chat is locked. Unlock in history menu to continue.'
                                     if send_btn: send_btn.props('disable=true')
                         else:
                             if 'user_input' in locals() and user_input:
