@@ -65,9 +65,25 @@ def create_page():
             # refs['save_btn'].enable() is now always true
             refs['panel_hint'].set_text('Describe a tool below or start typing to create one.')
             refs['panel_hint'].set_visibility(True)
+            if 'error_display' in refs:
+                refs['error_display'].set_visibility(False)
             return
 
         refs['panel_hint'].set_visibility(False)
+
+        # Show error if the loaded tool has one
+        if tool and getattr(tool, 'has_error', False):
+            try:
+                import ast
+                ast.parse(tool.code)
+            except SyntaxError as e:
+                error_detail = f"{e.msg} (line {e.lineno})" if hasattr(e, 'msg') and e.lineno is not None else str(e)
+                if 'error_display' in refs:
+                    refs['error_message_label'].set_text(error_detail)
+                    refs['error_display'].set_visibility(True)
+        else:
+            if 'error_display' in refs:
+                refs['error_display'].set_visibility(False)
 
         if is_new:
             refs['panel_title'].set_text('Create Tool')
@@ -301,13 +317,30 @@ def create_page():
             active=True if is_new else (tool.active if tool else True),
         )
 
-        if is_new or tool is None:
-            success = tool_service.create_tool(new_tool)
-        else:
-            success = tool_service.update_tool(tool.name, new_tool)
+        try:
+            if is_new or tool is None:
+                success = tool_service.create_tool(new_tool)
+            else:
+                success = tool_service.update_tool(tool.name, new_tool)
+        except SyntaxError as e:
+            error_detail = f"{e.msg} (line {e.lineno})" if hasattr(e, 'msg') and e.lineno is not None else str(e)
+            if 'error_display' in refs:
+                refs['error_message_label'].set_text(error_detail)
+                refs['error_display'].set_visibility(True)
+            refresh_list()
+            # Transition state from "new" to "edit mode" for the saved (but invalid) tool
+            state['is_new'] = False
+            saved = tool_service.get_tool(name)
+            if saved:
+                state['selected_tool'] = saved
+                refs['panel_title'].set_text(f'Edit — {saved.name}')
+                refs['name_input'].disable()
+            raise e
 
         if success:
             ui.notify('Tool saved', type='success')
+            if 'error_display' in refs:
+                refs['error_display'].set_visibility(False)
             refresh_list()
             # Stay on the saved tool (switch to edit mode)
             saved = tool_service.get_tool(name)
@@ -383,6 +416,17 @@ def create_page():
                                 @click="$parent.$emit('toggle', props.row)">
                             <q-tooltip>Click to Toggle</q-tooltip>
                         </q-icon>
+                    </q-td>
+                ''')
+
+                table.add_slot('body-cell-name', r'''
+                    <q-td key="name" :props="props">
+                        <div class="row items-center no-wrap gap-1.5">
+                            <span>{{ props.value }}</span>
+                            <q-badge v-if="props.row.has_error" color="negative" text-color="white" label="X" class="q-ml-xs">
+                                <q-tooltip>Syntax Error</q-tooltip>
+                            </q-badge>
+                        </div>
                     </q-td>
                 ''')
 
@@ -463,6 +507,18 @@ def create_page():
 
                         save_btn = ui.button('Save', on_click=save).props('color=primary')
                         refs['save_btn'] = save_btn
+
+                # Error display area below the action row
+                error_display = ui.card().classes('w-full bg-red-950/40 border border-red-500/30 p-3 rounded-lg mt-2')
+                error_display.set_visibility(False)
+                refs['error_display'] = error_display
+                
+                with error_display:
+                    with ui.row().classes('items-center gap-2'):
+                        ui.icon('report_problem', color='negative').classes('text-lg')
+                        ui.label('Syntax Error').classes('text-sm font-semibold text-red-400')
+                    error_message_label = ui.label('').classes('text-xs text-red-300 font-mono mt-1 whitespace-pre-wrap')
+                    refs['error_message_label'] = error_message_label
 
     # ── Initial Load ─────────────────────────────────────────────────────────
     refresh_list()

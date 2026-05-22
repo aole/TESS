@@ -23,7 +23,7 @@ def fetch_weather(location: str) -> dict[str, any]:
             - forecast: A list of objects for the next 24 hourly intervals.
     """
     weather_url = "https://api.open-meteo.com/v1/forecast"
-    
+
     # WMO Weather interpretation codes
     wmo_description = {
         0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",

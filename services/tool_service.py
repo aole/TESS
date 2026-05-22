@@ -15,6 +15,7 @@ class Tool:
     code: str
     active: bool = True
     is_builtin: bool = False
+    has_error: bool = False
 
     def to_dict(self):
         return asdict(self)
@@ -38,16 +39,18 @@ class ToolService:
             with open(file_path, 'r', encoding='utf-8') as f:
                 code = f.read()
 
+            has_error = False
             try:
                 tree = ast.parse(code)
                 description = ast.get_docstring(tree) or ""
             except SyntaxError:
                 description = "Syntax Error in file"
+                has_error = True
 
             # Active status is now managed by config
             active = config_manager.is_tool_active(name)
             
-            return Tool(name=name, description=description, code=code, active=active)
+            return Tool(name=name, description=description, code=code, active=active, has_error=has_error)
         except Exception as e:
             print(f"Error parsing tool {file_path}: {e}")
             return None
@@ -118,10 +121,12 @@ class ToolService:
         if os.path.exists(file_path):
             return False
         
-        # Save code
+        # Save code first so that invalid Python draft is stored and can be listed
         if self._write_tool_file(file_path, tool.code):
             # Save active status
             config_manager.set_tool_active(tool.name, tool.active)
+            # Validate Python syntax and raise SyntaxError if invalid
+            ast.parse(tool.code)
             return True
         return False
 
@@ -150,8 +155,11 @@ class ToolService:
             # Clean up old config active status (reset to default/active by removing from inactive list)
             config_manager.set_tool_active(original_name, True)
             
+        # Save code first so that invalid Python draft is stored and can be listed
         if self._write_tool_file(original_path, updated_tool.code):
             config_manager.set_tool_active(updated_tool.name, updated_tool.active)
+            # Validate Python syntax and raise SyntaxError if invalid
+            ast.parse(updated_tool.code)
             return True
         return False
 
