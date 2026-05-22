@@ -131,33 +131,146 @@ def create_page():
                 with ui.row().classes('items-center justify-between w-full'):
                     ui.markdown("> Logs are saved to `logs/llm_debug.log`").classes("text-sm text-gray-500 italic")
                     
-                    def _clear_logs():
-                        with ui.dialog() as dialog, ui.card().classes('bg-[#1e1f20] border border-white/10 p-6 w-96'):
-                            ui.label('Clear Logs?').classes('text-xl font-bold text-gray-200 mb-2')
-                            ui.label('Are you sure you want to clear all logs from llm_debug.log? This cannot be undone.').classes('text-gray-400 text-sm mb-6')
+                    with ui.row().classes('items-center gap-3'):
+                        def _show_logs():
+                            with ui.dialog() as dialog, ui.card().classes('bg-[#1e1f20] border border-white/10 p-6 w-[90vw] max-w-5xl h-[85vh] flex flex-col'):
+                                with ui.column().classes('w-full h-full gap-4 items-stretch'):
+                                    with ui.row().classes('w-full justify-between items-center mb-4 shrink-0'):
+                                        with ui.row().classes('items-center gap-2'):
+                                            ui.icon('article', size='24px').classes('text-indigo-400')
+                                            ui.label('LLM Debug Logs').classes('text-xl font-bold text-gray-200')
+                                        with ui.row().classes('items-center gap-2'):
+                                            is_wrapped = False
+                                            def toggle_wrap():
+                                                nonlocal is_wrapped
+                                                is_wrapped = not is_wrapped
+                                                if is_wrapped:
+                                                    log_label.classes(remove='whitespace-pre', add='whitespace-pre-wrap break-all')
+                                                    wrap_btn.props('color=accent')
+                                                else:
+                                                    log_label.classes(remove='whitespace-pre-wrap break-all', add='whitespace-pre')
+                                                    wrap_btn.props('color=primary')
+                                            
+                                            wrap_btn = ui.button(icon='wrap_text', on_click=toggle_wrap).props('flat round color=primary').tooltip('Toggle Word Wrap')
+                                            ui.button(icon='refresh', on_click=lambda: asyncio.create_task(_load_logs())).props('flat round color=primary').tooltip('Refresh Logs')
+                                            ui.button(icon='content_copy', on_click=lambda: asyncio.create_task(_copy_logs())).props('flat round color=secondary').tooltip('Copy to Clipboard')
+                                            
+                                            def _clear_logs_from_popup():
+                                                with ui.dialog() as confirm_dialog, ui.card().classes('bg-[#1e1f20] border border-white/10 p-6 w-96'):
+                                                    ui.label('Clear Logs?').classes('text-xl font-bold text-gray-200 mb-2')
+                                                    ui.label('Are you sure you want to clear all logs from llm_debug.log? This cannot be undone.').classes('text-gray-400 text-sm mb-6')
 
-                            with ui.row().classes('w-full justify-end gap-2'):
-                                def _confirm_clear():
-                                    dialog.close()
-                                    import os
-                                    log_path = os.path.join(os.getcwd(), 'logs', 'llm_debug.log')
+                                                    with ui.row().classes('w-full justify-end gap-2'):
+                                                        def _confirm_clear():
+                                                            confirm_dialog.close()
+                                                            import os
+                                                            log_path = os.path.join(os.getcwd(), 'logs', 'llm_debug.log')
+                                                            try:
+                                                                if os.path.exists(log_path):
+                                                                    with open(log_path, 'w', encoding='utf-8') as f:
+                                                                        f.truncate(0)
+                                                                    log_label.set_text("Log file is empty.")
+                                                                    ui.notify('Logs cleared successfully', type='positive')
+                                                                else:
+                                                                    ui.notify('Log file is already empty or does not exist', type='info')
+                                                            except Exception as ex:
+                                                                ui.notify(f'Failed to clear logs: {ex}', type='negative')
+
+                                                        ui.button('Cancel', on_click=confirm_dialog.close).props('flat color=grey')
+                                                        ui.button('Clear', on_click=_confirm_clear).props('flat color=red')
+                                                confirm_dialog.open()
+                                            
+                                            ui.button(icon='delete_forever', on_click=_clear_logs_from_popup).props('flat round color=red').tooltip('Clear Logs')
+                                            ui.button(icon='close', on_click=dialog.close).props('flat round color=grey').tooltip('Close')
+                                    
+                                    with ui.element('div').classes('w-full flex-grow bg-[#0c0c0c] border border-white/10 rounded-lg p-3 overflow-auto'):
+                                        log_label = ui.label().classes('text-gray-300 font-mono text-xs whitespace-pre')
+                                
+                                async def _load_logs():
+                                    log_label.set_text("Loading logs...")
                                     try:
-                                        if os.path.exists(log_path):
-                                            with open(log_path, 'w', encoding='utf-8') as f:
-                                                f.truncate(0)
-                                            ui.notify('Logs cleared successfully', type='positive')
-                                        else:
-                                            ui.notify('Log file is already empty or does not exist', type='info')
+                                        import os
+                                        log_path = os.path.join(os.getcwd(), 'logs', 'llm_debug.log')
+                                        if not os.path.exists(log_path):
+                                            log_label.set_text("Log file does not exist.")
+                                            return
+                                        
+                                        def read_file():
+                                            file_size = os.path.getsize(log_path)
+                                            max_bytes = 150 * 1024  # last 150KB
+                                            with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                                                if file_size > max_bytes:
+                                                    f.seek(file_size - max_bytes)
+                                                    f.readline()  # skip partial line
+                                                return f.read()
+                                        
+                                        content = await run.io_bound(read_file)
+                                        if not content.strip():
+                                            log_label.set_text("Log file is empty.")
+                                            return
+                                        
+                                        log_label.set_text(content)
                                     except Exception as ex:
-                                        ui.notify(f'Failed to clear logs: {ex}', type='negative')
+                                        log_label.set_text(f"Error loading logs: {ex}")
+                                
+                                async def _copy_logs():
+                                    try:
+                                        import os
+                                        log_path = os.path.join(os.getcwd(), 'logs', 'llm_debug.log')
+                                        if not os.path.exists(log_path):
+                                            ui.notify("Log file does not exist.", type='warning')
+                                            return
+                                        
+                                        def read_file():
+                                            with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                                                return f.read()
+                                        
+                                        content = await run.io_bound(read_file)
+                                        if not content.strip():
+                                            ui.notify("Log file is empty.", type='warning')
+                                            return
+                                        
+                                        import json
+                                        escaped = json.dumps(content)
+                                        await ui.run_javascript(f"navigator.clipboard.writeText({escaped})")
+                                        ui.notify("Logs copied to clipboard", type='positive')
+                                    except Exception as ex:
+                                        ui.notify(f"Failed to copy logs: {ex}", type='negative')
 
-                                ui.button('Cancel', on_click=dialog.close).props('flat color=grey')
-                                ui.button('Clear', on_click=_confirm_clear).props('flat color=red')
-                        dialog.open()
+                            dialog.open()
+                            asyncio.create_task(_load_logs())
 
-                    ui.link('Clear Logs', 'javascript:void(0)').classes(
-                        'text-red-400 hover:text-red-300 underline text-xs font-semibold cursor-pointer transition-colors'
-                    ).on('click', _clear_logs)
+                        def _clear_logs():
+                            with ui.dialog() as dialog, ui.card().classes('bg-[#1e1f20] border border-white/10 p-6 w-96'):
+                                ui.label('Clear Logs?').classes('text-xl font-bold text-gray-200 mb-2')
+                                ui.label('Are you sure you want to clear all logs from llm_debug.log? This cannot be undone.').classes('text-gray-400 text-sm mb-6')
+
+                                with ui.row().classes('w-full justify-end gap-2'):
+                                    def _confirm_clear():
+                                        dialog.close()
+                                        import os
+                                        log_path = os.path.join(os.getcwd(), 'logs', 'llm_debug.log')
+                                        try:
+                                            if os.path.exists(log_path):
+                                                with open(log_path, 'w', encoding='utf-8') as f:
+                                                    f.truncate(0)
+                                                ui.notify('Logs cleared successfully', type='positive')
+                                            else:
+                                                ui.notify('Log file is already empty or does not exist', type='info')
+                                        except Exception as ex:
+                                            ui.notify(f'Failed to clear logs: {ex}', type='negative')
+
+                                    ui.button('Cancel', on_click=dialog.close).props('flat color=grey')
+                                    ui.button('Clear', on_click=_confirm_clear).props('flat color=red')
+                            dialog.open()
+
+                        ui.link('Show Logs', 'javascript:void(0)').classes(
+                            'text-indigo-400 hover:text-indigo-300 underline text-xs font-semibold cursor-pointer transition-colors'
+                        ).on('click', _show_logs)
+
+                        ui.link('Clear Logs', 'javascript:void(0)').classes(
+                            'text-red-400 hover:text-red-300 underline text-xs font-semibold cursor-pointer transition-colors'
+                        ).on('click', _clear_logs)
 
             with ui_card(
                 heading="Logging Configuration",

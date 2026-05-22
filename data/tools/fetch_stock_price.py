@@ -2,6 +2,21 @@ import requests
 from datetime import datetime
 
 def fetch_stock_price(ticker: str) -> dict:
+    """
+    Fetch the current day's stock or ETF market data from Yahoo Finance.
+
+    Uses a 1-hour interval to minimize data size while still providing 
+    intraday timestamps. Returns a simplified dictionary containing only 
+    the ticker and its hourly OHLC (Open, High, Low, Close) data.
+
+    Args:
+        ticker: Stock or ETF symbol, e.g., "AAPL", "SPX", "NDX".
+
+    Returns:
+        Dictionary with the ticker symbol and a list of hourly price 
+        candles (datetime, open, high, low, close). Returns a dictionary
+        containing an 'error' key if the request or parsing fails.
+    """
     symbol = ticker.strip().upper()
     if not symbol:
         return {"error": "Ticker symbol is required."}
