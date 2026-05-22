@@ -1,7 +1,28 @@
 import asyncio
+import re
 import uuid
 from typing import Dict, Any, List, Callable, Optional
 from utils.llm_client import client
+
+SUPPRESSED_THOUGHT_MARKER = "<|channel>thought <channel|>"
+SUPPRESSED_THOUGHT_MARKER_RE = re.compile(r"^<\|channel\>\s*thought\s*<channel\|>")
+
+
+def remove_suppressed_thought_marker(content: str) -> str:
+    match = SUPPRESSED_THOUGHT_MARKER_RE.match(content)
+    if match:
+        return content[match.end():].lstrip()
+    if _could_be_partial_suppressed_thought_marker(content):
+        return ""
+    return content
+
+
+def _could_be_partial_suppressed_thought_marker(content: str) -> bool:
+    if len(content) > len(SUPPRESSED_THOUGHT_MARKER):
+        return False
+    compact = "".join(content.split())
+    return "".join(SUPPRESSED_THOUGHT_MARKER.split()).startswith(compact)
+
 
 class StreamService:
     def __init__(self):
@@ -181,6 +202,7 @@ class StreamService:
                             log_requests=log_requests
                         )
                         
+                        raw_response_content = ""
                         response_content = ""
                         full_thinking = ""
                         tool_calls = []
@@ -203,7 +225,8 @@ class StreamService:
                             if part: 
                                 if part.startswith("Error:") and "does not support tools" in part.lower():
                                     raise Exception(part)
-                                response_content += part
+                                raw_response_content += part
+                                response_content = remove_suppressed_thought_marker(raw_response_content)
                             if chunk.get("error"):
                                 raise Exception(chunk["error"])
                             
