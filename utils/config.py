@@ -145,4 +145,12 @@ class ConfigManager:
         self.config["audio"]["enabled"] = enabled
         self._save_config(self.config)
 
+    def get_tool_system_prompt(self) -> str:
+        default_prompt = "IMPORTANT: When generating tool calls, ensure strictly valid JSON. Do not use invalid escape sequences like '\\?' inside strings. Only escape backslashes and double quotes. Note that the tool content/result is NOT displayed to the user, so you must interpret the tool content and provide the user a response based on it."
+        return self.config.get("tool_system_prompt", default_prompt)
+
+    def set_tool_system_prompt(self, prompt: str):
+        self.config["tool_system_prompt"] = prompt
+        self._save_config(self.config)
+
 config_manager = ConfigManager()

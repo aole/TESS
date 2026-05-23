@@ -520,6 +520,25 @@ def create_page():
                     error_message_label = ui.label('').classes('text-xs text-red-300 font-mono mt-1 whitespace-pre-wrap')
                     refs['error_message_label'] = error_message_label
 
+            # ── Far Right — Tool System Prompt ───────────────────────────────
+            with ui.column().classes('glass-panel rounded-xl p-5 gap-4').style('width: 320px; flex-shrink: 0'):
+                ui.label('System Prompt').classes('text-xl font-semibold text-gray-200')
+                ui.label(
+                    'This system instructions snippet is appended to the model prompt '
+                    'whenever active tools are available.'
+                ).classes('text-xs text-gray-400')
+                
+                from utils.config import config_manager
+                prompt_input = ui.textarea(
+                    value=config_manager.get_tool_system_prompt()
+                ).classes('w-full').props('autogrow outlined dense input-style="min-height: 250px;"')
+                
+                def save_tool_prompt():
+                    config_manager.set_tool_system_prompt(prompt_input.value)
+                    ui.notify('Tool system prompt saved', type='success')
+                    
+                ui.button('Save Prompt', on_click=save_tool_prompt).props('color=primary').classes('w-full')
+
     # ── Initial Load ─────────────────────────────────────────────────────────
     refresh_list()
     

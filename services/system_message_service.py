@@ -101,7 +101,8 @@ Response: "No problem. I've removed your location from my records."
             
         # 5. Tool Usage Instructions
         if tool_funcs_map or has_tools:
-            sys_content += "\n\nIMPORTANT: When generating tool calls, ensure strictly valid JSON. Do not use invalid escape sequences like '\\?' inside strings. Only escape backslashes and double quotes. Note that the tool content/result is NOT displayed to the user, so you must interpret the tool content and provide the user a response based on it."
+            from utils.config import config_manager
+            sys_content += "\n\n" + config_manager.get_tool_system_prompt()
             
         return sys_content
 
