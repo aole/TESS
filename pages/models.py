@@ -482,7 +482,7 @@ def create_page():
             asyncio.create_task(load_defaults())
 
     # Layout
-    with ui.column().classes('w-full h-full pt-14 px-4 max-w-7xl mx-auto'):
+    with ui.column().classes('w-full h-full pt-4 px-4 max-w-7xl mx-auto'):
         # Header + Pull
         with ui.row().classes('w-full justify-between items-center mb-2 gap-2'):
             with ui.row().classes('items-center gap-2'):

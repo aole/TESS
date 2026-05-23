@@ -306,13 +306,16 @@ class ConversationRenderer:
     def _render_stats_content(self, container: ui.element, stats: Optional[Dict]):
         if not stats:
             return
-            
-        total_duration_ns = stats.get('total_duration', 0)
-        load_duration_ns = stats.get('load_duration', 0)
-        prompt_eval_count = stats.get('prompt_eval_count', 0)
-        prompt_eval_duration_ns = stats.get('prompt_eval_duration', 0)
-        eval_count = stats.get('eval_count', 0)
-        eval_duration_ns = stats.get('eval_duration', 0)
+
+        def _num(value):
+            return value if isinstance(value, (int, float)) else 0
+
+        total_duration_ns = _num(stats.get('total_duration'))
+        load_duration_ns = _num(stats.get('load_duration'))
+        prompt_eval_count = _num(stats.get('prompt_eval_count'))
+        prompt_eval_duration_ns = _num(stats.get('prompt_eval_duration'))
+        eval_count = _num(stats.get('eval_count'))
+        eval_duration_ns = _num(stats.get('eval_duration'))
         
         # Convert nanoseconds to seconds
         total_sec = total_duration_ns / 1e9 if total_duration_ns else 0

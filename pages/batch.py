@@ -4,6 +4,7 @@ from utils.config import config_manager
 from utils.chat_renderer import ConversationRenderer
 from services.batch_service import batch_service
 from services.stream_service import stream_service
+from services.persona_service import persona_service
 import asyncio
 import uuid
 import time
@@ -64,10 +65,43 @@ async def create_page():
     with ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10'):
         with ui.column().classes('w-full h-full p-4 no-wrap'):
             ui.label('Configuration').classes('text-lg font-bold text-gray-200 mb-4')
+
+            # Persona picker
+            ui.label('Persona').classes('text-sm font-medium text-gray-400 mb-1')
+
+            def _build_persona_opts():
+                opts = persona_service.get_all_persona_options()
+                return {p['id']: p['name'] for p in opts}
+
+            _default_persona = persona_service.get_default_persona()
+            _initial_persona_id = app.storage.user.get(
+                'selected_persona_id',
+                _default_persona['id'],
+            )
+            _initial_persona = persona_service.get_persona(_initial_persona_id) or _default_persona
+
+            def _on_persona_change(e):
+                pid = e.value
+                app.storage.user['selected_persona_id'] = pid
+                persona = persona_service.get_persona(pid)
+                if persona is not None:
+                    system_prompt.value = persona['system_prompt']
+
+            persona_select = ui.select(
+                options=_build_persona_opts(),
+                value=_initial_persona_id,
+                on_change=_on_persona_change,
+            ).props('dense options-dense outlined dark').classes('w-full text-sm mb-2')
+
+            # Refresh persona options periodically (picks up newly created personas)
+            def _refresh_persona_opts():
+                persona_select.options = _build_persona_opts()
+
+            ui.timer(3.0, _refresh_persona_opts)
             
             # System Prompt
             ui.label('System Prompt').classes('text-sm font-medium text-gray-400 mb-1')
-            default_sys = batch_state['system_prompt'] if batch_state else ''
+            default_sys = batch_state['system_prompt'] if batch_state else _initial_persona['system_prompt']
             system_prompt = ui.textarea(placeholder='You are a helpful assistant...', value=default_sys).props('dense rows=4 filled flat').classes('w-full text-sm mb-6 bg-white/5 rounded-md')
 
             # Model Selection
