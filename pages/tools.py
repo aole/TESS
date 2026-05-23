@@ -1,7 +1,10 @@
 from nicegui import ui, app
 from services.tool_service import tool_service, Tool
+from utils.config import config_manager
 from utils.llm_client import client
 import asyncio
+import ast
+import re
 
 def create_page():
     ui.add_head_html("""
@@ -21,30 +24,58 @@ def create_page():
         </style>
     """)
 
-    # ── State ────────────────────────────────────────────────────────────────
+    # State
     state = {
         'selected_tool': None,   # Tool object currently loaded in the panel
         'is_new': False,         # True when creating a new tool
         'test_args': '{\n  "param1": "value1",\n  "param2": 123\n}',
     }
 
-    # ── Refs (filled after UI is built) ─────────────────────────────────────
+    # Refs, filled after UI is built
     refs = {}
 
-    # ── Helpers ──────────────────────────────────────────────────────────────
+    # Helpers
     def parse_code_metadata(code: str):
         """Extract function name and parameters using AST."""
         try:
-            import ast
             tree = ast.parse(code)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef):
-                    name = node.name
-                    params = {arg.arg: "value" for arg in node.args.args if arg.arg != 'self'}
-                    return name, params
-        except Exception:
-            pass
+        except SyntaxError:
+            return None, {}
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                name = node.name
+                params = {arg.arg: "value" for arg in node.args.args if arg.arg != 'self'}
+                return name, params
         return None, {}
+
+    def extract_generated_code(response_text: str) -> str:
+        """Extract Python code from an LLM response and validate its syntax."""
+        fence_pattern = re.compile(
+            r"```[ \t]*(?P<language>[^\r\n`]*)\r?\n(?P<code>.*?)```",
+            re.DOTALL,
+        )
+        fenced_blocks = list(fence_pattern.finditer(response_text))
+        python_blocks = [
+            block for block in fenced_blocks
+            if block.group('language').strip().lower() in {'python', 'py'}
+        ]
+
+        if python_blocks:
+            code = python_blocks[0].group('code').strip()
+        elif fenced_blocks:
+            code = fenced_blocks[0].group('code').strip()
+        else:
+            code = response_text.strip()
+
+        try:
+            ast.parse(code)
+        except SyntaxError as e:
+            detail = f"{e.msg} (line {e.lineno})" if e.lineno is not None else e.msg
+            raise ValueError(f'Generated response did not contain valid Python: {detail}') from e
+
+        return code
+
     def refresh_list():
         tools = tool_service.get_all_tools()
         table.rows = [t.to_dict() for t in tools]
@@ -112,7 +143,7 @@ def create_page():
             refs['test_btn'].enable()
             # refs['save_btn'].enable() is now always true
         else:
-            refs['panel_title'].set_text(f'Edit — {tool.name}')
+            refs['panel_title'].set_text(f'Edit - {tool.name}')
             refs['name_input'].value = tool.name
             refs['code_editor'].value = tool.code or ''
             # Builtin tools are read-only
@@ -120,7 +151,7 @@ def create_page():
             if not tool.is_builtin:
                 refs['name_input'].disable()  # Don't allow renaming
 
-    # ── AI Generation ────────────────────────────────────────────────────────
+    # AI Generation
     async def open_ai_generator():
         try:
             models_raw = await client.list_models()
@@ -193,14 +224,9 @@ def create_page():
                     async for chunk in gen:
                         response_text += chunk.get('response', '')
 
-                    cleaned = response_text.strip()
-                    for prefix in ('```python', '```'):
-                        if cleaned.startswith(prefix):
-                            cleaned = cleaned[len(prefix):]
-                    if cleaned.endswith('```'):
-                        cleaned = cleaned[:-3]
+                    cleaned = extract_generated_code(response_text)
 
-                    refs['code_editor'].value = cleaned.strip()
+                    refs['code_editor'].value = cleaned
                     ui.notify('Tool updated by AI', type='success')
                     
                     # Auto-fill name if empty
@@ -226,7 +252,7 @@ def create_page():
 
         dialog.open()
 
-    # ── Test Tool ────────────────────────────────────────────────────────────
+    # Test Tool
     async def test_tool():
         code = refs['code_editor'].value
         if not code.strip():
@@ -313,7 +339,7 @@ def create_page():
 
         dialog.open()
 
-    # ── Save ─────────────────────────────────────────────────────────────────
+    # Save
     async def save():
         name = refs['name_input'].value.strip()
         if not name:
@@ -350,7 +376,7 @@ def create_page():
             saved = tool_service.get_tool(name)
             if saved:
                 state['selected_tool'] = saved
-                refs['panel_title'].set_text(f'Edit — {saved.name}')
+                refs['panel_title'].set_text(f'Edit - {saved.name}')
                 refs['name_input'].disable()
             raise e
 
@@ -366,7 +392,7 @@ def create_page():
         else:
             ui.notify('Error saving tool (name may already exist)', type='negative')
 
-    # ── Delete ───────────────────────────────────────────────────────────────
+    # Delete
     async def delete_tool_action(row):
         if row.get('is_builtin'):
             ui.notify('Builtin tools cannot be deleted', type='warning')
@@ -386,17 +412,15 @@ def create_page():
             else:
                 ui.notify('Delete failed', type='negative')
 
-    # ── Toggle Active ────────────────────────────────────────────────────────
+    # Toggle Active
     def toggle_active_action(row):
         if tool_service.toggle_tool_active(row['name']):
             refresh_list()
 
-    # ═════════════════════════════════════════════════════════════════════════
     # UI Layout
-    # ═════════════════════════════════════════════════════════════════════════
     with ui.column().classes('w-full pt-2 pb-2 px-4 mx-auto gap-0').style('height: calc(100vh - 64px); overflow: hidden;'):
 
-        # ── Page Header ──────────────────────────────────────────────────────
+        # Page Header
         with ui.row().classes('w-full justify-between items-center mb-2'):
             ui.label('Tools').classes(
                 'text-3xl font-bold bg-clip-text text-transparent '
@@ -408,10 +432,10 @@ def create_page():
                 icon='add',
             ).props('color=secondary')
 
-        # ── Split Layout ─────────────────────────────────────────────────────
+        # Split Layout
         with ui.row().classes('w-full gap-4 items-stretch flex-nowrap flex-grow').style('min-height: 0;'):
 
-            # ── Left — Tool List ─────────────────────────────────────────────
+            # Left - Tool List
             with ui.column().classes('glass-panel rounded-xl p-3 gap-2').style('width: 420px; flex-shrink: 0; height: 100%; display: flex; flex-direction: column;'):
                 ui.label('Tools List').classes('text-xl font-semibold text-gray-200')
                 
@@ -475,7 +499,7 @@ def create_page():
                 table.on('edit',   lambda e: load_tool_into_panel(Tool.from_dict(e.args)))
                 table.on('delete', lambda e: delete_tool_action(e.args))
 
-            # ── Middle — Editor Panel ────────────────────────────────────────
+            # Middle - Editor Panel
             with ui.column().classes('flex-1 glass-panel rounded-xl p-3 gap-2').style('min-width: 0; height: 100%; display: flex; flex-direction: column;'):
 
                 # Title row
@@ -539,7 +563,7 @@ def create_page():
                     error_message_label = ui.label('').classes('text-xs text-red-300 font-mono mt-1 whitespace-pre-wrap')
                     refs['error_message_label'] = error_message_label
 
-            # ── Far Right — Tool System Prompt ───────────────────────────────
+            # Far Right - Tool System Prompt
             with ui.column().classes('glass-panel rounded-xl p-3 gap-2').style('width: 420px; flex-shrink: 0; height: 100%; display: flex; flex-direction: column;'):
                 ui.label('System Prompt').classes('text-xl font-semibold text-gray-200')
                 ui.label(
@@ -547,7 +571,6 @@ def create_page():
                     'whenever active tools are available.'
                 ).classes('text-xs text-gray-400')
                 
-                from utils.config import config_manager
                 prompt_input = ui.textarea(
                     value=config_manager.get_tool_system_prompt()
                 ).classes('w-full prompt-textarea').props('outlined dense')
@@ -558,7 +581,7 @@ def create_page():
                     
                 ui.button('Save Prompt', on_click=save_tool_prompt).props('color=primary').classes('w-full')
 
-    # ── Initial Load ─────────────────────────────────────────────────────────
+    # Initial Load
     refresh_list()
     
     pending_code = app.storage.user.get('pending_tool_code')
