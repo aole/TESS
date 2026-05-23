@@ -4,6 +4,23 @@ from utils.llm_client import client
 import asyncio
 
 def create_page():
+    ui.add_head_html("""
+        <style>
+            .prompt-textarea {
+                flex-grow: 1;
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+            }
+            .prompt-textarea .q-field__control,
+            .prompt-textarea .q-field__control-container,
+            .prompt-textarea .q-field__native {
+                height: 100% !important;
+                flex-grow: 1 !important;
+            }
+        </style>
+    """)
+
     # ── State ────────────────────────────────────────────────────────────────
     state = {
         'selected_tool': None,   # Tool object currently loaded in the panel
@@ -377,10 +394,10 @@ def create_page():
     # ═════════════════════════════════════════════════════════════════════════
     # UI Layout
     # ═════════════════════════════════════════════════════════════════════════
-    with ui.column().classes('w-full h-full pt-14 px-4 max-w-7xl mx-auto gap-0'):
+    with ui.column().classes('w-full pt-2 pb-2 px-4 mx-auto gap-0').style('height: calc(100vh - 64px); overflow: hidden;'):
 
         # ── Page Header ──────────────────────────────────────────────────────
-        with ui.row().classes('w-full justify-between items-center mb-4'):
+        with ui.row().classes('w-full justify-between items-center mb-2'):
             ui.label('Tools').classes(
                 'text-3xl font-bold bg-clip-text text-transparent '
                 'bg-gradient-to-r from-pink-400 to-orange-400'
@@ -392,10 +409,12 @@ def create_page():
             ).props('color=secondary')
 
         # ── Split Layout ─────────────────────────────────────────────────────
-        with ui.row().classes('w-full gap-4 items-start').style('min-height: calc(100vh - 130px)'):
+        with ui.row().classes('w-full gap-4 items-stretch flex-nowrap flex-grow').style('min-height: 0;'):
 
             # ── Left — Tool List ─────────────────────────────────────────────
-            with ui.column().classes('gap-2').style('width: 420px; flex-shrink: 0'):
+            with ui.column().classes('glass-panel rounded-xl p-3 gap-2').style('width: 420px; flex-shrink: 0; height: 100%; display: flex; flex-direction: column;'):
+                ui.label('Tools List').classes('text-xl font-semibold text-gray-200')
+                
                 columns = [
                     {'name': 'active',     'label': 'Active',       'field': 'active',     'align': 'center'},
                     {'name': 'name',       'label': 'Name',         'field': 'name',       'align': 'left', 'sortable': True},
@@ -405,7 +424,7 @@ def create_page():
 
                 table = ui.table(
                     columns=columns, rows=[], row_key='name'
-                ).classes('w-full glass-panel remove-defaults')
+                ).classes('w-full flex-grow remove-defaults').style('height: 100%; min-height: 0;')
 
                 # Slots
                 table.add_slot('body-cell-active', r'''
@@ -456,8 +475,8 @@ def create_page():
                 table.on('edit',   lambda e: load_tool_into_panel(Tool.from_dict(e.args)))
                 table.on('delete', lambda e: delete_tool_action(e.args))
 
-            # ── Right — Editor Panel ─────────────────────────────────────────
-            with ui.column().classes('flex-1 glass-panel rounded-xl p-5 gap-4').style('min-width: 0'):
+            # ── Middle — Editor Panel ────────────────────────────────────────
+            with ui.column().classes('flex-1 glass-panel rounded-xl p-3 gap-2').style('min-width: 0; height: 100%; display: flex; flex-direction: column;'):
 
                 # Title row
                 with ui.row().classes('w-full items-center justify-between'):
@@ -480,7 +499,7 @@ def create_page():
                 ui.label('Python Code').classes('text-sm text-gray-400')
                 code_editor = ui.codemirror(
                     value='', language='python', theme='dracula'
-                ).classes('w-full border border-gray-700 rounded-lg shadow-inner').style('height: 380px').props('read-only')
+                ).classes('w-full flex-grow border border-gray-700 rounded-lg shadow-inner').style('height: 100%; min-height: 0;').props('read-only')
                 refs['code_editor'] = code_editor
 
                 # Action row
@@ -521,7 +540,7 @@ def create_page():
                     refs['error_message_label'] = error_message_label
 
             # ── Far Right — Tool System Prompt ───────────────────────────────
-            with ui.column().classes('glass-panel rounded-xl p-5 gap-4').style('width: 320px; flex-shrink: 0'):
+            with ui.column().classes('glass-panel rounded-xl p-3 gap-2').style('width: 420px; flex-shrink: 0; height: 100%; display: flex; flex-direction: column;'):
                 ui.label('System Prompt').classes('text-xl font-semibold text-gray-200')
                 ui.label(
                     'This system instructions snippet is appended to the model prompt '
@@ -531,7 +550,7 @@ def create_page():
                 from utils.config import config_manager
                 prompt_input = ui.textarea(
                     value=config_manager.get_tool_system_prompt()
-                ).classes('w-full').props('autogrow outlined dense input-style="min-height: 250px;"')
+                ).classes('w-full prompt-textarea').props('outlined dense')
                 
                 def save_tool_prompt():
                     config_manager.set_tool_system_prompt(prompt_input.value)
