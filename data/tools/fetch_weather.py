@@ -7,12 +7,6 @@ def fetch_weather(location: str) -> dict[str, any]:
     This tool utilizes a two-step process: first, it geocodes the location string into 
     latitude and longitude coordinates, then it retrieves localized weather data.
 
-    IMPORTANT:
-    - Uses Open-Meteo and OpenStreetMap/Geocode.maps.co.
-    - AUTOMATED FALLBACK: If the primary geocoding service is busy, it automatically tries a secondary provider.
-    - UNIT SYSTEM: Standardized to Imperial (Fahrenheit for temperature, MPH for wind, and Inches for precipitation).
-    - RATE LIMITING: Uses specific browser headers to ensure reliable responses from geocoding services.
-
     Args:
         location (str): City name, full address, or landmark (e.g., "Fishers, IN" or "Paris, France").
 

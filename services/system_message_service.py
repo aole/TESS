@@ -1,8 +1,169 @@
 from datetime import datetime
+import json
+import os
+import uuid
 from typing import Dict, Callable, Optional
+
+
+DATA_DIR = 'data'
+SYSTEM_VARIABLES_FILE = os.path.join(DATA_DIR, 'system_variables.json')
+
 
 class SystemMessageService:
     """Service to compile and provide the final system message sent to the model."""
+
+    def __init__(self):
+        self._ensure_file()
+
+    def _ensure_file(self):
+        if not os.path.exists(DATA_DIR):
+            os.makedirs(DATA_DIR)
+        if not os.path.exists(SYSTEM_VARIABLES_FILE):
+            self._save_custom_variables([])
+
+    def _load_custom_variables(self) -> list:
+        self._ensure_file()
+        try:
+            with open(SYSTEM_VARIABLES_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    def _save_custom_variables(self, variables: list):
+        with open(SYSTEM_VARIABLES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(variables, f, indent=2)
+
+    def _normalize_variable_name(self, name: str) -> str:
+        import re
+
+        normalized = re.sub(r'[^A-Za-z0-9_]+', '_', name.strip().upper())
+        return normalized.strip('_')
+
+    def get_builtin_variables(self) -> list:
+        now = datetime.now()
+        return [
+            {
+                'name': 'CURRENT_DATE_TIME',
+                'value': now.strftime('%b-%d-%Y %I:%M:%S %p'),
+            },
+            {
+                'name': 'CURRENT_DATE',
+                'value': now.strftime('%b-%d-%Y'),
+            },
+            {
+                'name': 'CURRENT_TIME',
+                'value': now.strftime('%I:%M:%S %p'),
+            },
+            {
+                'name': 'DAY_OF_WEEK',
+                'value': now.strftime('%A'),
+            },
+        ]
+
+    def get_custom_variables(self) -> list:
+        return self._load_custom_variables()
+
+    def get_reserved_variable_names(self) -> set[str]:
+        return {var['name'] for var in self.get_builtin_variables()}
+
+    def add_custom_variable(self, name: str, value: str) -> tuple[bool, str]:
+        normalized = self._normalize_variable_name(name)
+        if not normalized:
+            return False, 'Name is required'
+        if normalized in self.get_reserved_variable_names():
+            return False, 'That name is reserved'
+
+        variables = self._load_custom_variables()
+        if any(var['name'] == normalized for var in variables):
+            return False, 'A variable with that name already exists'
+
+        variables.append({
+            'id': str(uuid.uuid4()),
+            'name': normalized,
+            'value': value,
+        })
+        self._save_custom_variables(variables)
+        return True, normalized
+
+    def update_custom_variable(self, variable_id: str, name: str, value: str) -> tuple[bool, str]:
+        normalized = self._normalize_variable_name(name)
+        if not normalized:
+            return False, 'Name is required'
+        if normalized in self.get_reserved_variable_names():
+            return False, 'That name is reserved'
+
+        variables = self._load_custom_variables()
+        if any(var['id'] != variable_id and var['name'] == normalized for var in variables):
+            return False, 'A variable with that name already exists'
+
+        for var in variables:
+            if var['id'] == variable_id:
+                var['name'] = normalized
+                var['value'] = value
+                self._save_custom_variables(variables)
+                return True, normalized
+        return False, 'Variable not found'
+
+    def delete_custom_variable(self, variable_id: str) -> bool:
+        variables = self._load_custom_variables()
+        filtered = [var for var in variables if var['id'] != variable_id]
+        if len(filtered) == len(variables):
+            return False
+        self._save_custom_variables(filtered)
+        return True
+
+    def _read_text_file(self, path: str) -> str:
+        raw_path = path.strip().strip('"\'')
+        if not raw_path:
+            return ''
+
+        data_root = os.path.abspath(DATA_DIR)
+        normalized_raw = raw_path.replace('\\', os.sep).replace('/', os.sep)
+        if os.path.isabs(normalized_raw):
+            resolved_path = os.path.abspath(normalized_raw)
+        else:
+            parts = normalized_raw.split(os.sep)
+            if parts and parts[0].lower() == DATA_DIR.lower():
+                normalized_raw = os.sep.join(parts[1:])
+            resolved_path = os.path.abspath(os.path.join(data_root, normalized_raw))
+
+        try:
+            common_path = os.path.commonpath([data_root, resolved_path])
+        except ValueError:
+            common_path = ''
+        if common_path != data_root:
+            return f'[Unable to read file: {raw_path} (path must be inside data)]'
+
+        try:
+            with open(resolved_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except UnicodeDecodeError:
+            with open(resolved_path, 'r', encoding='utf-8', errors='replace') as f:
+                return f.read()
+        except OSError as e:
+            return f'[Unable to read file: {raw_path} ({e.strerror})]'
+
+    def resolve_variable_value(self, value: str) -> str:
+        """
+        Resolve custom variable values.
+
+        Syntax:
+            @file(path/to/file.txt)
+
+        Paths are resolved from the data directory. Absolute paths are allowed
+        only when they point inside data.
+        """
+        if not value:
+            return ''
+
+        import re
+
+        match = re.fullmatch(r'\s*@file\((.+)\)\s*', value, re.DOTALL)
+        if not match:
+            return value
+
+        return self._read_text_file(match.group(1))
     
     def replace_system_variables(self, text: str) -> str:
         """
@@ -13,16 +174,12 @@ class SystemMessageService:
             return ""
             
         import re
-        from datetime import datetime
         
-        now = datetime.now()
-        
-        replacements = {
-            'CURRENT_DATE_TIME': now.strftime('%b-%d-%Y %I:%M:%S %p'),
-            'CURRENT_DATE': now.strftime('%b-%d-%Y'),
-            'CURRENT_TIME': now.strftime('%I:%M:%S %p'),
-            'DAY_OF_WEEK': now.strftime('%A'),
-        }
+        replacements = {var['name']: var['value'] for var in self.get_builtin_variables()}
+        replacements.update({
+            var['name']: self.resolve_variable_value(var.get('value', ''))
+            for var in self.get_custom_variables()
+        })
         
         def repl(match):
             var_name = match.group(1).strip().upper()

@@ -18,8 +18,12 @@ inspect_model_output.py
 .agent/
 
 # User files
+config.json
 data/ratings.json
 data/notes.json
+data/playground/canvas.js
+data/user_memory.json
+data/system_variables.json
 data/apps/
 data/chats/
 data/audio/
@@ -27,9 +31,6 @@ data/python/
 data/voices/
 data/visual/
 models/
-config.json
-data/playground/canvas.js
-data/user_memory.json
 data/tmp/
 
 # Google Auth
