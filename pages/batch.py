@@ -326,6 +326,11 @@ async def create_page():
                         {'role': 'user', 'content': prompt},
                     ],
                     stream=True,
+                    options={
+                        'temperature': 0.1,
+                        'top_p': 1,
+                        'repeat_penalty': 1.0,
+                    },
                     log_requests=config_manager.is_logging_enabled('batch'),
                     keep_alive=0 if index == len(judge_targets) - 1 else '5m',
                 )
