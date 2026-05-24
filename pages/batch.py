@@ -213,7 +213,7 @@ async def create_page():
     
     run_btn = None 
     results_container = None 
-    judge_state = {'running': False}
+    judge_state = {'running': False, 'stop_requested': False}
 
     # -- Left Drawer (Configuration) --
     with ui.left_drawer(value=True).classes('bg-[#18181b] border-r border-white/10'):
@@ -303,10 +303,20 @@ async def create_page():
         return ''
 
     def _format_judge_output(content: str) -> str:
+        raw_content = content.strip()
+        if raw_content.startswith('```'):
+            raw_content = raw_content.removeprefix('```json').removeprefix('```').strip()
+            raw_content = raw_content.removesuffix('```').strip()
         try:
-            data = json.loads(content)
+            data = json.loads(raw_content)
         except Exception:
-            return content
+            start = raw_content.find('{')
+            if start == -1:
+                return content
+            try:
+                data, _ = json.JSONDecoder().raw_decode(raw_content[start:])
+            except Exception:
+                return content
 
         def clean(value):
             return str(value if value is not None else '').replace('|', '\\|').strip()
@@ -356,12 +366,23 @@ async def create_page():
         nonlocal batch_state
 
         if judge_state['running']:
+            judge_state['stop_requested'] = True
+            judge_btn.props('icon=hourglass_empty color=warning')
+            judge_btn.set_text('Stopping')
+            judge_status.set_text('Stopping judge...')
+            update_btn()
+            return
+        if batch_service.any_active() or stream_service.any_active():
+            state['stopping'] = True
+            batch_service.stop_all()
+            stream_service.stop_all()
+            judge_btn.props('icon=hourglass_empty color=warning')
+            judge_btn.set_text('Stopping')
+            judge_status.set_text('Stopping batch...')
+            update_btn()
             return
         if not batch_state:
             ui.notify('Run or recover a batch before judging.', type='warning')
-            return
-        if batch_service.any_active() or stream_service.any_active():
-            ui.notify('Wait for the batch to finish before judging.', type='warning')
             return
         if not judge_model.value:
             ui.notify('Select a judge model.', type='warning')
@@ -372,8 +393,11 @@ async def create_page():
         app.storage.user['batch_judge_prompt_template'] = judge_prompt_template.value
 
         judge_state['running'] = True
-        judge_btn.disable()
+        judge_state['stop_requested'] = False
+        judge_btn.props('icon=stop color=negative')
+        judge_btn.set_text('Stop')
         judge_status.set_text('Judging...')
+        update_btn()
 
         judged_count = 0
         try:
@@ -390,6 +414,9 @@ async def create_page():
                 judge_targets.append((model, m_state, story_text))
 
             for index, (model, m_state, story_text) in enumerate(judge_targets):
+                if judge_state['stop_requested']:
+                    break
+
                 judge_status.set_text(f'Judging {model_numbers.get(model, model)}...')
                 effective_prompt = '\n\n'.join(
                     part for part in [
@@ -403,41 +430,82 @@ async def create_page():
                     effective_prompt,
                     story_text,
                 )
-                response = await client.chat(
+                user_msg = {
+                    'id': str(uuid.uuid4()),
+                    'role': 'user',
+                    'content': 'Judge evaluation requested.',
+                    'judge_evaluation': True,
+                }
+                assistant_msg = {
+                    'id': str(uuid.uuid4()),
+                    'role': 'assistant',
+                    'model': f'Judge: {judge_model.value}',
+                    'content': '',
+                    'thinking': '',
+                    'raw_judge_json': '',
+                    'judge_evaluation': True,
+                }
+                m_state['messages'].extend([user_msg, assistant_msg])
+                render_results_ui()
+
+                stream = await client.chat(
                     judge_model.value,
                     [
                         {'role': 'system', 'content': judge_system_prompt.value},
                         {'role': 'user', 'content': prompt},
                     ],
-                    stream=False,
+                    stream=True,
                     log_requests=config_manager.is_logging_enabled('batch'),
                     keep_alive=0 if index == len(judge_targets) - 1 else '5m',
                 )
-                content = response.get('message', {}).get('content', '')
+                content = ''
+                thinking = ''
+                stats = None
+                async for chunk in stream:
+                    if judge_state['stop_requested']:
+                        break
+
+                    msg_chunk = chunk.get('message', {})
+                    content += msg_chunk.get('content', '') or ''
+                    thinking += msg_chunk.get('thinking', '') or ''
+                    if chunk.get('done'):
+                        stats = chunk
+
+                    assistant_msg['content'] = content
+                    assistant_msg['thinking'] = thinking
+                    renderer = model_renderers.get(model)
+                    if renderer:
+                        await renderer.update_message(
+                            assistant_msg['id'],
+                            content or '...',
+                            thinking,
+                            [],
+                            stats,
+                        )
+
                 if not content:
-                    content = 'Error: judge returned an empty response.'
+                    content = '_Stopped by user_' if judge_state['stop_requested'] else 'Error: judge returned an empty response.'
                 display_content = _format_judge_output(content)
 
-                m_state['messages'].extend([
-                    {
-                        'id': str(uuid.uuid4()),
-                        'role': 'user',
-                        'content': 'Judge evaluation requested.',
-                        'judge_evaluation': True,
-                    },
-                    {
-                        'id': str(uuid.uuid4()),
-                        'role': 'assistant',
-                        'model': f'Judge: {judge_model.value}',
-                        'content': display_content,
-                        'raw_judge_json': content,
-                        'judge_evaluation': True,
-                    },
-                ])
-                judged_count += 1
-                render_results_ui()
+                assistant_msg['content'] = display_content
+                assistant_msg['thinking'] = thinking
+                assistant_msg['raw_judge_json'] = content
+                renderer = model_renderers.get(model)
+                if renderer:
+                    await renderer.update_message(
+                        assistant_msg['id'],
+                        display_content,
+                        thinking,
+                        [],
+                        stats,
+                    )
+                if not judge_state['stop_requested']:
+                    judged_count += 1
 
-            if judged_count:
+            if judge_state['stop_requested']:
+                judge_status.set_text(f'Stopped after {judged_count} outputs.')
+                ui.notify('Judge stopped.', type='info')
+            elif judged_count:
                 judge_status.set_text(f'Judged {judged_count} outputs.')
                 ui.notify(f'Judged {judged_count} batch outputs.', type='positive')
             else:
@@ -448,7 +516,10 @@ async def create_page():
             ui.notify(f'Judge failed: {e}', type='negative')
         finally:
             judge_state['running'] = False
-            judge_btn.enable()
+            judge_state['stop_requested'] = False
+            judge_btn.props('icon=gavel color=secondary')
+            judge_btn.set_text('Judge')
+            update_btn()
 
     judge_model_default = app.storage.user.get('batch_judge_model')
     if judge_model_default not in all_models:
@@ -499,7 +570,8 @@ async def create_page():
                 if not run_btn: return
                 
                 # Check Global or Local
-                is_busy = stream_service.any_active() or batch_service.any_active()
+                is_batch_busy = stream_service.any_active() or batch_service.any_active()
+                is_busy = is_batch_busy or judge_state['running']
                 
                 if is_busy:
                     if state['stopping']:
@@ -509,6 +581,24 @@ async def create_page():
                 else:
                     run_btn.props('icon=send color=primary')
                     state['stopping'] = False
+
+                if judge_state['running']:
+                    if judge_state['stop_requested']:
+                        judge_btn.props('icon=hourglass_empty color=warning')
+                        judge_btn.set_text('Stopping')
+                    else:
+                        judge_btn.props('icon=stop color=negative')
+                        judge_btn.set_text('Stop')
+                elif is_batch_busy:
+                    if state['stopping']:
+                        judge_btn.props('icon=hourglass_empty color=warning')
+                        judge_btn.set_text('Stopping')
+                    else:
+                        judge_btn.props('icon=stop color=negative')
+                        judge_btn.set_text('Stop')
+                else:
+                    judge_btn.props('icon=gavel color=secondary')
+                    judge_btn.set_text('Judge')
             
             ui.timer(1.0, update_btn)
 
@@ -517,8 +607,13 @@ async def create_page():
                 
                 # Check if running
                 # Check if Global Busy
-                if stream_service.any_active() or batch_service.any_active():
+                if stream_service.any_active() or batch_service.any_active() or judge_state['running']:
                     state['stopping'] = True
+                    if judge_state['running']:
+                        judge_state['stop_requested'] = True
+                        judge_btn.props('icon=hourglass_empty color=warning')
+                        judge_btn.set_text('Stopping')
+                        judge_status.set_text('Stopping judge...')
                     batch_service.stop_all()
                     stream_service.stop_all()
                     update_btn()
@@ -549,8 +644,13 @@ async def create_page():
             
             def clear_batch():
                 nonlocal current_batch_id, batch_state
-                if stream_service.any_active() or batch_service.any_active():
+                if stream_service.any_active() or batch_service.any_active() or judge_state['running']:
                     state['stopping'] = True
+                    if judge_state['running']:
+                        judge_state['stop_requested'] = True
+                        judge_btn.props('icon=hourglass_empty color=warning')
+                        judge_btn.set_text('Stopping')
+                        judge_status.set_text('Stopping judge...')
                     batch_service.stop_all()
                     stream_service.stop_all()
                     update_btn()
