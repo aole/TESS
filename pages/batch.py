@@ -42,6 +42,7 @@ async def create_page():
     except Exception as e:
          ui.notify(f"Error loading models: {e}", type='negative')
          all_models = []
+    model_numbers = {model: index for index, model in enumerate(all_models, start=1)}
 
     # -- State --
     current_batch_id = app.storage.user.get('batch_id')
@@ -122,8 +123,10 @@ async def create_page():
                     
                     for m in all_models:
                         is_checked = m in rec_models if batch_state else False
-                        t = ui.checkbox(m, value=is_checked).props('dense color=secondary size=sm').classes('text-sm text-gray-400')
-                        model_toggles[m] = t
+                        with ui.row().classes('w-full items-center gap-1 no-wrap m-0 p-0'):
+                            ui.label(str(model_numbers[m])).classes('w-4 shrink-0 text-right text-[10px] leading-none font-mono text-teal-300')
+                            t = ui.checkbox(m, value=is_checked).props('dense color=secondary size=sm').classes('min-w-0 text-sm text-gray-400')
+                            model_toggles[m] = t
 
     # -- Main Content --
     with ui.column().classes('w-full h-full pt-8 px-4 max-w-7xl mx-auto'):
@@ -235,8 +238,9 @@ async def create_page():
                 panels = ui.tab_panels(tabs, value=targets[0]).classes('w-full rounded-b-lg bg-black/20 border border-white/5 min-h-[300px]')
                 
                 with tabs:
-                    for model in targets:
-                        ui.tab(model)
+                    for index, model in enumerate(targets, start=1):
+                        label = str(model_numbers.get(model, index))
+                        ui.tab(model, label=label).tooltip(model)
                 
                 with panels:
                     for model in targets:
