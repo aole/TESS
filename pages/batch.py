@@ -7,159 +7,29 @@ from services.stream_service import stream_service
 from services.persona_service import persona_service
 import asyncio
 import json
+from pathlib import Path
+import tomllib
 import uuid
 import time
 
-DEFAULT_JUDGE_SYSTEM_PROMPT = """You are StoryJudge, an impartial evaluator of fictional stories written by other language models.
+JUDGE_PRESETS_DIR = Path('data/judges')
 
-Your job is to evaluate the submitted story using the provided rubric. You must judge only the story text given to you, not the author, model, prompt, or your personal taste.
+def load_judge_presets():
+    presets = {}
+    for path in sorted(JUDGE_PRESETS_DIR.glob('*.toml')):
+        try:
+            data = tomllib.loads(path.read_text(encoding='utf-8'))
+        except Exception as e:
+            print(f"Error loading judge preset {path}: {e}")
+            continue
 
-Be fair, consistent, and strict. Do not rewrite the story unless explicitly asked. Do not reward length by itself. Do not penalize unusual style choices if they are intentional and effective.
-
-Evaluate the story across the required categories. For each category:
-- Give a numeric score.
-- Give a short reason for the score.
-- Mention concrete evidence from the story.
-- Identify the main weakness if applicable.
-
-Use the full scoring range. Do not cluster everything around the middle. Excellent stories should score high, weak stories should score low.
-
-If the story is incomplete, incoherent, plagiarized-looking, mostly non-story content, or does not follow the effective prompt, reflect that in the scores.
-
-Return your answer in valid JSON only. Do not include markdown, commentary, or extra text outside the JSON."""
-
-DEFAULT_JUDGE_PROMPT_TEMPLATE = '''Evaluate the following story.
-
-Effective prompt:
-{{EFFECTIVE_PROMPT}}
-
-Story to evaluate:
-"""
-{{STORY_TEXT}}
-"""
-
-Use this scoring rubric:
-
-1. Plot and Structure - 0 to 10
-Evaluate whether the story has a clear beginning, middle, and end; meaningful progression; conflict; escalation; and resolution.
-
-2. Character Quality - 0 to 10
-Evaluate whether the characters feel distinct, believable, motivated, and emotionally engaging.
-
-3. Originality - 0 to 10
-Evaluate whether the story avoids cliches, offers fresh ideas, and has a memorable premise or execution.
-
-4. Worldbuilding and Setting - 0 to 10
-Evaluate whether the setting is clear, immersive, and relevant to the story.
-
-5. Prose and Style - 0 to 10
-Evaluate sentence quality, readability, tone, imagery, pacing, and command of language.
-
-6. Dialogue - 0 to 10
-Evaluate whether dialogue sounds natural, reveals character, advances the story, and avoids exposition dumping.
-
-7. Emotional Impact - 0 to 10
-Evaluate whether the story creates tension, humor, sadness, wonder, fear, or another intended emotional response.
-
-8. Theme and Meaning - 0 to 10
-Evaluate whether the story has depth, thematic coherence, or something meaningful beneath the surface.
-
-9. Prompt Adherence - 0 to 10
-Evaluate how well the story follows the effective prompt.
-
-10. Overall Quality - 0 to 10
-Evaluate the story as a complete reading experience.
-
-Scoring guide:
-0 = Missing or unusable
-1-2 = Very poor
-3-4 = Weak
-5-6 = Adequate
-7-8 = Strong
-9 = Excellent
-10 = Exceptional
-
-Return valid JSON in this exact structure:
-
-{
-  "scores": {
-    "plot_and_structure": {
-      "score": 0,
-      "reason": ""
-    },
-    "character_quality": {
-      "score": 0,
-      "reason": ""
-    },
-    "originality": {
-      "score": 0,
-      "reason": ""
-    },
-    "worldbuilding_and_setting": {
-      "score": 0,
-      "reason": ""
-    },
-    "prose_and_style": {
-      "score": 0,
-      "reason": ""
-    },
-    "dialogue": {
-      "score": 0,
-      "reason": ""
-    },
-    "emotional_impact": {
-      "score": 0,
-      "reason": ""
-    },
-    "theme_and_meaning": {
-      "score": 0,
-      "reason": ""
-    },
-    "prompt_adherence": {
-      "score": 0,
-      "reason": ""
-    },
-    "overall_quality": {
-      "score": 0,
-      "reason": ""
-    }
-  },
-  "weighted_total": 0,
-  "grade": "",
-  "summary": "",
-  "top_strengths": [],
-  "top_weaknesses": [],
-  "suggested_improvements": [],
-  "red_flags": []
-}
-
-Calculate weighted_total using this weighting:
-- Plot and Structure: 15%
-- Character Quality: 12%
-- Originality: 10%
-- Worldbuilding and Setting: 8%
-- Prose and Style: 12%
-- Dialogue: 8%
-- Emotional Impact: 10%
-- Theme and Meaning: 8%
-- Prompt Adherence: 10%
-- Overall Quality: 7%
-
-Use this grade scale:
-9.0 to 10 = "A"
-8.0 to 8.9 = "B"
-7.0 to 7.9 = "C"
-6.0 to 6.9 = "D"
-Below 6.0 = "F"
-
-Rules:
-- Scores must be numbers from 0 to 10.
-- Reasons must be specific, not generic.
-- Do not give a high score if the reason describes serious flaws.
-- If the story violates the effective prompt, reduce prompt_adherence.
-- If the story is very short, judge whether it still works as flash fiction rather than automatically penalizing it.
-- If the story is incomplete, mention it in red_flags.
-- Return JSON only.'''
+        preset_id = data.get('id') or path.stem
+        presets[preset_id] = {
+            'name': data.get('name') or preset_id.replace('_', ' ').title(),
+            'system_prompt': data.get('system_prompt', ''),
+            'prompt_template': data.get('prompt_template', ''),
+        }
+    return presets
 
 async def create_page():
     page_client = ui.context.client
@@ -389,6 +259,7 @@ async def create_page():
             return
 
         app.storage.user['batch_judge_model'] = judge_model.value
+        app.storage.user['batch_judge_preset'] = judge_preset.value
         app.storage.user['batch_judge_system_prompt'] = judge_system_prompt.value
         app.storage.user['batch_judge_prompt_template'] = judge_prompt_template.value
 
@@ -524,9 +395,34 @@ async def create_page():
     judge_model_default = app.storage.user.get('batch_judge_model')
     if judge_model_default not in all_models:
         judge_model_default = all_models[0] if all_models else None
-    saved_judge_template = app.storage.user.get('batch_judge_prompt_template', DEFAULT_JUDGE_PROMPT_TEMPLATE)
+
+    judge_presets = load_judge_presets()
+    judge_options = {preset_id: preset['name'] for preset_id, preset in judge_presets.items()}
+    judge_preset_default = app.storage.user.get('batch_judge_preset', 'story_judge')
+    if judge_preset_default not in judge_presets:
+        judge_preset_default = next(iter(judge_presets), None)
+    selected_judge_preset = judge_presets.get(judge_preset_default, {})
+
+    saved_judge_system_prompt = selected_judge_preset.get(
+        'system_prompt',
+        app.storage.user.get('batch_judge_system_prompt', ''),
+    )
+    saved_judge_template = selected_judge_preset.get(
+        'prompt_template',
+        app.storage.user.get('batch_judge_prompt_template', ''),
+    )
     if '{{ORIGINAL_PROMPT}}' in saved_judge_template:
-        saved_judge_template = DEFAULT_JUDGE_PROMPT_TEMPLATE
+        saved_judge_template = selected_judge_preset.get('prompt_template', '')
+
+    def on_judge_preset_change(e):
+        preset = judge_presets.get(e.value)
+        if not preset:
+            return
+        judge_system_prompt.value = preset['system_prompt']
+        judge_prompt_template.value = preset['prompt_template']
+        app.storage.user['batch_judge_preset'] = e.value
+        app.storage.user['batch_judge_system_prompt'] = preset['system_prompt']
+        app.storage.user['batch_judge_prompt_template'] = preset['prompt_template']
 
     with ui.right_drawer(value=True).classes('bg-[#18181b] border-l border-white/10'):
         with ui.column().classes('w-full h-full p-4 no-wrap'):
@@ -538,9 +434,16 @@ async def create_page():
                     value=judge_model_default,
                 ).props('dense options-dense outlined dark').classes('w-full text-sm mb-4')
 
+                ui.label('Judge').classes('text-sm font-medium text-gray-400 mb-1')
+                judge_preset = ui.select(
+                    options=judge_options,
+                    value=judge_preset_default,
+                    on_change=on_judge_preset_change,
+                ).props('dense options-dense outlined dark').classes('w-full text-sm mb-4')
+
                 ui.label('Judge LLM System Prompt').classes('text-sm font-medium text-gray-400 mb-1')
                 judge_system_prompt = ui.textarea(
-                    value=app.storage.user.get('batch_judge_system_prompt', DEFAULT_JUDGE_SYSTEM_PROMPT),
+                    value=saved_judge_system_prompt,
                 ).props('dense rows=8 filled flat').classes('w-full text-sm mb-4 bg-white/5 rounded-md')
 
                 ui.label('Judge Prompt Template').classes('text-sm font-medium text-gray-400 mb-1')
