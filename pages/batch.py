@@ -377,6 +377,7 @@ async def create_page():
 
         judged_count = 0
         try:
+            judge_targets = []
             for model in batch_state['models']:
                 m_state = batch_state['model_states'][model]
                 if m_state.get('status') != 'done':
@@ -386,6 +387,9 @@ async def create_page():
                 if not story_text.strip():
                     continue
 
+                judge_targets.append((model, m_state, story_text))
+
+            for index, (model, m_state, story_text) in enumerate(judge_targets):
                 judge_status.set_text(f'Judging {model_numbers.get(model, model)}...')
                 effective_prompt = '\n\n'.join(
                     part for part in [
@@ -407,7 +411,7 @@ async def create_page():
                     ],
                     stream=False,
                     log_requests=config_manager.is_logging_enabled('batch'),
-                    keep_alive=0,
+                    keep_alive=0 if index == len(judge_targets) - 1 else '5m',
                 )
                 content = response.get('message', {}).get('content', '')
                 if not content:
