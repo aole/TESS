@@ -78,8 +78,25 @@ def create_page():
             pass
 
     def _open_remove_background_dialog():
+        remove_bg_model_input.options = app.storage.user.get('visual_remove_background_models', ['isnet-anime'])
+        remove_bg_model_input.update()
         remove_bg_model_input.value = app.storage.user.get('visual_remove_background_model', 'isnet-anime')
         remove_bg_dialog.open()
+
+    def _remember_remove_background_model(model_name: str):
+        models = app.storage.user.get('visual_remove_background_models', ['isnet-anime'])
+        if not isinstance(models, list):
+            models = ['isnet-anime']
+        models = [m for m in models if isinstance(m, str) and m.strip()]
+        if model_name not in models:
+            models.append(model_name)
+        app.storage.user['visual_remove_background_models'] = models
+        app.storage.user['visual_remove_background_model'] = model_name
+        try:
+            remove_bg_model_input.options = models
+            remove_bg_model_input.update()
+        except Exception:
+            pass
 
     async def _run_remove_background_from_dialog():
         model_name = (remove_bg_model_input.value or '').strip()
@@ -87,7 +104,7 @@ def create_page():
             _notify('Enter a rembg model name.', type='warning')
             return
 
-        app.storage.user['visual_remove_background_model'] = model_name
+        _remember_remove_background_model(model_name)
         remove_bg_dialog.close()
         await _run_remove_background_from_context(model_name=model_name)
 
@@ -110,6 +127,12 @@ def create_page():
         app.storage.user['visual_remove_background_auto'] = False
     if 'visual_remove_background_model' not in app.storage.user:
         app.storage.user['visual_remove_background_model'] = 'isnet-anime'
+    if 'visual_remove_background_models' not in app.storage.user:
+        app.storage.user['visual_remove_background_models'] = ['isnet-anime']
+    elif not isinstance(app.storage.user['visual_remove_background_models'], list):
+        app.storage.user['visual_remove_background_models'] = ['isnet-anime']
+    if app.storage.user['visual_remove_background_model'] not in app.storage.user['visual_remove_background_models']:
+        app.storage.user['visual_remove_background_models'].append(app.storage.user['visual_remove_background_model'])
 
     # ── Main layout ──────────────────────────────────────────────────────────
     with ui.row().classes('w-full max-w-screen-2xl mx-auto gap-6 p-4 flex-nowrap items-start'):
@@ -136,11 +159,11 @@ def create_page():
 
             with ui.dialog() as remove_bg_dialog, ui.card().classes('w-96 max-w-full gap-4'):
                 ui.label('Remove Background').classes('text-lg font-semibold')
-                remove_bg_model_input = ui.input(
-                    'Model',
+                remove_bg_model_input = ui.select(
+                    app.storage.user['visual_remove_background_models'],
+                    label='Model',
                     value=app.storage.user['visual_remove_background_model'],
-                    placeholder='isnet-anime',
-                ).props('outlined dense').classes('w-full')
+                ).props('outlined dense use-input fill-input hide-selected new-value-mode=add').classes('w-full')
                 with ui.row().classes('w-full justify-end gap-2'):
                     ui.button('Cancel', on_click=remove_bg_dialog.close).props('flat no-caps')
                     ui.button(
@@ -532,6 +555,7 @@ def create_page():
             _notify('Enter a rembg model name.', type='warning')
             return []
 
+        _remember_remove_background_model(model_name)
         processed = []
         _set_remove_background_busy(True)
         try:
