@@ -519,8 +519,47 @@ def create_page():
         except Exception:
             pass
 
+    def _image_text_metadata(fpath: str) -> dict:
+        try:
+            from PIL import Image
+            with Image.open(fpath) as img:
+                metadata = img.text if hasattr(img, 'text') else img.info
+                return {
+                    key: value for key, value in metadata.items()
+                    if isinstance(key, str) and isinstance(value, str)
+                }
+        except Exception:
+            return {}
+
+    def _tool_png_metadata(source_path: str, tool_meta: dict):
+        import json
+        from PIL.PngImagePlugin import PngInfo
+
+        source_metadata = _image_text_metadata(source_path)
+        metadata = PngInfo()
+
+        for key, value in source_metadata.items():
+            metadata.add_text(key, value)
+
+        existing_tools = []
+        if source_metadata.get('tools'):
+            try:
+                parsed_tools = json.loads(source_metadata['tools'])
+                if isinstance(parsed_tools, list):
+                    existing_tools = parsed_tools
+            except Exception:
+                existing_tools = []
+
+        metadata.add_text('source_image', source_path.replace('\\', '/'))
+        metadata.add_text('source_metadata', json.dumps(source_metadata, indent=2))
+        metadata.add_text('tools', json.dumps([*existing_tools, tool_meta], indent=2))
+        return metadata
+
     def _remove_background_file(fpath: str, model_name: str) -> str:
+        import datetime
+        import io
         from rembg import new_session, remove
+        from PIL import Image
 
         if _rembg_state['session'] is None or _rembg_state['model'] != model_name:
             _rembg_state['session'] = new_session(model_name)
@@ -530,8 +569,17 @@ def create_page():
         with open(fpath, 'rb') as input_file:
             input_bytes = input_file.read()
         output_bytes = remove(input_bytes, session=_rembg_state['session'])
-        with open(output_path, 'wb') as output_file:
-            output_file.write(output_bytes)
+
+        tool_meta = {
+            'name': 'remove_background',
+            'model': model_name,
+            'source_image': fpath.replace('\\', '/'),
+            'created_at': datetime.datetime.now().isoformat(timespec='seconds'),
+        }
+        metadata = _tool_png_metadata(fpath, tool_meta)
+        with Image.open(io.BytesIO(output_bytes)) as img:
+            img.save(output_path, pnginfo=metadata)
+
         _create_thumbnail(output_path)
         return output_path
 
