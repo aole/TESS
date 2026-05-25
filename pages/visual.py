@@ -6,6 +6,16 @@ from services.visual_service import generate_image_task
 
 _VISUAL_EXTS = {'.png', '.jpg', '.jpeg', '.webp'}
 _VISUAL_DIR  = 'data/visual'
+_CHECKER_BG = (
+    'background-color: #1f2937;'
+    'background-image: '
+    'linear-gradient(45deg, rgba(255,255,255,0.16) 25%, transparent 25%),'
+    'linear-gradient(-45deg, rgba(255,255,255,0.16) 25%, transparent 25%),'
+    'linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.16) 75%),'
+    'linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.16) 75%);'
+    'background-size: 24px 24px;'
+    'background-position: 0 0, 0 12px, 12px -12px, -12px 0;'
+)
 
 
 _grid_open = {'value': True}
@@ -237,7 +247,7 @@ def create_page():
             pass
 
         with ui.element('div').classes('w-full h-full relative group') as img_div:
-            with ui.element('div').classes('w-full h-full overflow-auto flex flex-col'):
+            with ui.element('div').classes('w-full h-full overflow-auto flex flex-col').style(_CHECKER_BG):
                 img = ui.element('img').props(f'src="{path}"').classes('m-auto w-full h-full object-contain rounded-lg shadow-xl transition-all duration-300')
             
             fpath = path.lstrip('/')
@@ -399,13 +409,15 @@ def create_page():
         finally:
             _update_selection_controls()
 
-    def _unique_tool_output_path(fpath: str, suffix: str, ext: str = '.png') -> str:
-        dirname, fname = os.path.split(fpath)
-        stem = os.path.splitext(fname)[0]
-        candidate = os.path.join(dirname, f'{stem}_{suffix}{ext}').replace('\\', '/')
+    def _new_visual_output_path(ext: str = '.png') -> str:
+        import datetime
+
+        os.makedirs(_VISUAL_DIR, exist_ok=True)
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        candidate = os.path.join(_VISUAL_DIR, f'tess_{timestamp}{ext}').replace('\\', '/')
         idx = 2
         while os.path.exists(candidate):
-            candidate = os.path.join(dirname, f'{stem}_{suffix}_{idx}{ext}').replace('\\', '/')
+            candidate = os.path.join(_VISUAL_DIR, f'tess_{timestamp}_{idx}{ext}').replace('\\', '/')
             idx += 1
         return candidate
 
@@ -425,7 +437,7 @@ def create_page():
     def _remove_background_file(fpath: str) -> str:
         from rembg import remove
 
-        output_path = _unique_tool_output_path(fpath, 'nobg')
+        output_path = _new_visual_output_path()
         with open(fpath, 'rb') as input_file:
             input_bytes = input_file.read()
         output_bytes = remove(input_bytes)
@@ -686,7 +698,8 @@ def create_page():
         with grid:
             cell = ui.element('div').classes('group').style(
                 'position: relative; overflow: hidden; cursor: pointer;'
-                'aspect-ratio: 1 / 1; background: rgba(0,0,0,0.3);'
+                'aspect-ratio: 1 / 1;'
+                f'{_CHECKER_BG}'
                 'transition: transform 0.15s ease, box-shadow 0.15s ease;'
             )
             cell.on('click', lambda s=full_src, p=fpath: _handle_grid_cell_click(s, p))
@@ -847,7 +860,8 @@ def create_page():
                         cell.clear()
                         cell.style(
                             'position: relative; overflow: hidden;'
-                            'aspect-ratio: 1 / 1; background: rgba(0,0,0,0.3);'
+                            'aspect-ratio: 1 / 1;'
+                            f'{_CHECKER_BG}'
                             'border: none; border-radius: 6px; cursor: pointer;'
                             'display: block;'
                         ).classes('group')
