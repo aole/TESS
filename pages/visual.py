@@ -18,6 +18,9 @@ _selection_state = {
     'delete_btn': None,
     'count_label': None,
 }
+_view_state = {
+    'current_image': None,
+}
 
 _gen_state = {
     'active': False,
@@ -49,15 +52,36 @@ def create_page():
         app.storage.user['visual_inference_steps'] = 30
     if 'visual_batch_count' not in app.storage.user:
         app.storage.user['visual_batch_count'] = 1
+    if 'visual_remove_background_auto' not in app.storage.user:
+        app.storage.user['visual_remove_background_auto'] = False
 
-    # ── Main two-column layout ───────────────────────────────────────────────
+    # ── Main layout ──────────────────────────────────────────────────────────
     with ui.row().classes('w-full max-w-screen-2xl mx-auto gap-6 p-4 flex-nowrap items-start'):
 
-        # Left column – image area (70%)
+        # Left column – image tools
+        with ui.column().classes(
+            'rounded-lg border border-white/10 bg-black/20 p-3 gap-3'
+        ).style('flex: 1.35; height: calc(100vh - 120px); min-height: 500px;'):
+            ui.label('Tools').classes('text-white/60 text-sm font-semibold uppercase tracking-widest')
+            ui.separator().classes('bg-white/10')
+            with ui.column().classes('w-full gap-2'):
+                with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
+                    ui.checkbox().bind_value(
+                        app.storage.user, 'visual_remove_background_auto'
+                    ).tooltip('Run after image generation')
+                    ui.button(
+                        'Remove BG',
+                        icon='layers_clear',
+                        on_click=lambda: asyncio.create_task(_run_remove_background_from_context()),
+                    ).props('outline dense no-caps').classes('flex-1 text-sm').tooltip(
+                        'Remove background from selected images or the current image'
+                    )
+
+        # Center column – image area
         with ui.column().classes(
             'rounded-lg border border-white/10 overflow-hidden bg-black/20 '
             'relative'
-        ).style('flex: 7; height: calc(100vh - 120px); min-height: 500px;') as image_container:
+        ).style('flex: 6.65; height: calc(100vh - 120px); min-height: 500px;') as image_container:
             _gen_state['image_container'] = image_container
             _gen_state['client'] = ui.context.client
             _gen_state['full_view_container'] = ui.element('div').classes('w-full h-full flex flex-col items-center justify-center hidden')
@@ -171,6 +195,7 @@ def create_page():
     # ── Helper: restore the "no image" placeholder ───────────────────────────
     def show_placeholder():
         _grid_open['value'] = False
+        _view_state['current_image'] = None
         full_view = _gen_state.get('full_view_container')
         grid_view = _gen_state.get('grid_view_container')
         if not full_view or not grid_view: return
@@ -259,6 +284,7 @@ def create_page():
     def show_image(path: str):
         """path is the web-accessible URL string (e.g. '/data/visual/foo.png')."""
         _grid_open['value'] = False
+        _view_state['current_image'] = path.lstrip('/')
         full_view = _gen_state.get('full_view_container')
         grid_view = _gen_state.get('grid_view_container')
         if not full_view or not grid_view: return
@@ -372,6 +398,82 @@ def create_page():
             ui.notify(f'Could not delete selected images: {exc}', type='negative')
         finally:
             _update_selection_controls()
+
+    def _unique_tool_output_path(fpath: str, suffix: str, ext: str = '.png') -> str:
+        dirname, fname = os.path.split(fpath)
+        stem = os.path.splitext(fname)[0]
+        candidate = os.path.join(dirname, f'{stem}_{suffix}{ext}').replace('\\', '/')
+        idx = 2
+        while os.path.exists(candidate):
+            candidate = os.path.join(dirname, f'{stem}_{suffix}_{idx}{ext}').replace('\\', '/')
+            idx += 1
+        return candidate
+
+    def _create_thumbnail(fpath: str):
+        try:
+            from PIL import Image
+            dirname, fname = os.path.split(fpath)
+            thumb_dir = os.path.join(dirname, 'thumbs').replace('\\', '/')
+            os.makedirs(thumb_dir, exist_ok=True)
+            thumb_path = os.path.join(thumb_dir, os.path.basename(fpath)).replace('\\', '/')
+            with Image.open(fpath) as img:
+                img.thumbnail((256, 256))
+                img.save(thumb_path)
+        except Exception:
+            pass
+
+    def _remove_background_file(fpath: str) -> str:
+        from rembg import remove
+
+        output_path = _unique_tool_output_path(fpath, 'nobg')
+        with open(fpath, 'rb') as input_file:
+            input_bytes = input_file.read()
+        output_bytes = remove(input_bytes)
+        with open(output_path, 'wb') as output_file:
+            output_file.write(output_bytes)
+        _create_thumbnail(output_path)
+        return output_path
+
+    def _tool_context_paths():
+        if _grid_open['value']:
+            return [path for path in _selection_state['selected'] if os.path.exists(path)]
+
+        current = _view_state.get('current_image')
+        if current and os.path.exists(current):
+            return [current]
+        return []
+
+    async def _run_remove_background_from_context(paths=None, *, auto=False):
+        targets = list(paths) if paths else _tool_context_paths()
+        if not targets:
+            ui.notify('Select images in grid view or open an image first.', type='warning')
+            return []
+
+        processed = []
+        try:
+            for fpath in targets:
+                output_path = await run.io_bound(_remove_background_file, fpath)
+                processed.append(output_path)
+
+            if processed:
+                app.storage.user['visual_last_image'] = processed[-1]
+                _grid_element['ref'] = None
+                if _grid_open['value']:
+                    _selection_state['selected'].clear()
+                    _selection_state['active'] = False
+                    show_history()
+                else:
+                    show_image(f'/{processed[-1]}')
+                if not auto:
+                    ui.notify(f'Removed background from {len(processed)} image{"s" if len(processed) != 1 else ""}.', type='positive')
+        except ImportError:
+            ui.notify('rembg is not installed. Run the project dependency sync, then try again.', type='negative')
+        except Exception as exc:
+            ui.notify(f'Could not remove background: {exc}', type='negative')
+        finally:
+            _update_selection_controls()
+
+        return processed
 
     # ── Helper: open the history grid inside image_container ─────────────────
     def show_history():
@@ -724,7 +826,14 @@ def create_page():
                                 _gen_state['spinner_cell'].delete()
                             break
                         raise Exception("Pipeline returned None")
-                        
+
+                    if app.storage.user.get('visual_remove_background_auto'):
+                        safe_notify('Removing background...', type='info', pos='bottom-right', timeout=1500)
+                        try:
+                            output_path = await run.io_bound(_remove_background_file, output_path)
+                        except Exception as tool_exc:
+                            safe_notify(f'Background removal failed: {tool_exc}', type='negative')
+
                     app.storage.user['visual_last_image'] = output_path
                     src = f'/{output_path}'
                     

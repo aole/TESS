@@ -24,6 +24,7 @@ dependencies = [
     "ddgs>=9.14.2",
     "trafilatura>=2.0.0",
     "matplotlib>=3.10.9",
+    "rembg[cpu]",
 ]
 
 [[tool.uv.index]]
