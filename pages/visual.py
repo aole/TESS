@@ -555,6 +555,13 @@ def create_page():
         metadata.add_text('tools', json.dumps([*existing_tools, tool_meta], indent=2))
         return metadata
 
+    def _unload_remove_background_session():
+        import gc
+
+        _rembg_state['session'] = None
+        _rembg_state['model'] = None
+        gc.collect()
+
     def _remove_background_file(fpath: str, model_name: str) -> str:
         import datetime
         import io
@@ -627,6 +634,7 @@ def create_page():
         except Exception as exc:
             _notify(f'Could not remove background: {exc}', type='negative')
         finally:
+            await run.io_bound(_unload_remove_background_session)
             _set_remove_background_busy(False)
             _update_selection_controls()
 
@@ -992,6 +1000,8 @@ def create_page():
                             output_path = await run.io_bound(_remove_background_file, output_path, model_name)
                         except Exception as tool_exc:
                             safe_notify(f'Background removal failed: {tool_exc}', type='negative')
+                        finally:
+                            await run.io_bound(_unload_remove_background_session)
 
                     app.storage.user['visual_last_image'] = output_path
                     src = f'/{output_path}'
