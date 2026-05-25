@@ -47,6 +47,15 @@ _gen_state = {
 }
 
 def create_page():
+    page_client = ui.context.client
+
+    def _notify(msg, **kwargs):
+        try:
+            if page_client and not page_client._deleted:
+                page_client.notify(msg, **kwargs)
+        except Exception:
+            pass
+
     if 'visual_positive_prompt' not in app.storage.user:
         app.storage.user['visual_positive_prompt'] = (
             "masterpiece, best quality, score_7, safe, abandoned cathedral, nature reclaiming architecture, "
@@ -93,7 +102,7 @@ def create_page():
             'relative'
         ).style('flex: 6.65; height: calc(100vh - 120px); min-height: 500px;') as image_container:
             _gen_state['image_container'] = image_container
-            _gen_state['client'] = ui.context.client
+            _gen_state['client'] = page_client
             _gen_state['full_view_container'] = ui.element('div').classes('w-full h-full flex flex-col items-center justify-center hidden')
             _gen_state['grid_view_container'] = ui.element('div').classes('w-full h-full flex flex-col hidden')
             _grid_element['ref'] = None
@@ -458,7 +467,7 @@ def create_page():
     async def _run_remove_background_from_context(paths=None, *, auto=False):
         targets = list(paths) if paths else _tool_context_paths()
         if not targets:
-            ui.notify('Select images in grid view or open an image first.', type='warning')
+            _notify('Select images in grid view or open an image first.', type='warning')
             return []
 
         processed = []
@@ -477,11 +486,11 @@ def create_page():
                 else:
                     show_image(f'/{processed[-1]}')
                 if not auto:
-                    ui.notify(f'Removed background from {len(processed)} image{"s" if len(processed) != 1 else ""}.', type='positive')
+                    _notify(f'Removed background from {len(processed)} image{"s" if len(processed) != 1 else ""}.', type='positive')
         except ImportError:
-            ui.notify('rembg is not installed. Run the project dependency sync, then try again.', type='negative')
+            _notify('rembg is not installed. Run the project dependency sync, then try again.', type='negative')
         except Exception as exc:
-            ui.notify(f'Could not remove background: {exc}', type='negative')
+            _notify(f'Could not remove background: {exc}', type='negative')
         finally:
             _update_selection_controls()
 
