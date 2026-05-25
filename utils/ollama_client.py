@@ -148,10 +148,10 @@ class OllamaClient(BaseLLMClient):
                 return error_gen()
             return {'response': f"Error: {error_message}"}
 
-    async def chat(self, model: str, messages: List[Dict[str, str]], stream: bool = True, options: Dict[str, Any] = None, tools: List[Any] = None, keep_alive: Any = None, log_requests: bool = True):
+    async def chat(self, model: str, messages: List[Dict[str, str]], stream: bool = True, options: Dict[str, Any] = None, tools: List[Any] = None, keep_alive: Any = None, format: Any = None, log_requests: bool = True):
         """Chat with a model."""
         if log_requests:
-            self._log('chat_request', {'messages': messages, 'options': options, 'tools': str(tools) if tools else None, 'keep_alive': keep_alive}, model)
+            self._log('chat_request', {'messages': messages, 'options': options, 'tools': str(tools) if tools else None, 'keep_alive': keep_alive, 'format': format}, model)
         try:
             chat_args = {
                 'model': model,
@@ -163,6 +163,8 @@ class OllamaClient(BaseLLMClient):
                 chat_args['tools'] = tools
             if keep_alive is not None:
                 chat_args['keep_alive'] = keep_alive
+            if format is not None:
+                chat_args['format'] = format
 
             response = await self.client.chat(**chat_args)
             if stream:

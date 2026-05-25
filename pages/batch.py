@@ -174,63 +174,183 @@ async def create_page():
 
     def _format_judge_output(content: str) -> str:
         raw_content = content.strip()
-        if raw_content.startswith('```'):
-            raw_content = raw_content.removeprefix('```json').removeprefix('```').strip()
-            raw_content = raw_content.removesuffix('```').strip()
-        try:
-            data = json.loads(raw_content)
-        except Exception:
-            start = raw_content.find('{')
-            if start == -1:
-                return content
-            try:
-                data, _ = json.JSONDecoder().raw_decode(raw_content[start:])
-            except Exception:
-                return content
 
         def clean(value):
             return str(value if value is not None else '').replace('|', '\\|').strip()
 
-        lines = [
-            '## Judge Evaluation',
-            '',
-            f"**Grade:** {clean(data.get('grade'))}",
-            f"**Weighted total:** {clean(data.get('weighted_total'))}",
+        def title_for_key(key: str) -> str:
+            return str(key).replace('_', ' ').title()
+
+        def scalar_text(value) -> str:
+            if isinstance(value, bool):
+                return 'true' if value else 'false'
+            if value is None:
+                return ''
+            return clean(value)
+
+        def is_scalar(value) -> bool:
+            return not isinstance(value, (dict, list))
+
+        def append_markdown(lines, value, level=2, title=None):
+            if isinstance(value, dict):
+                if title:
+                    lines.extend(['', f"{'#' * min(level, 6)} {clean(title)}"])
+
+                scalar_items = [(key, item) for key, item in value.items() if is_scalar(item)]
+                complex_items = [(key, item) for key, item in value.items() if not is_scalar(item)]
+
+                if scalar_items:
+                    for key, item in scalar_items:
+                        lines.append(f"**{clean(title_for_key(key))}:** {scalar_text(item)}")
+
+                if complex_items and all(isinstance(item, dict) for _, item in complex_items):
+                    child_keys = []
+                    for _, item in complex_items:
+                        for child_key, child_value in item.items():
+                            if is_scalar(child_value) and child_key not in child_keys:
+                                child_keys.append(child_key)
+
+                    if child_keys:
+                        lines.extend(['', '| Item | ' + ' | '.join(clean(title_for_key(key)) for key in child_keys) + ' |'])
+                        lines.append('| --- | ' + ' | '.join('---' for _ in child_keys) + ' |')
+                        for key, item in complex_items:
+                            cells = [clean(title_for_key(key))]
+                            cells.extend(scalar_text(item.get(child_key, '')) for child_key in child_keys)
+                            lines.append('| ' + ' | '.join(cells) + ' |')
+
+                        for key, item in complex_items:
+                            nested = {child_key: child_value for child_key, child_value in item.items() if not is_scalar(child_value)}
+                            if nested:
+                                append_markdown(lines, nested, level + 1, title_for_key(key))
+                    else:
+                        for key, item in complex_items:
+                            append_markdown(lines, item, level + 1, title_for_key(key))
+                else:
+                    for key, item in complex_items:
+                        append_markdown(lines, item, level + 1, title_for_key(key))
+            elif isinstance(value, list):
+                if title:
+                    lines.extend(['', f"{'#' * min(level, 6)} {clean(title)}"])
+                if all(is_scalar(item) for item in value):
+                    lines.extend(f"- {scalar_text(item)}" for item in value)
+                else:
+                    for index, item in enumerate(value, start=1):
+                        append_markdown(lines, item, level + 1, f"Item {index}")
+            elif title:
+                lines.append(f"**{clean(title)}:** {scalar_text(value)}")
+
+        def format_json_data(data: dict) -> str:
+            lines = ['## Judge Evaluation']
+            append_markdown(lines, data)
+            return '\n'.join(lines)
+
+        def strip_fence(value: str) -> str:
+            value = value.strip()
+            if not value.startswith('```'):
+                return value
+            first_newline = value.find('\n')
+            if first_newline != -1:
+                value = value[first_newline + 1:]
+            if value.rstrip().endswith('```'):
+                value = value.rstrip()[:-3]
+            return value.strip()
+
+        def extract_json_object(value: str) -> str:
+            start = value.find('{')
+            if start == -1:
+                return ''
+
+            depth = 0
+            in_string = False
+            escaped = False
+            for index in range(start, len(value)):
+                char = value[index]
+                if in_string:
+                    if escaped:
+                        escaped = False
+                    elif char == '\\':
+                        escaped = True
+                    elif char == '"':
+                        in_string = False
+                    continue
+
+                if char == '"':
+                    in_string = True
+                elif char == '{':
+                    depth += 1
+                elif char == '}':
+                    depth -= 1
+                    if depth == 0:
+                        return value[start:index + 1]
+            return value[start:]
+
+        def escape_control_chars_in_strings(value: str) -> str:
+            result = []
+            in_string = False
+            escaped = False
+            for char in value:
+                if in_string:
+                    if escaped:
+                        result.append(char)
+                        escaped = False
+                    elif char == '\\':
+                        result.append(char)
+                        escaped = True
+                    elif char == '"':
+                        result.append(char)
+                        in_string = False
+                    elif char == '\n':
+                        result.append('\\n')
+                    elif char == '\r':
+                        result.append('\\r')
+                    elif char == '\t':
+                        result.append('\\t')
+                    else:
+                        result.append(char)
+                else:
+                    result.append(char)
+                    if char == '"':
+                        in_string = True
+            return ''.join(result)
+
+        parse_candidates = [
+            raw_content,
+            strip_fence(raw_content),
+            extract_json_object(strip_fence(raw_content)),
+            extract_json_object(raw_content),
         ]
 
-        summary = data.get('summary')
-        if summary:
-            lines.extend(['', f"**Summary:** {clean(summary)}"])
+        data = None
+        for candidate in parse_candidates:
+            if not candidate:
+                continue
+            for parse_candidate in [candidate, escape_control_chars_in_strings(candidate)]:
+                try:
+                    data = json.loads(parse_candidate)
+                    break
+                except Exception:
+                    try:
+                        data, _ = json.JSONDecoder().raw_decode(parse_candidate)
+                        break
+                    except Exception:
+                        pass
+            if data is not None:
+                break
 
-        scores = data.get('scores', {})
-        if scores:
-            lines.extend([
-                '',
-                '| Category | Score | Reason |',
-                '| --- | ---: | --- |',
-            ])
-            for key, value in scores.items():
-                category = key.replace('_', ' ').title()
-                if isinstance(value, dict):
-                    score = value.get('score', '')
-                    reason = value.get('reason', '')
-                else:
-                    score = ''
-                    reason = value
-                lines.append(f"| {clean(category)} | {clean(score)} | {clean(reason)} |")
+        if not isinstance(data, dict):
+            return content
 
-        for key, title in [
-            ('top_strengths', 'Top Strengths'),
-            ('top_weaknesses', 'Top Weaknesses'),
-            ('suggested_improvements', 'Suggested Improvements'),
-            ('red_flags', 'Red Flags'),
-        ]:
-            values = data.get(key) or []
-            if values:
-                lines.extend(['', f"**{title}:**"])
-                lines.extend([f"- {clean(item)}" for item in values])
+        return format_json_data(data)
 
-        return '\n'.join(lines)
+    def _format_stored_judge_messages(messages):
+        for msg in messages:
+            if msg.get('role') != 'assistant' or not msg.get('judge_evaluation'):
+                continue
+            raw_content = msg.get('raw_judge_json') or msg.get('content', '')
+            formatted_content = _format_judge_output(raw_content)
+            if formatted_content != raw_content:
+                msg['raw_judge_json'] = raw_content
+                msg['content'] = formatted_content
 
     async def run_judge():
         nonlocal batch_state
@@ -333,6 +453,7 @@ async def create_page():
                     },
                     log_requests=config_manager.is_logging_enabled('batch'),
                     keep_alive=0 if index == len(judge_targets) - 1 else '5m',
+                    format='json',
                 )
                 content = ''
                 thinking = ''
@@ -633,6 +754,7 @@ async def create_page():
                                 
                                 # Initial render of messages
                                 msgs = batch_state['model_states'][model]['messages']
+                                _format_stored_judge_messages(msgs)
                                 renderer.render_messages(msgs)
 
         async def poll_batch_updates():

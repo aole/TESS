@@ -38,7 +38,7 @@ class BaseLLMClient(ABC):
         raise NotImplementedError("Operation not supported.")
 
     @abstractmethod
-    async def chat(self, model: str, messages: List[Dict[str, str]], stream: bool = True, options: Dict[str, Any] = None, tools: List[Any] = None, keep_alive: Any = None, log_requests: bool = True):
+    async def chat(self, model: str, messages: List[Dict[str, str]], stream: bool = True, options: Dict[str, Any] = None, tools: List[Any] = None, keep_alive: Any = None, format: Any = None, log_requests: bool = True):
         raise NotImplementedError("Operation not supported.")
 
     @abstractmethod
