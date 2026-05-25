@@ -31,6 +31,10 @@ _selection_state = {
 _view_state = {
     'current_image': None,
 }
+_rembg_state = {
+    'session': None,
+    'model': None,
+}
 
 _gen_state = {
     'active': False,
@@ -56,6 +60,37 @@ def create_page():
         except Exception:
             pass
 
+    def _set_remove_background_busy(active: bool):
+        try:
+            if active:
+                remove_bg_btn.disable()
+                remove_bg_btn.set_text('Working...')
+                remove_bg_btn.props('loading')
+                remove_bg_status.set_text('Remove BG is working...')
+                remove_bg_status.classes(remove='hidden')
+            else:
+                remove_bg_btn.enable()
+                remove_bg_btn.set_text('Remove BG')
+                remove_bg_btn.props(remove='loading')
+                remove_bg_status.set_text('')
+                remove_bg_status.classes(add='hidden')
+        except Exception:
+            pass
+
+    def _open_remove_background_dialog():
+        remove_bg_model_input.value = app.storage.user.get('visual_remove_background_model', 'isnet-anime')
+        remove_bg_dialog.open()
+
+    async def _run_remove_background_from_dialog():
+        model_name = (remove_bg_model_input.value or '').strip()
+        if not model_name:
+            _notify('Enter a rembg model name.', type='warning')
+            return
+
+        app.storage.user['visual_remove_background_model'] = model_name
+        remove_bg_dialog.close()
+        await _run_remove_background_from_context(model_name=model_name)
+
     if 'visual_positive_prompt' not in app.storage.user:
         app.storage.user['visual_positive_prompt'] = (
             "masterpiece, best quality, score_7, safe, abandoned cathedral, nature reclaiming architecture, "
@@ -73,6 +108,8 @@ def create_page():
         app.storage.user['visual_batch_count'] = 1
     if 'visual_remove_background_auto' not in app.storage.user:
         app.storage.user['visual_remove_background_auto'] = False
+    if 'visual_remove_background_model' not in app.storage.user:
+        app.storage.user['visual_remove_background_model'] = 'isnet-anime'
 
     # ── Main layout ──────────────────────────────────────────────────────────
     with ui.row().classes('w-full max-w-screen-2xl mx-auto gap-6 p-4 flex-nowrap items-start'):
@@ -88,13 +125,29 @@ def create_page():
                     ui.checkbox().bind_value(
                         app.storage.user, 'visual_remove_background_auto'
                     ).tooltip('Run after image generation')
-                    ui.button(
+                    remove_bg_btn = ui.button(
                         'Remove BG',
                         icon='layers_clear',
-                        on_click=lambda: asyncio.create_task(_run_remove_background_from_context()),
+                        on_click=_open_remove_background_dialog,
                     ).props('outline dense no-caps').classes('flex-1 text-sm').tooltip(
                         'Remove background from selected images or the current image'
                     )
+                remove_bg_status = ui.label('').classes('hidden text-xs text-purple-300 font-mono')
+
+            with ui.dialog() as remove_bg_dialog, ui.card().classes('w-96 max-w-full gap-4'):
+                ui.label('Remove Background').classes('text-lg font-semibold')
+                remove_bg_model_input = ui.input(
+                    'Model',
+                    value=app.storage.user['visual_remove_background_model'],
+                    placeholder='isnet-anime',
+                ).props('outlined dense').classes('w-full')
+                with ui.row().classes('w-full justify-end gap-2'):
+                    ui.button('Cancel', on_click=remove_bg_dialog.close).props('flat no-caps')
+                    ui.button(
+                        'Run',
+                        icon='play_arrow',
+                        on_click=_run_remove_background_from_dialog,
+                    ).props('no-caps')
 
         # Center column – image area
         with ui.column().classes(
@@ -443,13 +496,17 @@ def create_page():
         except Exception:
             pass
 
-    def _remove_background_file(fpath: str) -> str:
-        from rembg import remove
+    def _remove_background_file(fpath: str, model_name: str) -> str:
+        from rembg import new_session, remove
+
+        if _rembg_state['session'] is None or _rembg_state['model'] != model_name:
+            _rembg_state['session'] = new_session(model_name)
+            _rembg_state['model'] = model_name
 
         output_path = _new_visual_output_path()
         with open(fpath, 'rb') as input_file:
             input_bytes = input_file.read()
-        output_bytes = remove(input_bytes)
+        output_bytes = remove(input_bytes, session=_rembg_state['session'])
         with open(output_path, 'wb') as output_file:
             output_file.write(output_bytes)
         _create_thumbnail(output_path)
@@ -464,16 +521,22 @@ def create_page():
             return [current]
         return []
 
-    async def _run_remove_background_from_context(paths=None, *, auto=False):
+    async def _run_remove_background_from_context(paths=None, *, model_name=None, auto=False):
         targets = list(paths) if paths else _tool_context_paths()
         if not targets:
             _notify('Select images in grid view or open an image first.', type='warning')
             return []
 
+        model_name = (model_name or app.storage.user.get('visual_remove_background_model', 'isnet-anime')).strip()
+        if not model_name:
+            _notify('Enter a rembg model name.', type='warning')
+            return []
+
         processed = []
+        _set_remove_background_busy(True)
         try:
             for fpath in targets:
-                output_path = await run.io_bound(_remove_background_file, fpath)
+                output_path = await run.io_bound(_remove_background_file, fpath, model_name)
                 processed.append(output_path)
 
             if processed:
@@ -492,6 +555,7 @@ def create_page():
         except Exception as exc:
             _notify(f'Could not remove background: {exc}', type='negative')
         finally:
+            _set_remove_background_busy(False)
             _update_selection_controls()
 
         return processed
@@ -852,7 +916,8 @@ def create_page():
                     if app.storage.user.get('visual_remove_background_auto'):
                         safe_notify('Removing background...', type='info', pos='bottom-right', timeout=1500)
                         try:
-                            output_path = await run.io_bound(_remove_background_file, output_path)
+                            model_name = app.storage.user.get('visual_remove_background_model', 'isnet-anime')
+                            output_path = await run.io_bound(_remove_background_file, output_path, model_name)
                         except Exception as tool_exc:
                             safe_notify(f'Background removal failed: {tool_exc}', type='negative')
 
