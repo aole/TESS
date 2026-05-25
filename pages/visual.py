@@ -10,6 +10,14 @@ _VISUAL_DIR  = 'data/visual'
 
 _grid_open = {'value': True}
 _grid_element = {'ref': None}
+_selection_state = {
+    'active': False,
+    'selected': set(),
+    'cells': {},
+    'toggle_btn': None,
+    'delete_btn': None,
+    'count_label': None,
+}
 
 _gen_state = {
     'active': False,
@@ -261,6 +269,110 @@ def create_page():
         with full_view:
             _render_image_with_nav(path)
 
+    def _update_selection_controls():
+        selected_count = len(_selection_state['selected'])
+        toggle_btn = _selection_state.get('toggle_btn')
+        delete_btn = _selection_state.get('delete_btn')
+        count_label = _selection_state.get('count_label')
+
+        if toggle_btn:
+            if _selection_state['active']:
+                toggle_btn.props('icon=check_box color=primary')
+            else:
+                toggle_btn.props('icon=check_box_outline_blank color=white')
+
+        if delete_btn:
+            if _selection_state['active'] and selected_count:
+                delete_btn.enable()
+            else:
+                delete_btn.disable()
+
+        if count_label:
+            count_label.set_text(f'{selected_count} selected' if _selection_state['active'] else '')
+
+    def _update_cell_selection(fpath: str):
+        refs = _selection_state['cells'].get(fpath)
+        if not refs:
+            return
+        overlay = refs.get('overlay')
+        if not overlay:
+            return
+        if fpath in _selection_state['selected']:
+            overlay.classes(remove='hidden')
+        else:
+            overlay.classes(add='hidden')
+
+    def _toggle_selection_mode():
+        _selection_state['active'] = not _selection_state['active']
+        if not _selection_state['active']:
+            selected = list(_selection_state['selected'])
+            _selection_state['selected'].clear()
+            for fpath in selected:
+                _update_cell_selection(fpath)
+        _update_selection_controls()
+
+    def _toggle_image_selection(fpath: str):
+        if fpath in _selection_state['selected']:
+            _selection_state['selected'].remove(fpath)
+        else:
+            _selection_state['selected'].add(fpath)
+        _update_cell_selection(fpath)
+        _update_selection_controls()
+
+    def _handle_grid_cell_click(full_src: str, fpath: str):
+        if _selection_state['active']:
+            _toggle_image_selection(fpath)
+        else:
+            show_image(full_src)
+
+    def _register_selectable_cell(cell, fpath: str):
+        with cell:
+            with ui.element('div').classes(
+                'hidden absolute inset-0 pointer-events-none'
+            ).style(
+                'background: rgba(124,58,237,0.28);'
+                'box-shadow: inset 0 0 0 3px rgba(167,139,250,0.95);'
+                'z-index: 8;'
+            ) as overlay:
+                ui.icon('check_circle', size='30px').classes(
+                    'absolute top-2 right-2 text-purple-200 drop-shadow'
+                )
+        _selection_state['cells'][fpath] = {'cell': cell, 'overlay': overlay}
+        _update_cell_selection(fpath)
+
+    def _remove_image_files(fpath: str):
+        if os.path.exists(fpath):
+            os.remove(fpath)
+        dirname, fname = os.path.split(fpath)
+        thumb_path = f"{dirname}/thumbs/{fname}".replace('\\', '/')
+        if os.path.exists(thumb_path):
+            os.remove(thumb_path)
+
+    def _delete_selected_images():
+        selected = list(_selection_state['selected'])
+        if not selected:
+            return
+
+        deleted = 0
+        try:
+            for fpath in selected:
+                _remove_image_files(fpath)
+                deleted += 1
+
+            last = app.storage.user.get('visual_last_image')
+            if last and any(os.path.normpath(last) == os.path.normpath(path) for path in selected):
+                app.storage.user['visual_last_image'] = None
+
+            _selection_state['selected'].clear()
+            _selection_state['active'] = False
+            _grid_element['ref'] = None
+            ui.notify(f'Deleted {deleted} image{"s" if deleted != 1 else ""}.', type='info')
+            show_history()
+        except Exception as exc:
+            ui.notify(f'Could not delete selected images: {exc}', type='negative')
+        finally:
+            _update_selection_controls()
+
     # ── Helper: open the history grid inside image_container ─────────────────
     def show_history():
         _grid_open['value'] = True
@@ -275,14 +387,36 @@ def create_page():
             return  # Grid already built
 
         grid_view.clear()
+        _selection_state['cells'] = {}
+        _selection_state['toggle_btn'] = None
+        _selection_state['delete_btn'] = None
+        _selection_state['count_label'] = None
         with grid_view:
             # Header bar
             with ui.row().classes('w-full items-center justify-between px-4 pt-3 pb-1').style(
                 'flex-shrink: 0;'
             ):
-                ui.label('Generation History').classes(
-                    'text-white/60 text-sm font-semibold uppercase tracking-widest'
-                )
+                ui.element('div').style('width: 42px; flex-shrink: 0;')
+                with ui.row().classes('items-center justify-center gap-2'):
+                    ui.label('Generation History').classes(
+                        'text-white/60 text-sm font-semibold uppercase tracking-widest'
+                    )
+                    _selection_state['toggle_btn'] = ui.button(
+                        icon='check_box_outline_blank',
+                        on_click=_toggle_selection_mode,
+                    ).props('flat dense round').style(
+                        'width: 30px; height: 30px; min-height: unset;'
+                        'color: rgba(255,255,255,0.55);'
+                    ).tooltip('Select images')
+                    ui.separator().props('vertical').classes('h-6 bg-white/20')
+                    _selection_state['delete_btn'] = ui.button(
+                        icon='delete',
+                        on_click=_delete_selected_images,
+                    ).props('flat dense round color=negative').style(
+                        'width: 30px; height: 30px; min-height: unset;'
+                    ).tooltip('Delete selected images')
+                    _selection_state['count_label'] = ui.label('').classes('text-white/40 text-xs font-mono')
+                    _update_selection_controls()
                 ui.button(icon='close', on_click=_restore_last).props('flat dense').classes(
                     'text-white/40 hover:text-white/80'
                 ).tooltip('Back to current image')
@@ -339,15 +473,13 @@ def create_page():
     # ── Helper: delete an image file and refresh the grid ───────────────────
     def _delete_image(fpath: str, cell_div=None):
         try:
-            if os.path.exists(fpath):
-                os.remove(fpath)
-                dirname, fname = os.path.split(fpath)
-                thumb_path = f"{dirname}/thumbs/{fname}".replace('\\', '/')
-                if os.path.exists(thumb_path):
-                    os.remove(thumb_path)
+            _remove_image_files(fpath)
             last = app.storage.user.get('visual_last_image')
             if last and os.path.normpath(last) == os.path.normpath(fpath):
                 app.storage.user['visual_last_image'] = None
+            _selection_state['selected'].discard(fpath)
+            _selection_state['cells'].pop(fpath, None)
+            _update_selection_controls()
                 
             ui.notify('Image deleted.', type='info')
             
@@ -455,11 +587,12 @@ def create_page():
                 'aspect-ratio: 1 / 1; background: rgba(0,0,0,0.3);'
                 'transition: transform 0.15s ease, box-shadow 0.15s ease;'
             )
-            cell.on('click', lambda s=full_src: show_image(s))
+            cell.on('click', lambda s=full_src, p=fpath: _handle_grid_cell_click(s, p))
             with cell:
                 ui.image(thumb_src).style(
                     'width:100%; height:100%; object-fit:cover; display:block;'
                 )
+            _register_selectable_cell(cell, fpath)
             _add_delete_btn(cell, fpath)
             _add_regenerate_btn(cell, fpath)
             _add_info_btn(cell, fpath)
@@ -611,10 +744,11 @@ def create_page():
                         ).classes('group')
                         with cell:
                             ui.image(thumb_src).style('width:100%; height:100%; object-fit:cover; display:block;')
+                            _register_selectable_cell(cell, output_path)
                             _add_delete_btn(cell, output_path)
                             _add_regenerate_btn(cell, output_path)
                             _add_info_btn(cell, output_path)
-                        cell.on('click', lambda s=src: show_image(s))
+                        cell.on('click', lambda s=src, p=output_path: _handle_grid_cell_click(s, p))
                     
                     if not _grid_open['value']:
                         container = _gen_state.get('image_container')
