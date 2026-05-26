@@ -1,5 +1,5 @@
 from nicegui import ui, app, run
-from pages import models, chat, arena, batch, tools, create, settings, google, playground, audio, visual, apps, python_page, personas
+from pages import models, chat, arena, batch, tools, create, settings, google, audio, visual, apps, python_page, personas
 from services import system_service
 from utils.llm_client import client
 
@@ -139,7 +139,6 @@ def layout(page_path: str = ''):
             nav_link('Models', '/')
             nav_link('Personas', '/personas')
             nav_link('Create', '/create')
-            nav_link('Playground', '/playground')
             nav_link('Python', '/python')
             nav_link('Audio', '/audio')
             nav_link('Visual', '/visual')
@@ -187,10 +186,6 @@ def create_new_page(base_model: str = None):
     layout('/create')
     create.create_page(base_model)
 
-@ui.page('/playground')
-def playground_page():
-    layout('/playground')
-    playground.create_page()
 
 @ui.page('/python')
 def python_ide_page():

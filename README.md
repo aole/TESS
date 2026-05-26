@@ -23,7 +23,6 @@
 *   **Apps Ecosystem**: A modular space for custom applications, including a dedicated **Notes** app with Google Drive synchronization.
 *   **Model Management**: Easily pull, delete, and manage your local Ollama models.
 *   **Custom Models**: Create new model variants (Modelfiles) directly within the UI.
-*   **Playground**: An experimental space for rapid model testing and iteration.
 
 ## Getting Started
 

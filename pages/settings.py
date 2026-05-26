@@ -432,7 +432,7 @@ def create_page():
                 # Refresh options lazily so newly-created personas appear
                 ui.timer(2.0, _refresh_persona_opts)
 
-            # ── Playground ────────────────────────────────────────────────────
+            # ── Default Models ────────────────────────────────────────────────
             with ui_card(heading="Default Models", heading_icon="psychology", heading_color="indigo"):
                 async def load_models_for_setting():
                     from utils.llm_client import client
