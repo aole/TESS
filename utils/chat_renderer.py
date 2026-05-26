@@ -196,6 +196,8 @@ class ConversationRenderer:
         content = msg.get('content', '')
         display_content = content
         attachments = msg.get('attachments', [])
+        images = msg.get('images', [])
+        image_attachments = msg.get('image_attachments', [])
         
         # If there are attachments, we want to show them in a collapsible section
         if attachments:
@@ -227,6 +229,25 @@ class ConversationRenderer:
                         else:
                             # Fallback for old messages with only names
                             ui.label(f"Content for {att} is embedded in message context.").classes('text-xs italic text-gray-500 p-2')
+
+        if images:
+            with ui.expansion().classes('w-full bg-white/5 rounded-md border border-white/10 mb-2 group/exp') as exp:
+                with exp.add_slot('header'):
+                    with ui.row().classes('items-center gap-2 flex-grow'):
+                        ui.icon('image', size='20px').classes('text-purple-400')
+                        ui.label(f"{len(images)} Images Attached").classes('text-[11px] font-bold text-gray-300 uppercase tracking-wider')
+                        ui.space()
+                        with ui.row().classes('gap-1'):
+                            for i, _ in enumerate(images):
+                                meta = image_attachments[i] if i < len(image_attachments) else {}
+                                name = meta.get('name', f'Image {i + 1}') if isinstance(meta, dict) else f'Image {i + 1}'
+                                ui.badge(name, color='purple-6').props('outline').classes('text-[10px] px-2 py-0.5')
+
+                with ui.row().classes('w-full p-2 gap-2 bg-black/20'):
+                    for i, image in enumerate(images):
+                        meta = image_attachments[i] if i < len(image_attachments) else {}
+                        mime_type = meta.get('mime_type', 'image/png') if isinstance(meta, dict) else 'image/png'
+                        ui.image(f"data:{mime_type};base64,{image}").classes('max-w-48 max-h-48 rounded border border-white/10 object-contain bg-black/30')
 
         content_markdown = None
         

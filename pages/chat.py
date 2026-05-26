@@ -12,6 +12,8 @@ from utils.ui_components import ui_list, ui_list_item
 from utils.audio_player import AudioPlayer
 from services.persona_service import persona_service, NO_PERSONA_ID
 import asyncio
+import base64
+import mimetypes
 import uuid
 import secrets
 
@@ -707,9 +709,10 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 # Forward declaration for button
                 send_btn = None
                 attached_files = []
+                attached_images = []
 
                 # --- File Attachment Logic ---
-                async def handle_upload(e):
+                async def handle_text_upload(e):
                     try:
                         content_bytes = await e.file.read()
                         content = content_bytes.decode('utf-8')
@@ -720,9 +723,31 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         filename = getattr(getattr(e, 'file', None), 'name', 'Unknown file')
                         ui.notify(f'Error reading {filename}: {ex}', type='negative')
 
-                def remove_attachment(index):
-                    if 0 <= index < len(attached_files):
+                async def handle_image_upload(e):
+                    try:
+                        image_bytes = await e.file.read()
+                        filename = getattr(e.file, 'name', 'Unknown image')
+                        content_type = getattr(e.file, 'content_type', None) or mimetypes.guess_type(filename)[0] or 'image/*'
+                        if not content_type.startswith('image/'):
+                            ui.notify(f'{filename} is not an image file', type='warning')
+                            return
+                        attached_images.append({
+                            'name': filename,
+                            'mime_type': content_type,
+                            'data': base64.b64encode(image_bytes).decode('ascii')
+                        })
+                        ui.notify(f'Attached {filename}', type='positive')
+                        refresh_attachments_ui()
+                    except Exception as ex:
+                        filename = getattr(getattr(e, 'file', None), 'name', 'Unknown image')
+                        ui.notify(f'Error reading {filename}: {ex}', type='negative')
+
+                def remove_attachment(kind, index):
+                    if kind == 'file' and 0 <= index < len(attached_files):
                         attached_files.pop(index)
+                        refresh_attachments_ui()
+                    elif kind == 'image' and 0 <= index < len(attached_images):
+                        attached_images.pop(index)
                         refresh_attachments_ui()
 
                 def refresh_attachments_ui():
@@ -731,10 +756,16 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         for i, f in enumerate(attached_files):
                             with ui.badge(f.get('name', 'Unknown'), color='blue-6').classes('cursor-pointer px-2 py-1 items-center'):
                                 ui.label(f.get('name', 'Unknown'))
-                                ui.icon('close', size='12px').classes('ml-1').on('click', lambda i=i: remove_attachment(i))
+                                ui.icon('close', size='12px').classes('ml-1').on('click', lambda i=i: remove_attachment('file', i))
+                        for i, image in enumerate(attached_images):
+                            with ui.badge(image.get('name', 'Unknown image'), color='purple-6').classes('cursor-pointer px-2 py-1 items-center'):
+                                ui.icon('image', size='14px')
+                                ui.label(image.get('name', 'Unknown image'))
+                                ui.icon('close', size='12px').classes('ml-1').on('click', lambda i=i: remove_attachment('image', i))
 
                 attachment_container = ui.row().classes('w-full gap-2 px-2 pb-1')
-                uploader = ui.upload(on_upload=handle_upload, multiple=True, auto_upload=True).props('accept=".txt,.md,.csv,.py,.js,.json,.html,.css,.sql,.yaml,.yml"').classes('hidden')
+                text_uploader = ui.upload(on_upload=handle_text_upload, multiple=True, auto_upload=True).props('accept=".txt,.md,.csv,.py,.js,.json,.html,.css,.sql,.yaml,.yml"').classes('hidden')
+                image_uploader = ui.upload(on_upload=handle_image_upload, multiple=True, auto_upload=True).props('accept="image/*"').classes('hidden')
 
                 def update_button_state():
                     if not send_btn: return
@@ -894,7 +925,10 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         return
 
                     content = user_input.value.strip()
-                    if not content or not model_select.value: return
+                    if (not content and not attached_files and not attached_images) or not model_select.value:
+                        return
+                    if not content and attached_images:
+                        content = 'Please analyze the attached image(s).'
 
                     attachments_data = []
                     if attached_files:
@@ -907,12 +941,19 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                             file_id = f"FILE_{i:02d}"
                             docs_text += f"<{file_id}>\n{f['content']}\n</{file_id}>\n\n"
                         content = f"{docs_text}\n{content}"
-                        state['has_attachments'] = True
                         attached_files.clear()
-                        refresh_attachments_ui()
-                    else:
-                        state['has_attachments'] = False
-                    
+                    image_attachments = []
+                    images_data = []
+                    if attached_images:
+                        image_attachments = [
+                            {'name': image['name'], 'mime_type': image['mime_type']}
+                            for image in attached_images
+                        ]
+                        images_data = [image['data'] for image in attached_images]
+                        attached_images.clear()
+                    state['has_attachments'] = bool(attachments_data or image_attachments)
+                    refresh_attachments_ui()
+                     
                     user_input.value = ''
                     if config_manager.is_tts_enabled():
                         asyncio.create_task(asyncio.to_thread(tts_service.warmup))
@@ -923,6 +964,9 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         'id': str(uuid.uuid4()),
                         'attachments': attachments_data
                     }
+                    if images_data:
+                        user_msg['images'] = images_data
+                        user_msg['image_attachments'] = image_attachments
                     messages.append(user_msg)
                     app.storage.user['messages'] = messages
                     with chat_container: chat_renderer.render_message(user_msg)
@@ -933,7 +977,10 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 user_input.on('keydown.enter.exact', lambda e: send_message() if not e.args['shiftKey'] else None, args=['shiftKey'])
 
                 with ui.row().classes('w-full gap-1 items-center'):
-                    ui.button(icon='add', on_click=lambda: uploader.run_method('pickFiles')).props('flat round color=primary').tooltip('Attach text files')
+                    with ui.button(icon='add').props('flat round color=primary').tooltip('Insert attachments'):
+                        with ui.menu().props('auto-close'):
+                            ui.menu_item('Insert text file', on_click=lambda: text_uploader.run_method('pickFiles'))
+                            ui.menu_item('Insert images', on_click=lambda: image_uploader.run_method('pickFiles'))
 
                     tts_btn = ui.button(icon='volume_off').props('flat round color=grey').tooltip('Toggle Automatic Text-to-Speech')
                     def toggle_tts():
