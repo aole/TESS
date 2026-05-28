@@ -252,12 +252,21 @@ def create_page():
                 'align-items: center; justify-content: center; gap: 6px;'
             ) as spinner_cell:
                 _gen_state['spinner_cell'] = spinner_cell
+                
+                # Image element for preview inside grid
+                _gen_state['grid_preview_image'] = ui.element('img').props('src=""').style(
+                    'position: absolute; top: 0; left: 0; width: 100%; height: 100%;'
+                    'object-fit: cover; opacity: 0.45; z-index: 1; transition: opacity 0.3s;'
+                ).classes('hidden')
+
                 _gen_state['circ_progress'] = ui.circular_progress(
                     min=0, max=100, value=_gen_state['pct'], show_value=True, size='56px'
-                ).props('color=purple track-color=white/10 font-size=10px')
+                ).props('color=purple track-color=white/10 font-size=10px').style('z-index: 2;')
+                
                 ui.label(f"{_gen_state['batch_prefix']}Generating…").style(
                     'font-size: 11px; color: rgba(216,180,254,0.7);'
                     'font-family: monospace; letter-spacing: 0.05em;'
+                    'z-index: 2;'
                 )
         spinner_cell.move(grid, 0)
 
@@ -964,11 +973,14 @@ def create_page():
                     if _gen_state['progress_label']:
                         _gen_state['progress_label'].set_text(f"{_gen_state['batch_prefix']}Step {step} / {total}")
                     if preview_path and os.path.exists(preview_path):
+                        import time
+                        ts = int(time.time() * 1000)
                         if _gen_state.get('preview_image'):
-                            import time
-                            ts = int(time.time() * 1000)
                             _gen_state['preview_image'].classes(remove='hidden')
                             _gen_state['preview_image'].props(f'src="/{preview_path}?t={ts}"')
+                        if _gen_state.get('grid_preview_image'):
+                            _gen_state['grid_preview_image'].classes(remove='hidden')
+                            _gen_state['grid_preview_image'].props(f'src="/{preview_path}?t={ts}"')
                 except Exception:
                     pass
             loop.call_soon_threadsafe(_update)
@@ -1077,6 +1089,8 @@ def create_page():
             _gen_state['circ_progress'] = None
             _gen_state['linear_progress'] = None
             _gen_state['progress_label'] = None
+            _gen_state['preview_image'] = None
+            _gen_state['grid_preview_image'] = None
             generate_btn.enable()
             generate_btn.props('color=primary icon=brush')
             generate_btn.set_text('Generate')
