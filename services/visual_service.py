@@ -145,7 +145,7 @@ def unload_pipeline():
     flush()
 
 
-def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, width: int = 1024, height: int = 1024, progress_callback=None, unload_after=True) -> str:
+def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, width: int = 1024, height: int = 1024, progress_callback=None, unload_after=True, generate_previews: bool = False) -> str:
     # Calculate VRAM limit for an 8GB card (leaving a small buffer)
     vram_info = torch.cuda.mem_get_info("cuda")
     vram_limit = vram_info[1] / (1024 ** 3) - 0.5
@@ -186,7 +186,7 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
         for i, item in enumerate(items):
             # If this is a preview step, skip calling the progress callback here
             # to let the preview_callback handle the progress update/refresh instead.
-            is_preview_step = (i % preview_interval == 0 or i == total - 1)
+            is_preview_step = generate_previews and (i % preview_interval == 0 or i == total - 1)
             if progress_callback and not is_preview_step:
                 try:
                     res = progress_callback(i, total)
@@ -212,7 +212,7 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
                 width=width,
                 height=height,
                 progress_bar_cmd=_progress_bar_cmd,
-                preview_callback=preview_callback,
+                preview_callback=preview_callback if generate_previews else None,
                 preview_interval=preview_interval,
             )
     except InterruptedError:

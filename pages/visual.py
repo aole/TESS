@@ -125,6 +125,8 @@ def create_page():
         app.storage.user['visual_batch_count'] = 1
     if 'visual_remove_background_auto' not in app.storage.user:
         app.storage.user['visual_remove_background_auto'] = False
+    if 'visual_generate_previews' not in app.storage.user:
+        app.storage.user['visual_generate_previews'] = False
     if 'visual_remove_background_model' not in app.storage.user:
         app.storage.user['visual_remove_background_model'] = 'isnet-anime'
     if 'visual_remove_background_models' not in app.storage.user:
@@ -218,11 +220,15 @@ def create_page():
                     ui.label('Inference Steps').classes('text-sm text-gray-400')
                     steps_label = ui.label(
                         str(app.storage.user['visual_inference_steps'])
-                    ).classes('text-sm text-gray-300 font-mono')
+                     ).classes('text-sm text-gray-300 font-mono')
                 steps = ui.slider(
                     min=1, max=50,
                     on_change=lambda e: steps_label.set_text(str(int(e.value)))
                 ).classes('w-full').bind_value(app.storage.user, 'visual_inference_steps')
+
+            ui.checkbox('Generate Intermediate Previews').bind_value(
+                app.storage.user, 'visual_generate_previews'
+            ).tooltip('Generate and show intermediate preview images (increases VRAM usage during generation)')
 
             # Generate
             with ui.row().classes('w-full gap-4 mt-2 flex-nowrap'):
@@ -1012,7 +1018,8 @@ def create_page():
                         int(w_str),
                         int(h_str),
                         on_progress,
-                        unload_after=False
+                        unload_after=False,
+                        generate_previews=app.storage.user.get('visual_generate_previews', False)
                     )
                     
                     if not output_path:
