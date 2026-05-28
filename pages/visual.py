@@ -270,22 +270,32 @@ def create_page():
         if not full_view: return
         full_view.clear()
         with full_view:
-            with ui.column().classes('relative items-center justify-center gap-4 w-full h-full px-12'):
-                ui.button(icon='grid_view', on_click=show_history).props('flat dense round').style(
-                    'position: absolute; top: 16px; right: 16px;'
-                    'width: 40px; height: 40px; background: rgba(0,0,0,0.5); color: white; z-index: 10;'
-                ).tooltip('Visual History Grid')
+            with ui.element('div').classes('w-full h-full relative') as img_div:
+                with ui.element('div').classes('w-full h-full overflow-auto flex flex-col').style(_CHECKER_BG):
+                    _gen_state['preview_image'] = ui.element('img').props('src=""').classes(
+                        'm-auto w-full h-full object-contain rounded-lg shadow-xl hidden transition-all duration-300'
+                    )
                 
-                ui.icon('auto_awesome', size='48px').classes('text-purple-400/60 mb-2')
-                _gen_state['progress_label'] = ui.label(f"{_gen_state['batch_prefix']}Preparing…").classes(
-                    'text-white/50 text-sm font-mono tracking-widest'
-                )
-                _gen_state['linear_progress'] = ui.linear_progress(
-                    value=_gen_state['pct']/100, size='12px', show_value=False
-                ).classes('w-full').props('rounded color=purple')
-                ui.label(f"Generating image {_gen_state['idx']+1} of {_gen_state['total']} — this may take a moment").classes(
-                    'text-white/20 text-xs mt-1'
-                )
+                # Floating progress card on top of the preview image
+                with ui.card().classes(
+                    'absolute bottom-4 left-1/2 -translate-x-1/2 w-11/12 max-w-lg '
+                    'bg-black/60 backdrop-blur-md border border-white/10 p-4 gap-2 z-10'
+                ):
+                    with ui.row().classes('w-full items-center justify-between'):
+                        _gen_state['progress_label'] = ui.label(f"{_gen_state['batch_prefix']}Preparing…").classes(
+                            'text-white/80 text-sm font-mono tracking-widest'
+                        )
+                        ui.button(icon='grid_view', on_click=show_history).props('flat dense round').classes(
+                            'text-white/60 hover:text-white/100'
+                        ).tooltip('Visual History Grid')
+                    
+                    _gen_state['linear_progress'] = ui.linear_progress(
+                        value=_gen_state['pct']/100, size='8px', show_value=False
+                    ).classes('w-full').props('rounded color=purple')
+                    
+                    ui.label(f"Generating image {_gen_state['idx']+1} of {_gen_state['total']} — this may take a moment").classes(
+                        'text-white/40 text-xs mt-1'
+                    )
 
     # ── Helper: restore the "no image" placeholder ───────────────────────────
     def show_placeholder():
@@ -937,7 +947,7 @@ def create_page():
         
         loop = asyncio.get_event_loop()
 
-        def on_progress(step: int, total: int):
+        def on_progress(step: int, total: int, preview_path: str = None):
             if _gen_state.get('cancel'):
                 return "CANCEL"
             if total == 0:
@@ -953,6 +963,12 @@ def create_page():
                         _gen_state['linear_progress'].set_value(pct / 100)
                     if _gen_state['progress_label']:
                         _gen_state['progress_label'].set_text(f"{_gen_state['batch_prefix']}Step {step} / {total}")
+                    if preview_path and os.path.exists(preview_path):
+                        if _gen_state.get('preview_image'):
+                            import time
+                            ts = int(time.time() * 1000)
+                            _gen_state['preview_image'].classes(remove='hidden')
+                            _gen_state['preview_image'].props(f'src="/{preview_path}?t={ts}"')
                 except Exception:
                     pass
             loop.call_soon_threadsafe(_update)
@@ -968,6 +984,7 @@ def create_page():
                 _gen_state['circ_progress'] = None
                 _gen_state['linear_progress'] = None
                 _gen_state['progress_label'] = None
+                _gen_state['preview_image'] = None
 
                 _inject_grid_spinner()
                 if not _grid_open['value']:

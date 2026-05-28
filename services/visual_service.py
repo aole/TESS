@@ -18,6 +18,95 @@ def flush():
 
 _cached_pipe = None
 
+# Monkey patch AnimaImagePipeline.__call__ to support intermediate previews.
+@torch.no_grad()
+def custom_anima_call(
+    self,
+    prompt: str = "",
+    negative_prompt: str = "",
+    cfg_scale: float = 4.0,
+    input_image = None,
+    denoising_strength: float = 1.0,
+    height: int = 1024,
+    width: int = 1024,
+    seed: int = None,
+    rand_device: str = "cpu",
+    num_inference_steps: int = 30,
+    sigma_shift: float = None,
+    progress_bar_cmd = None,
+    preview_callback = None,
+    preview_interval = 2,
+):
+    from tqdm import tqdm
+    if progress_bar_cmd is None:
+        progress_bar_cmd = tqdm
+
+    # Scheduler
+    self.scheduler.set_timesteps(num_inference_steps, denoising_strength=denoising_strength, shift=sigma_shift)
+    
+    # Parameters
+    inputs_posi = {
+        "prompt": prompt,
+    }
+    inputs_nega = {
+        "negative_prompt": negative_prompt,
+    }
+    inputs_shared = {
+        "cfg_scale": cfg_scale,
+        "input_image": input_image, "denoising_strength": denoising_strength,
+        "height": height, "width": width,
+        "seed": seed, "rand_device": rand_device,
+        "num_inference_steps": num_inference_steps,
+    }
+    for unit in self.units:
+        inputs_shared, inputs_posi, inputs_nega = self.unit_runner(unit, self, inputs_shared, inputs_posi, inputs_nega)
+
+    # Denoise
+    self.load_models_to_device(self.in_iteration_models)
+    models = {name: getattr(self, name) for name in self.in_iteration_models}
+    for progress_id, timestep in enumerate(progress_bar_cmd(self.scheduler.timesteps)):
+        timestep = timestep.unsqueeze(0).to(dtype=self.torch_dtype, device=self.device)
+        noise_pred = self.cfg_guided_model_fn(
+            self.model_fn, cfg_scale,
+            inputs_shared, inputs_posi, inputs_nega,
+            **models, timestep=timestep, progress_id=progress_id
+        )
+        inputs_shared["latents"] = self.step(self.scheduler, progress_id=progress_id, noise_pred=noise_pred, **inputs_shared)
+        
+        # Intermediate preview generation
+        if preview_callback is not None and (progress_id % preview_interval == 0 or progress_id == num_inference_steps - 1):
+            try:
+                # Load VAE if VRAM management is active
+                if self.vram_management_enabled:
+                    self.load_models_to_device(['vae'])
+                
+                # Decode current latents
+                latents_temp = inputs_shared["latents"]
+                image_temp = self.vae.decode(latents_temp.unsqueeze(2), device=self.device).squeeze(2)
+                image_temp = self.vae_output_to_image(image_temp)
+                
+                # Restore iteration models if VRAM management is active
+                if self.vram_management_enabled:
+                    self.load_models_to_device(self.in_iteration_models)
+                
+                res = preview_callback(image_temp, progress_id, num_inference_steps)
+                if res == "CANCEL":
+                    raise InterruptedError("Cancelled")
+            except InterruptedError:
+                raise
+            except Exception as e:
+                print(f"Error in preview generation callback: {e}")
+
+    # Decode final image
+    self.load_models_to_device(['vae'])
+    image = self.vae.decode(inputs_shared["latents"].unsqueeze(2), device=self.device).squeeze(2)
+    image = self.vae_output_to_image(image)
+    self.load_models_to_device([])
+
+    return image
+
+AnimaImagePipeline.__call__ = custom_anima_call
+
 
 def get_pipeline(vram_limit):
     global _cached_pipe
@@ -66,12 +155,39 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
 
     # 3. INFERENCE
     print(f"Generating image: {prompt[:50]}...")
+    
+    # Preview callback settings
+    preview_interval = 2
+    
+    def preview_callback(preview_pil, progress_id, total_steps):
+        try:
+            preview_path = "data/visual/temp_preview.png"
+            preview_pil.save(preview_path)
+            if progress_callback:
+                try:
+                    return progress_callback(progress_id, total_steps, preview_path=preview_path)
+                except TypeError:
+                    return progress_callback(progress_id, total_steps)
+        except Exception as e:
+            print(f"Error in preview_callback: {e}")
+            
+    # Clean up old preview if exists
+    preview_file = "data/visual/temp_preview.png"
+    if os.path.exists(preview_file):
+        try:
+            os.remove(preview_file)
+        except Exception:
+            pass
+
     def _progress_bar_cmd(iterable, **kwargs):
         """tqdm-compatible wrapper that drives the progress_callback."""
         items = list(iterable)
         total = len(items)
         for i, item in enumerate(items):
-            if progress_callback:
+            # If this is a preview step, skip calling the progress callback here
+            # to let the preview_callback handle the progress update/refresh instead.
+            is_preview_step = (i % preview_interval == 0 or i == total - 1)
+            if progress_callback and not is_preview_step:
                 try:
                     res = progress_callback(i, total)
                     if res == "CANCEL":
@@ -96,6 +212,8 @@ def generate_image_task(prompt: str, negative_prompt: str, steps: int = 30, widt
                 width=width,
                 height=height,
                 progress_bar_cmd=_progress_bar_cmd,
+                preview_callback=preview_callback,
+                preview_interval=preview_interval,
             )
     except InterruptedError:
         print("Generation cancelled by user")
