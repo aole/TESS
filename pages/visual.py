@@ -922,6 +922,7 @@ def create_page():
 
     # ── Generate handler ─────────────────────────────────────────────────────
     async def on_generate():
+        user_storage = app.storage.user
         def safe_notify(msg, **kwargs):
             try:
                 client = _gen_state.get('client')
@@ -966,7 +967,7 @@ def create_page():
             safe_notify('Please enter a positive prompt', type='warning')
             return
 
-        batch_count = int(app.storage.user.get('visual_batch_count', 1))
+        batch_count = int(user_storage.get('visual_batch_count', 1))
         expanded_prompts = []
         for p in raw_prompts:
             for ep in expand_prompt(p):
@@ -1039,12 +1040,12 @@ def create_page():
                         generate_image_task,
                         current_p,
                         negative_prompt.value,
-                        app.storage.user['visual_inference_steps'],
+                        user_storage['visual_inference_steps'],
                         int(w_str),
                         int(h_str),
                         on_progress,
                         unload_after=False,
-                        generate_previews=app.storage.user.get('visual_generate_previews', False)
+                        generate_previews=user_storage.get('visual_generate_previews', False)
                     )
                     
                     if not output_path:
@@ -1054,17 +1055,17 @@ def create_page():
                             break
                         raise Exception("Pipeline returned None")
 
-                    if app.storage.user.get('visual_remove_background_auto'):
+                    if user_storage.get('visual_remove_background_auto'):
                         safe_notify('Removing background...', type='info', pos='bottom-right', timeout=1500)
                         try:
-                            model_name = app.storage.user.get('visual_remove_background_model', 'isnet-anime')
+                            model_name = user_storage.get('visual_remove_background_model', 'isnet-anime')
                             output_path = await run.io_bound(_remove_background_file, output_path, model_name)
                         except Exception as tool_exc:
                             safe_notify(f'Background removal failed: {tool_exc}', type='negative')
                         finally:
                             await run.io_bound(_unload_remove_background_session)
 
-                    app.storage.user['visual_last_image'] = output_path
+                    user_storage['visual_last_image'] = output_path
                     src = f'/{output_path}'
                     
                     dirname, fname = os.path.split(output_path)
@@ -1129,7 +1130,7 @@ def create_page():
             generate_btn.classes(add='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', remove='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
             
             if not _grid_open['value']:
-                last = app.storage.user.get('visual_last_image')
+                last = user_storage.get('visual_last_image')
                 if last and os.path.exists(last):
                     show_image(f'/{last}')
                 else:
