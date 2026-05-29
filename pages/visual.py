@@ -925,9 +925,8 @@ def create_page():
         user_storage = app.storage.user
         def safe_notify(msg, **kwargs):
             try:
-                client = _gen_state.get('client')
-                if client and not client._deleted:
-                    client.notify(msg, **kwargs)
+                if not page_client._deleted:
+                    page_client.notify(msg, **kwargs)
             except Exception:
                 pass
 
@@ -989,7 +988,7 @@ def create_page():
         loop = asyncio.get_event_loop()
 
         def on_progress(step: int, total: int, preview_path: str = None):
-            if _gen_state.get('cancel'):
+            if page_client._deleted or _gen_state.get('cancel'):
                 return "CANCEL"
             if total == 0:
                 return
@@ -998,6 +997,8 @@ def create_page():
             
             def _update():
                 try:
+                    if page_client._deleted:
+                        return
                     if _gen_state['circ_progress']:
                         _gen_state['circ_progress'].set_value(pct)
                     if _gen_state['linear_progress']:
@@ -1019,6 +1020,8 @@ def create_page():
 
         try:
             for idx, current_p in enumerate(raw_prompts):
+                if page_client._deleted:
+                    break
                 _gen_state['idx'] = idx
                 _gen_state['batch_prefix'] = f"[{idx + 1}/{total_prompts}] " if total_prompts > 1 else ""
                 _gen_state['pct'] = 0
@@ -1048,9 +1051,12 @@ def create_page():
                         generate_previews=user_storage.get('visual_generate_previews', False)
                     )
                     
+                    if page_client._deleted:
+                        break
+
                     if not output_path:
                         if _gen_state.get('cancel'):
-                            if _gen_state['spinner_cell']:
+                            if not page_client._deleted and _gen_state['spinner_cell']:
                                 _gen_state['spinner_cell'].delete()
                             break
                         raise Exception("Pipeline returned None")
@@ -1064,6 +1070,9 @@ def create_page():
                             safe_notify(f'Background removal failed: {tool_exc}', type='negative')
                         finally:
                             await run.io_bound(_unload_remove_background_session)
+
+                    if page_client._deleted:
+                        break
 
                     user_storage['visual_last_image'] = output_path
                     src = f'/{output_path}'
@@ -1124,22 +1133,24 @@ def create_page():
             _gen_state['progress_label'] = None
             _gen_state['preview_image'] = None
             _gen_state['grid_preview_image'] = None
-            generate_btn.enable()
-            generate_btn.props('color=primary icon=brush')
-            generate_btn.set_text('Generate')
-            generate_btn.classes(add='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', remove='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
-            
-            if not _grid_open['value']:
-                last = user_storage.get('visual_last_image')
-                if last and os.path.exists(last):
-                    show_image(f'/{last}')
-                else:
-                    show_placeholder()
-            
-            if _gen_state.get('cancel'):
-                safe_notify('Generation stopped.', type='warning')
-            elif total_prompts > 1:
-                safe_notify(f'Batch processing of {total_prompts} prompts complete.', type='info')
+
+            if not page_client._deleted:
+                generate_btn.enable()
+                generate_btn.props('color=primary icon=brush')
+                generate_btn.set_text('Generate')
+                generate_btn.classes(add='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', remove='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
+                
+                if not _grid_open['value']:
+                    last = user_storage.get('visual_last_image')
+                    if last and os.path.exists(last):
+                        show_image(f'/{last}')
+                    else:
+                        show_placeholder()
+                
+                if _gen_state.get('cancel'):
+                    safe_notify('Generation stopped.', type='warning')
+                elif total_prompts > 1:
+                    safe_notify(f'Batch processing of {total_prompts} prompts complete.', type='info')
 
     async def on_generate_click():
         if _gen_state.get('active'):
