@@ -937,6 +937,30 @@ def create_page():
         except Exception as e:
             print(f"Failed to unload LLMs before visual generation: {e}")
 
+        import re
+        import itertools
+
+        def expand_prompt(prompt_str: str) -> list:
+            pattern = re.compile(r'\[\[(.*?)\]\]')
+            matches = list(pattern.finditer(prompt_str))
+            if not matches:
+                return [prompt_str]
+            groups_options = []
+            for match in matches:
+                options = [opt.strip() for opt in match.group(1).split('|')]
+                groups_options.append(options)
+            combinations = list(itertools.product(*groups_options))
+            expanded = []
+            for combo in combinations:
+                new_prompt = ""
+                last_idx = 0
+                for match, opt in zip(matches, combo):
+                    new_prompt += prompt_str[last_idx:match.start()] + opt
+                    last_idx = match.end()
+                new_prompt += prompt_str[last_idx:]
+                expanded.append(new_prompt)
+            return expanded
+
         raw_prompts = [p.strip() for p in prompt.value.split('///') if p.strip()]
         if not raw_prompts:
             safe_notify('Please enter a positive prompt', type='warning')
@@ -945,7 +969,8 @@ def create_page():
         batch_count = int(app.storage.user.get('visual_batch_count', 1))
         expanded_prompts = []
         for p in raw_prompts:
-            expanded_prompts.extend([p] * batch_count)
+            for ep in expand_prompt(p):
+                expanded_prompts.extend([ep] * batch_count)
         raw_prompts = expanded_prompts
 
         total_prompts = len(raw_prompts)
