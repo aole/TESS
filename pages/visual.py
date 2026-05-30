@@ -50,8 +50,12 @@ _gen_state = {
     'circ_progress': None,
     'linear_progress': None,
     'progress_label': None,
+    'progress_sub_label': None,
+    'grid_progress_label': None,
     'image_container': None,
     'client': None,
+    'global_idx': 0,
+    'global_total': 0,
 }
 
 _generation_queue = []
@@ -279,7 +283,7 @@ def create_page():
                     min=0, max=100, value=_gen_state['pct'], show_value=True, size='56px'
                 ).props('color=purple track-color=white/10 font-size=10px').style('z-index: 2;')
                 
-                ui.label(f"{_gen_state['batch_prefix']}Generating…").style(
+                _gen_state['grid_progress_label'] = ui.label(f"{_gen_state['batch_prefix']}Generating…").style(
                     'font-size: 11px; color: rgba(216,180,254,0.7);'
                     'font-family: monospace; letter-spacing: 0.05em;'
                     'z-index: 2;'
@@ -326,9 +330,9 @@ def create_page():
                         value=_gen_state['pct']/100, size='8px', show_value=False
                     ).classes('w-full').props('rounded color=purple')
                     
-                    ui.label(f"Generating image {_gen_state['idx']+1} of {_gen_state['total']} — this may take a moment").classes(
-                        'text-white/40 text-xs mt-1'
-                    )
+                    _gen_state['progress_sub_label'] = ui.label(
+                        f"Generating image {_gen_state.get('global_idx', 1)} of {_gen_state.get('global_total', 1)} — this may take a moment"
+                    ).classes('text-white/40 text-xs mt-1')
 
     # ── Helper: restore the "no image" placeholder ───────────────────────────
     def show_placeholder():
@@ -922,7 +926,45 @@ def create_page():
         }
         _generation_queue.append(job)
         _update_queue_ui()
+        if _gen_state['active']:
+            _gen_state['global_total'] += len(expanded_prompts)
+            _update_progress_labels()
         return True
+
+    def _update_progress_labels():
+        try:
+            if page_client._deleted or not _gen_state['active']:
+                return
+                
+            g_idx = _gen_state.get('global_idx', 1)
+            g_tot = _gen_state.get('global_total', 1)
+            prefix = f"[{g_idx}/{g_tot}] "
+            _gen_state['batch_prefix'] = prefix
+            
+            if _gen_state.get('progress_label'):
+                current_text = _gen_state['progress_label'].text
+                if current_text.startswith('['):
+                    parts = current_text.split(']', 1)
+                    if len(parts) > 1:
+                        _gen_state['progress_label'].set_text(f"[{g_idx}/{g_tot}]{parts[1]}")
+                else:
+                    _gen_state['progress_label'].set_text(f"{prefix}{current_text}")
+                    
+            if _gen_state.get('progress_sub_label'):
+                _gen_state['progress_sub_label'].set_text(
+                    f"Generating image {g_idx} of {g_tot} — this may take a moment"
+                )
+                
+            if _gen_state.get('grid_progress_label'):
+                current_text = _gen_state['grid_progress_label'].text
+                if current_text.startswith('['):
+                    parts = current_text.split(']', 1)
+                    if len(parts) > 1:
+                        _gen_state['grid_progress_label'].set_text(f"[{g_idx}/{g_tot}]{parts[1]}")
+                else:
+                    _gen_state['grid_progress_label'].set_text(f"{prefix}{current_text}")
+        except Exception:
+            pass
 
     def _update_queue_ui():
         try:
@@ -1084,6 +1126,9 @@ def create_page():
         generate_btn.set_text('Stop')
         generate_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
         
+        _gen_state['global_idx'] = 0
+        _gen_state['global_total'] = sum(len(job['prompts']) for job in _generation_queue)
+        
         # Free up VRAM by unloading any active LLMs
         try:
             from utils.llm_client import client as llm_client
@@ -1141,8 +1186,9 @@ def create_page():
                     if _gen_state.get('cancel'):
                         break
                         
+                    _gen_state['global_idx'] += 1
                     _gen_state['idx'] = idx
-                    _gen_state['batch_prefix'] = f"[{idx + 1}/{total_prompts}] " if total_prompts > 1 else ""
+                    _gen_state['batch_prefix'] = f"[{_gen_state['global_idx']}/{_gen_state['global_total']}] "
                     _gen_state['pct'] = 0
                     
                     _gen_state['spinner_cell'] = None
