@@ -292,6 +292,9 @@ def create_page():
         grid_view.classes(add='hidden')
         full_view.classes(remove='hidden')
         
+        if _view_state['current_image']:
+            return
+            
         full_view.clear()
         with full_view:
             with ui.element('div').classes('w-full h-full relative') as img_div:
@@ -1168,7 +1171,7 @@ def create_page():
                     
                     if not page_client._deleted and not _grid_open['value']:
                         container = _gen_state.get('image_container')
-                        if container:
+                        if container and not _view_state['current_image']:
                             show_image(f'/{output_path}')
 
                     if total_prompts == 1:
@@ -1206,7 +1209,7 @@ def create_page():
                 generate_btn.set_text('Generate')
                 generate_btn.classes(add='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', remove='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
                 
-                if not _grid_open['value']:
+                if not _grid_open['value'] and not _view_state['current_image']:
                     last = user_storage.get('visual_last_image')
                     if last and os.path.exists(last):
                         show_image(f'/{last}')
