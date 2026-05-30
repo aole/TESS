@@ -20,6 +20,10 @@ _CHECKER_BG = (
 
 _grid_open = {'value': True}
 _grid_element = {'ref': None}
+_page_state = {
+    'current_page': 1,
+    'page_size': 25,
+}
 _selection_state = {
     'active': False,
     'selected': set(),
@@ -651,6 +655,7 @@ def create_page():
                 app.storage.user['visual_last_image'] = processed[-1]
                 _grid_element['ref'] = None
                 if _grid_open['value']:
+                    _page_state['current_page'] = 1
                     _selection_state['selected'].clear()
                     _selection_state['active'] = False
                     show_history()
@@ -669,6 +674,23 @@ def create_page():
 
         return processed
 
+    def prev_page():
+        if _page_state['current_page'] > 1:
+            _page_state['current_page'] -= 1
+            _grid_element['ref'] = None
+            show_history()
+
+    def next_page():
+        images = []
+        if os.path.isdir(_VISUAL_DIR):
+            images = [f for f in os.listdir(_VISUAL_DIR)
+                      if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS]
+        total_pages = max(1, (len(images) + _page_state['page_size'] - 1) // _page_state['page_size'])
+        if _page_state['current_page'] < total_pages:
+            _page_state['current_page'] += 1
+            _grid_element['ref'] = None
+            show_history()
+
     # ── Helper: open the history grid inside image_container ─────────────────
     def show_history():
         _grid_open['value'] = True
@@ -682,17 +704,44 @@ def create_page():
         if _grid_element.get('ref') is not None:
             return  # Grid already built
 
+        images = []
+        if os.path.isdir(_VISUAL_DIR):
+            images = sorted(
+                [f for f in os.listdir(_VISUAL_DIR)
+                 if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
+                reverse=True,
+            )
+
+        total_images = len(images)
+        page_size = _page_state['page_size']
+        total_pages = max(1, (total_images + page_size - 1) // page_size)
+
+        if _page_state['current_page'] > total_pages:
+            _page_state['current_page'] = total_pages
+        if _page_state['current_page'] < 1:
+            _page_state['current_page'] = 1
+
         grid_view.clear()
         _selection_state['cells'] = {}
         _selection_state['toggle_btn'] = None
         _selection_state['delete_btn'] = None
         _selection_state['count_label'] = None
+        
         with grid_view:
             # Header bar
             with ui.row().classes('w-full items-center justify-between px-4 pt-3 pb-1').style(
                 'flex-shrink: 0;'
             ):
-                ui.element('div').style('width: 42px; flex-shrink: 0;')
+                with ui.row().classes('items-center gap-1'):
+                    prev_btn = ui.button(icon='chevron_left', on_click=prev_page).props('flat dense round').classes('text-white/60 hover:text-white')
+                    page_label = ui.label(f"{_page_state['current_page']} / {total_pages}").classes('text-white/80 text-xs font-mono')
+                    next_btn = ui.button(icon='chevron_right', on_click=next_page).props('flat dense round').classes('text-white/60 hover:text-white')
+                    
+                    if _page_state['current_page'] <= 1:
+                        prev_btn.disable()
+                    if _page_state['current_page'] >= total_pages:
+                        next_btn.disable()
+
                 with ui.row().classes('items-center justify-center gap-2'):
                     ui.label('Generation History').classes(
                         'text-white/60 text-sm font-semibold uppercase tracking-widest'
@@ -717,19 +766,14 @@ def create_page():
                     'text-white/40 hover:text-white/80'
                 ).tooltip('Back to current image')
 
-            if not os.path.isdir(_VISUAL_DIR):
+            if not images:
                 ui.label('No images found.').classes('text-white/30 m-auto')
                 return
 
-            images = sorted(
-                [f for f in os.listdir(_VISUAL_DIR)
-                 if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
-                reverse=True,
-            )
-
-            if not images:
-                ui.label('No images yet.').classes('text-white/30 m-auto')
-                return
+            # Slice images for the current page
+            start_idx = (_page_state['current_page'] - 1) * page_size
+            end_idx = start_idx + page_size
+            visible_images = images[start_idx:end_idx]
 
             # Scrollable grid
             with ui.element('div').style(
@@ -746,21 +790,17 @@ def create_page():
                 _grid_element['ref'] = grid
                 with grid:
                     os.makedirs(f"{_VISUAL_DIR}/thumbs", exist_ok=True)
-                    for fname in images:
+                    for fname in visible_images:
                         fpath = f'{_VISUAL_DIR}/{fname}'
                         src = f'/{fpath}'
                         thumb_path = f'{_VISUAL_DIR}/thumbs/{fname}'
                         
                         if not os.path.exists(thumb_path):
-                            try:
-                                from PIL import Image
-                                with Image.open(fpath) as img:
-                                    img.thumbnail((256, 256))
-                                    img.save(thumb_path)
-                            except Exception:
-                                pass
+                            thumb_src = src
+                            asyncio.create_task(run.io_bound(_create_thumbnail, fpath))
+                        else:
+                            thumb_src = f'/{thumb_path}'
                                 
-                        thumb_src = f'/{thumb_path}' if os.path.exists(thumb_path) else src
                         _add_grid_cell(grid, thumb_src, src, fpath)
         
         # Re-inject spinner if needed
@@ -779,8 +819,9 @@ def create_page():
                 
             ui.notify('Image deleted.', type='info')
             
-            if _grid_open['value'] and cell_div:
-                cell_div.delete()
+            if _grid_open['value']:
+                _grid_element['ref'] = None
+                show_history()
             elif not _grid_open['value']:
                 show_placeholder()
                 _grid_element['ref'] = None  # Force rebuild next time grid is opened
@@ -980,6 +1021,8 @@ def create_page():
         total_prompts = len(raw_prompts)
         
         # Reset state
+        _page_state['current_page'] = 1
+        _grid_element['ref'] = None
         _gen_state['active'] = True
         _gen_state['cancel'] = False
         _gen_state['total'] = total_prompts
