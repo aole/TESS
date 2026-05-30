@@ -46,12 +46,6 @@ _gen_state = {
     'total': 0,
     'pct': 0,
     'batch_prefix': '',
-    'spinner_cell': None,
-    'circ_progress': None,
-    'linear_progress': None,
-    'progress_label': None,
-    'progress_sub_label': None,
-    'grid_progress_label': None,
     'image_container': None,
     'client': None,
     'global_idx': 0,
@@ -60,6 +54,10 @@ _gen_state = {
     'queue_btn': None,
     'remove_bg_btn': None,
     'remove_bg_status': None,
+    'progress_sidebar': None,
+    'progress_sidebar_label': None,
+    'progress_sidebar_bar': None,
+    'preview_image': None,
 }
 
 _generation_queue = []
@@ -260,49 +258,19 @@ def create_page():
                 ).style('flex: 1; min-width: 64px;').tooltip('Queue Generation')
                 _gen_state['queue_btn'] = queue_btn
 
-            pass
+            # Progress section below generate/queue buttons
+            progress_sidebar = ui.column().classes('w-full gap-2 mt-2 hidden')
+            with progress_sidebar:
+                progress_sidebar_label = ui.label('Generating 0 of 0').classes('text-sm text-gray-300 font-medium')
+                progress_sidebar_bar = ui.linear_progress(value=0, show_value=False).classes('w-full').props('rounded color=purple')
+            _gen_state['progress_sidebar'] = progress_sidebar
+            _gen_state['progress_sidebar_label'] = progress_sidebar_label
+            _gen_state['progress_sidebar_bar'] = progress_sidebar_bar
 
     # State is now managed at the module level
 
-    def _inject_grid_spinner():
-        """Helper to inject a progress spinner into the history grid if active."""
-        if page_client._deleted or not _gen_state['active'] or _grid_element['ref'] is None:
-            return
-            
-        if _gen_state.get('spinner_cell'):
-            return
-        
-        grid = _grid_element['ref']
-        with grid:
-            with ui.element('div').style(
-                'position: relative; overflow: hidden;'
-                'aspect-ratio: 1 / 1; background: rgba(88,28,135,0.25);'
-                'border: 1px solid rgba(168,85,247,0.4);'
-                'border-radius: 6px;'
-                'display: flex; flex-direction: column;'
-                'align-items: center; justify-content: center; gap: 6px;'
-            ) as spinner_cell:
-                _gen_state['spinner_cell'] = spinner_cell
-                
-                # Image element for preview inside grid
-                _gen_state['grid_preview_image'] = ui.element('img').props('src=""').style(
-                    'position: absolute; top: 0; left: 0; width: 100%; height: 100%;'
-                    'object-fit: cover; opacity: 0.45; z-index: 1; transition: opacity 0.3s;'
-                ).classes('hidden')
-
-                _gen_state['circ_progress'] = ui.circular_progress(
-                    min=0, max=100, value=_gen_state['pct'], show_value=True, size='56px'
-                ).props('color=purple track-color=white/10 font-size=10px').style('z-index: 2;')
-                
-                _gen_state['grid_progress_label'] = ui.label(f"{_gen_state['batch_prefix']}Generating…").style(
-                    'font-size: 11px; color: rgba(216,180,254,0.7);'
-                    'font-family: monospace; letter-spacing: 0.05em;'
-                    'z-index: 2;'
-                )
-        spinner_cell.move(grid, 0)
-
-    def _inject_normal_progress():
-        """Helper to inject a linear progress bar into the main view if active."""
+    def _inject_preview_canvas():
+        """Helper to inject a clean preview image container into the main view if active."""
         if page_client._deleted or not _gen_state['active'] or _grid_open['value']:
             return
             
@@ -318,32 +286,15 @@ def create_page():
             
         full_view.clear()
         with full_view:
-            with ui.element('div').classes('w-full h-full relative') as img_div:
+            with ui.element('div').classes('w-full h-full relative'):
+                ui.button(icon='grid_view', on_click=show_history).props('flat dense round').style(
+                    'position: absolute; top: 16px; right: 16px;'
+                    'width: 40px; height: 40px; background: rgba(0,0,0,0.5); color: white; z-index: 10;'
+                ).tooltip('Visual History Grid')
                 with ui.element('div').classes('w-full h-full overflow-auto flex flex-col').style(_CHECKER_BG):
                     _gen_state['preview_image'] = ui.element('img').props('src=""').classes(
                         'm-auto w-full h-full object-contain rounded-lg shadow-xl hidden transition-all duration-300'
                     )
-                
-                # Floating progress card on top of the preview image
-                with ui.card().classes(
-                    'absolute bottom-4 left-1/2 -translate-x-1/2 w-11/12 max-w-lg '
-                    'bg-black/60 backdrop-blur-md border border-white/10 p-4 gap-2 z-10'
-                ):
-                    with ui.row().classes('w-full items-center justify-between'):
-                        _gen_state['progress_label'] = ui.label(f"{_gen_state['batch_prefix']}Preparing…").classes(
-                            'text-white/80 text-sm font-mono tracking-widest'
-                        )
-                        ui.button(icon='grid_view', on_click=show_history).props('flat dense round').classes(
-                            'text-white/60 hover:text-white/100'
-                        ).tooltip('Visual History Grid')
-                    
-                    _gen_state['linear_progress'] = ui.linear_progress(
-                        value=_gen_state['pct']/100, size='8px', show_value=False
-                    ).classes('w-full').props('rounded color=purple')
-                    
-                    _gen_state['progress_sub_label'] = ui.label(
-                        f"Generating image {_gen_state.get('global_idx', 1)} of {_gen_state.get('global_total', 1)} — this may take a moment"
-                    ).classes('text-white/40 text-xs mt-1')
 
     # ── Helper: restore the "no image" placeholder ───────────────────────────
     def show_placeholder():
@@ -755,7 +706,6 @@ def create_page():
         _selection_state['toggle_btn'] = None
         _selection_state['delete_btn'] = None
         _selection_state['count_label'] = None
-        _gen_state['spinner_cell'] = None
         
         with grid_view:
             # Header bar
@@ -832,9 +782,6 @@ def create_page():
                             thumb_src = f'/{thumb_path}'
                                 
                         _add_grid_cell(grid, thumb_src, src, fpath)
-        
-        # Re-inject spinner if needed
-        _inject_grid_spinner()
 
     # ── Helper: delete an image file and refresh the grid ───────────────────
     def _delete_image(fpath: str, cell_div=None):
@@ -950,31 +897,11 @@ def create_page():
                 
             g_idx = _gen_state.get('global_idx', 1)
             g_tot = _gen_state.get('global_total', 1)
-            prefix = f"[{g_idx}/{g_tot}] "
-            _gen_state['batch_prefix'] = prefix
             
-            if _gen_state.get('progress_label'):
-                current_text = _gen_state['progress_label'].text
-                if current_text.startswith('['):
-                    parts = current_text.split(']', 1)
-                    if len(parts) > 1:
-                        _gen_state['progress_label'].set_text(f"[{g_idx}/{g_tot}]{parts[1]}")
-                else:
-                    _gen_state['progress_label'].set_text(f"{prefix}{current_text}")
-                    
-            if _gen_state.get('progress_sub_label'):
-                _gen_state['progress_sub_label'].set_text(
-                    f"Generating image {g_idx} of {g_tot} — this may take a moment"
+            if _gen_state.get('progress_sidebar_label'):
+                _gen_state['progress_sidebar_label'].set_text(
+                    f"Generating {g_idx} of {g_tot} (Preparing...)"
                 )
-                
-            if _gen_state.get('grid_progress_label'):
-                current_text = _gen_state['grid_progress_label'].text
-                if current_text.startswith('['):
-                    parts = current_text.split(']', 1)
-                    if len(parts) > 1:
-                        _gen_state['grid_progress_label'].set_text(f"[{g_idx}/{g_tot}]{parts[1]}")
-                else:
-                    _gen_state['grid_progress_label'].set_text(f"{prefix}{current_text}")
         except Exception:
             pass
 
@@ -1083,7 +1010,7 @@ def create_page():
         _grid_open['value'] = False
         
         if _gen_state['active']:
-            _inject_normal_progress()
+            _inject_preview_canvas()
             return
             
         last = app.storage.user.get('visual_last_image')
@@ -1095,7 +1022,7 @@ def create_page():
     if _grid_open['value']:
         show_history()
     elif _gen_state['active']:
-        _inject_normal_progress()
+        _inject_preview_canvas()
     else:
         last = app.storage.user.get('visual_last_image')
         if last and os.path.exists(last):
@@ -1107,6 +1034,13 @@ def create_page():
         generate_btn.props('color=red icon=stop')
         generate_btn.set_text('Stop')
         generate_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
+        if progress_sidebar:
+            progress_sidebar.classes(remove='hidden')
+            g_idx = _gen_state.get('global_idx', 1)
+            g_tot = _gen_state.get('global_total', 1)
+            pct = _gen_state.get('pct', 0)
+            progress_sidebar_label.set_text(f"Generating {g_idx} of {g_tot}")
+            progress_sidebar_bar.set_value(pct / 100)
 
     # ── Generate handler ─────────────────────────────────────────────────────
     async def on_generate():
@@ -1125,6 +1059,12 @@ def create_page():
         _gen_state['active'] = True
         _gen_state['cancel'] = False
         
+        # Show sidebar progress UI
+        if _gen_state.get('progress_sidebar'):
+            _gen_state['progress_sidebar'].classes(remove='hidden')
+        if _gen_state.get('progress_sidebar_bar'):
+            _gen_state['progress_sidebar_bar'].set_value(0)
+            
         gen_btn = _gen_state.get('generate_btn')
         if gen_btn:
             gen_btn.props('color=red icon=stop')
@@ -1163,21 +1103,20 @@ def create_page():
                     active_client = _gen_state.get('client')
                     if not active_client or active_client._deleted:
                         return
-                    if _gen_state['circ_progress']:
-                        _gen_state['circ_progress'].set_value(pct)
-                    if _gen_state['linear_progress']:
-                        _gen_state['linear_progress'].set_value(pct / 100)
-                    if _gen_state['progress_label']:
-                        _gen_state['progress_label'].set_text(f"{_gen_state['batch_prefix']}Step {step} / {total}")
+                    if _gen_state.get('progress_sidebar_bar'):
+                        _gen_state['progress_sidebar_bar'].set_value(pct / 100)
+                    if _gen_state.get('progress_sidebar_label'):
+                        g_idx = _gen_state.get('global_idx', 1)
+                        g_tot = _gen_state.get('global_total', 1)
+                        _gen_state['progress_sidebar_label'].set_text(
+                            f"Generating {g_idx} of {g_tot} (Step {step}/{total})"
+                        )
                     if preview_path and os.path.exists(preview_path):
                         import time
                         ts = int(time.time() * 1000)
                         if _gen_state.get('preview_image'):
                             _gen_state['preview_image'].classes(remove='hidden')
                             _gen_state['preview_image'].props(f'src="/{preview_path}?t={ts}"')
-                        if _gen_state.get('grid_preview_image'):
-                            _gen_state['grid_preview_image'].classes(remove='hidden')
-                            _gen_state['grid_preview_image'].props(f'src="/{preview_path}?t={ts}"')
                 except Exception:
                     pass
             loop.call_soon_threadsafe(_update)
@@ -1208,9 +1147,8 @@ def create_page():
                     _gen_state['batch_prefix'] = f"[{_gen_state['global_idx']}/{_gen_state['global_total']}] "
                     _gen_state['pct'] = 0
                     
-                    _inject_grid_spinner()
                     if not _grid_open['value']:
-                        _inject_normal_progress()
+                        _inject_preview_canvas()
                         
                     _update_progress_labels()
 
@@ -1229,10 +1167,7 @@ def create_page():
                         )
                         
                         if not output_path:
-                            if _gen_state.get('cancel') and not _gen_state['client']._deleted and _gen_state['spinner_cell']:
-                                _gen_state['spinner_cell'].delete()
                             break
-                        raise Exception("Pipeline returned None")
 
                         if job['remove_background_auto']:
                             safe_notify('Removing background...', type='info', pos='bottom-right', timeout=1500)
@@ -1245,40 +1180,15 @@ def create_page():
                                 await run.io_bound(_unload_remove_background_session)
 
                         user_storage['visual_last_image'] = output_path
-                        src = f'/{output_path}'
-                        
-                        dirname, fname = os.path.split(output_path)
-                        thumb_path = f"{dirname}/thumbs/{fname}".replace('\\', '/')
-                        thumb_src = f'/{thumb_path}' if os.path.exists(thumb_path) else src
                         
                         active_client = _gen_state.get('client')
-                        if active_client and not active_client._deleted and _gen_state['spinner_cell']:
-                            cell = _gen_state['spinner_cell']
-                            cell.clear()
-                            cell.style(
-                                'position: relative; overflow: hidden;'
-                                'aspect-ratio: 1 / 1;'
-                                f'{_CHECKER_BG}'
-                                'border: none; border-radius: 6px; cursor: pointer;'
-                                'display: block;'
-                            ).classes('group')
-                            with cell:
-                                ui.image(thumb_src).style('width:100%; height:100%; object-fit:cover; display:block;')
-                                _register_selectable_cell(cell, output_path)
-                                _add_delete_btn(cell, output_path)
-                                _add_regenerate_btn(cell, output_path)
-                                _add_info_btn(cell, output_path)
-                            cell.on('click', lambda s=src, p=output_path: _handle_grid_cell_click(s, p))
-                            _gen_state['spinner_cell'] = None
-                            _gen_state['circ_progress'] = None
-                            _gen_state['grid_progress_label'] = None
-                            _gen_state['linear_progress'] = None
-                            _gen_state['progress_label'] = None
-                            _gen_state['preview_image'] = None
+                        _gen_state['preview_image'] = None
                         
-                        if active_client and not active_client._deleted and not _grid_open['value']:
-                            container = _gen_state.get('image_container')
-                            if container and not _view_state['current_image']:
+                        if active_client and not active_client._deleted:
+                            if _grid_open['value']:
+                                _grid_element['ref'] = None
+                                show_history()
+                            elif not _view_state['current_image']:
                                 show_image(f'/{output_path}')
 
                         if total_prompts == 1:
@@ -1289,14 +1199,6 @@ def create_page():
                     except Exception as e:
                         import traceback
                         traceback.print_exc()
-                        active_client = _gen_state.get('client')
-                        if active_client and not active_client._deleted and _gen_state['spinner_cell']:
-                            _gen_state['spinner_cell'].delete()
-                        _gen_state['spinner_cell'] = None
-                        _gen_state['circ_progress'] = None
-                        _gen_state['grid_progress_label'] = None
-                        _gen_state['linear_progress'] = None
-                        _gen_state['progress_label'] = None
                         _gen_state['preview_image'] = None
                         safe_notify(f'Failed to generate image {idx+1}: {str(e)}', type='negative')
         
@@ -1310,15 +1212,14 @@ def create_page():
             is_canceled = _gen_state.get('cancel', False)
             _gen_state['active'] = False
             _gen_state['cancel'] = False
-            _gen_state['spinner_cell'] = None
-            _gen_state['circ_progress'] = None
-            _gen_state['linear_progress'] = None
-            _gen_state['progress_label'] = None
             _gen_state['preview_image'] = None
-            _gen_state['grid_preview_image'] = None
 
             active_client = _gen_state.get('client')
             if active_client and not active_client._deleted:
+                # Hide sidebar progress UI
+                if _gen_state.get('progress_sidebar'):
+                    _gen_state['progress_sidebar'].classes(add='hidden')
+
                 gen_btn = _gen_state.get('generate_btn')
                 if gen_btn:
                     gen_btn.enable()
