@@ -16,6 +16,7 @@ wheels/
 logs/
 inspect_model_output.py
 .agent/
+.agents/
 
 # User files
 config.json

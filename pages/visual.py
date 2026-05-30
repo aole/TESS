@@ -814,6 +814,24 @@ def create_page():
     # ── Helper: delete an image file and refresh the grid ───────────────────
     def _delete_image(fpath: str, cell_div=None):
         try:
+            next_to_show = None
+            if not _grid_open['value']:
+                filename = os.path.basename(fpath)
+                if os.path.isdir(_VISUAL_DIR):
+                    images = sorted(
+                        [f for f in os.listdir(_VISUAL_DIR)
+                         if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
+                        reverse=True,
+                    )
+                    try:
+                        idx = images.index(filename)
+                        if idx < len(images) - 1:
+                            next_to_show = f"/{_VISUAL_DIR}/{images[idx + 1]}"
+                        elif idx > 0:
+                            next_to_show = f"/{_VISUAL_DIR}/{images[idx - 1]}"
+                    except ValueError:
+                        pass
+
             _remove_image_files(fpath)
             last = app.storage.user.get('visual_last_image')
             if last and os.path.normpath(last) == os.path.normpath(fpath):
@@ -828,7 +846,11 @@ def create_page():
                 _grid_element['ref'] = None
                 show_history()
             elif not _grid_open['value']:
-                show_placeholder()
+                if next_to_show:
+                    app.storage.user['visual_last_image'] = next_to_show.lstrip('/')
+                    show_image(next_to_show)
+                else:
+                    show_placeholder()
                 _grid_element['ref'] = None  # Force rebuild next time grid is opened
                 
         except Exception as exc:
