@@ -286,7 +286,12 @@ def create_page():
             return
             
         full_view = _gen_state.get('full_view_container')
-        if not full_view: return
+        grid_view = _gen_state.get('grid_view_container')
+        if not full_view or not grid_view: return
+        
+        grid_view.classes(add='hidden')
+        full_view.classes(remove='hidden')
+        
         full_view.clear()
         with full_view:
             with ui.element('div').classes('w-full h-full relative') as img_div:
