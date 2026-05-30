@@ -54,6 +54,8 @@ _gen_state = {
     'client': None,
 }
 
+_generation_queue = []
+
 def create_page():
     page_client = ui.context.client
 
@@ -235,12 +237,16 @@ def create_page():
             ).tooltip('Generate and show intermediate preview images (increases VRAM usage during generation)')
 
             # Generate
-            with ui.row().classes('w-full gap-4 mt-2 flex-nowrap'):
+            with ui.row().classes('w-full gap-4 mt-2 flex-nowrap items-center'):
                 generate_btn = ui.button('Generate', icon='brush').classes(
                     'w-full h-16 text-xl transition-all duration-300 '
                     'bg-gradient-to-r from-purple-500 to-indigo-500 '
                     'hover:from-purple-600 hover:to-indigo-600 shadow-lg'
-                )
+                ).style('flex: 4;')
+                
+                queue_btn = ui.button(icon='queue_play_next').props('outline').classes(
+                    'h-16 text-lg transition-all duration-300'
+                ).style('flex: 1; min-width: 64px;').tooltip('Queue Generation')
 
             pass
 
@@ -872,6 +878,65 @@ def create_page():
             ).classes('text-xs opacity-0 group-hover:opacity-100')
             btn.on('click.stop', lambda p=fpath, c=cell_div: _delete_image(p, c))
 
+    def expand_prompt(prompt_str: str) -> list:
+        import re
+        import itertools
+        pattern = re.compile(r'\[\[(.*?)\]\]')
+        matches = list(pattern.finditer(prompt_str))
+        if not matches:
+            return [prompt_str]
+        groups_options = []
+        for match in matches:
+            options = [opt.strip() for opt in match.group(1).split('|')]
+            groups_options.append(options)
+        combinations = list(itertools.product(*groups_options))
+        expanded = []
+        for combo in combinations:
+            new_prompt = ""
+            last_idx = 0
+            for match, opt in zip(matches, combo):
+                new_prompt += prompt_str[last_idx:match.start()] + opt
+                last_idx = match.end()
+            new_prompt += prompt_str[last_idx:]
+            expanded.append(new_prompt)
+        return expanded
+
+    def _enqueue_job(raw_prompt_str: str, neg_prompt: str, steps_val: int, size_val: str, batch_count_val: int):
+        raw_prompts = [p.strip() for p in raw_prompt_str.split('///') if p.strip()]
+        if not raw_prompts:
+            return False
+            
+        expanded_prompts = []
+        for p in raw_prompts:
+            for ep in expand_prompt(p):
+                expanded_prompts.extend([ep] * batch_count_val)
+                
+        job = {
+            'prompts': expanded_prompts,
+            'negative_prompt': neg_prompt,
+            'steps': steps_val,
+            'image_size': size_val,
+            'remove_background_auto': app.storage.user.get('visual_remove_background_auto', False),
+            'remove_background_model': app.storage.user.get('visual_remove_background_model', 'isnet-anime'),
+            'generate_previews': app.storage.user.get('visual_generate_previews', False),
+        }
+        _generation_queue.append(job)
+        _update_queue_ui()
+        return True
+
+    def _update_queue_ui():
+        try:
+            if not page_client._deleted:
+                q_len = len(_generation_queue)
+                if q_len > 0:
+                    queue_btn.set_text(f'{q_len}')
+                    queue_btn.props('color=purple')
+                else:
+                    queue_btn.set_text('')
+                    queue_btn.props('color=white')
+        except Exception:
+            pass
+
     async def _regenerate_image(fpath: str):
         try:
             from PIL import Image
@@ -884,16 +949,20 @@ def create_page():
                     return
                 params = json.loads(params_str)
             
-            prompt.value = params.get('prompt', '')
-            negative_prompt.value = params.get('negative_prompt', '')
-            steps.value = params.get('steps', 30)
+            prompt_val = params.get('prompt', '')
+            neg_prompt = params.get('negative_prompt', '')
+            steps_val = params.get('steps', 30)
             w = params.get('width', 1024)
             h = params.get('height', 1024)
-            image_size.value = f"{w}x{h}"
+            size_val = f"{w}x{h}"
             
-            ui.notify('Regenerating from metadata...', type='info')
-            
-            await on_generate()
+            success = _enqueue_job(prompt_val, neg_prompt, steps_val, size_val, 1)
+            if success:
+                if _gen_state['active']:
+                    ui.notify('Regeneration added to queue.', type='info')
+                else:
+                    ui.notify('Regenerating from metadata...', type='info')
+                    await on_generate()
             
         except Exception as e:
             ui.notify(f"Could not read metadata: {e}", type='negative')
@@ -997,6 +1066,9 @@ def create_page():
 
     # ── Generate handler ─────────────────────────────────────────────────────
     async def on_generate():
+        if _gen_state.get('active'):
+            return
+            
         user_storage = app.storage.user
         def safe_notify(msg, **kwargs):
             try:
@@ -1005,6 +1077,13 @@ def create_page():
             except Exception:
                 pass
 
+        _gen_state['active'] = True
+        _gen_state['cancel'] = False
+        
+        generate_btn.props('color=red icon=stop')
+        generate_btn.set_text('Stop')
+        generate_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
+        
         # Free up VRAM by unloading any active LLMs
         try:
             from utils.llm_client import client as llm_client
@@ -1012,56 +1091,6 @@ def create_page():
         except Exception as e:
             print(f"Failed to unload LLMs before visual generation: {e}")
 
-        import re
-        import itertools
-
-        def expand_prompt(prompt_str: str) -> list:
-            pattern = re.compile(r'\[\[(.*?)\]\]')
-            matches = list(pattern.finditer(prompt_str))
-            if not matches:
-                return [prompt_str]
-            groups_options = []
-            for match in matches:
-                options = [opt.strip() for opt in match.group(1).split('|')]
-                groups_options.append(options)
-            combinations = list(itertools.product(*groups_options))
-            expanded = []
-            for combo in combinations:
-                new_prompt = ""
-                last_idx = 0
-                for match, opt in zip(matches, combo):
-                    new_prompt += prompt_str[last_idx:match.start()] + opt
-                    last_idx = match.end()
-                new_prompt += prompt_str[last_idx:]
-                expanded.append(new_prompt)
-            return expanded
-
-        raw_prompts = [p.strip() for p in prompt.value.split('///') if p.strip()]
-        if not raw_prompts:
-            safe_notify('Please enter a positive prompt', type='warning')
-            return
-
-        batch_count = int(user_storage.get('visual_batch_count', 1))
-        expanded_prompts = []
-        for p in raw_prompts:
-            for ep in expand_prompt(p):
-                expanded_prompts.extend([ep] * batch_count)
-        raw_prompts = expanded_prompts
-
-        total_prompts = len(raw_prompts)
-        
-        # Reset state
-        _page_state['current_page'] = 1
-        _grid_element['ref'] = None
-        _gen_state['active'] = True
-        _gen_state['cancel'] = False
-        _gen_state['total'] = total_prompts
-        _gen_state['pct'] = 0
-        
-        generate_btn.props('color=red icon=stop')
-        generate_btn.set_text('Stop')
-        generate_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
-        
         loop = asyncio.get_event_loop()
 
         def on_progress(step: int, total: int, preview_path: str = None):
@@ -1096,104 +1125,117 @@ def create_page():
             loop.call_soon_threadsafe(_update)
 
         try:
-            for idx, current_p in enumerate(raw_prompts):
-                _gen_state['idx'] = idx
-                _gen_state['batch_prefix'] = f"[{idx + 1}/{total_prompts}] " if total_prompts > 1 else ""
+            while _generation_queue and not _gen_state.get('cancel'):
+                job = _generation_queue.pop(0)
+                _update_queue_ui()
+                
+                raw_prompts = job['prompts']
+                total_prompts = len(raw_prompts)
+                
+                _page_state['current_page'] = 1
+                _grid_element['ref'] = None
+                _gen_state['total'] = total_prompts
                 _gen_state['pct'] = 0
                 
-                # Clear UI refs (they will be re-injected if we are in the right view)
-                _gen_state['spinner_cell'] = None
-                _gen_state['circ_progress'] = None
-                _gen_state['linear_progress'] = None
-                _gen_state['progress_label'] = None
-                _gen_state['preview_image'] = None
-
-                _inject_grid_spinner()
-                if not _grid_open['value']:
-                    _inject_normal_progress()
-
-                try:
-                    w_str, h_str = image_size.value.split('x')
-                    output_path = await run.io_bound(
-                        generate_image_task,
-                        current_p,
-                        negative_prompt.value,
-                        user_storage['visual_inference_steps'],
-                        int(w_str),
-                        int(h_str),
-                        on_progress,
-                        unload_after=False,
-                        generate_previews=user_storage.get('visual_generate_previews', False)
-                    )
+                for idx, current_p in enumerate(raw_prompts):
+                    if _gen_state.get('cancel'):
+                        break
+                        
+                    _gen_state['idx'] = idx
+                    _gen_state['batch_prefix'] = f"[{idx + 1}/{total_prompts}] " if total_prompts > 1 else ""
+                    _gen_state['pct'] = 0
                     
-                    if not output_path:
-                        if _gen_state.get('cancel'):
-                            if not page_client._deleted and _gen_state['spinner_cell']:
-                                _gen_state['spinner_cell'].delete()
-                            break
-                        raise Exception("Pipeline returned None")
+                    _gen_state['spinner_cell'] = None
+                    _gen_state['circ_progress'] = None
+                    _gen_state['linear_progress'] = None
+                    _gen_state['progress_label'] = None
+                    _gen_state['preview_image'] = None
 
-                    if user_storage.get('visual_remove_background_auto'):
-                        safe_notify('Removing background...', type='info', pos='bottom-right', timeout=1500)
-                        try:
-                            model_name = user_storage.get('visual_remove_background_model', 'isnet-anime')
-                            output_path = await run.io_bound(_remove_background_file, output_path, model_name)
-                        except Exception as tool_exc:
-                            safe_notify(f'Background removal failed: {tool_exc}', type='negative')
-                        finally:
-                            await run.io_bound(_unload_remove_background_session)
+                    _inject_grid_spinner()
+                    if not _grid_open['value']:
+                        _inject_normal_progress()
 
-                    user_storage['visual_last_image'] = output_path
-                    src = f'/{output_path}'
-                    
-                    dirname, fname = os.path.split(output_path)
-                    thumb_path = f"{dirname}/thumbs/{fname}".replace('\\', '/')
-                    thumb_src = f'/{thumb_path}' if os.path.exists(thumb_path) else src
-                    
-                    # Handle completion UI
-                    if not page_client._deleted and _gen_state['spinner_cell']:
-                        cell = _gen_state['spinner_cell']
-                        cell.clear()
-                        cell.style(
-                            'position: relative; overflow: hidden;'
-                            'aspect-ratio: 1 / 1;'
-                            f'{_CHECKER_BG}'
-                            'border: none; border-radius: 6px; cursor: pointer;'
-                            'display: block;'
-                        ).classes('group')
-                        with cell:
-                            ui.image(thumb_src).style('width:100%; height:100%; object-fit:cover; display:block;')
-                            _register_selectable_cell(cell, output_path)
-                            _add_delete_btn(cell, output_path)
-                            _add_regenerate_btn(cell, output_path)
-                            _add_info_btn(cell, output_path)
-                        cell.on('click', lambda s=src, p=output_path: _handle_grid_cell_click(s, p))
-                    
-                    if not page_client._deleted and not _grid_open['value']:
-                        container = _gen_state.get('image_container')
-                        if container and not _view_state['current_image']:
-                            show_image(f'/{output_path}')
+                    try:
+                        w_str, h_str = job['image_size'].split('x')
+                        output_path = await run.io_bound(
+                            generate_image_task,
+                            current_p,
+                            job['negative_prompt'],
+                            job['steps'],
+                            int(w_str),
+                            int(h_str),
+                            on_progress,
+                            unload_after=False,
+                            generate_previews=job['generate_previews']
+                        )
+                        
+                        if not output_path:
+                            if _gen_state.get('cancel'):
+                                if not page_client._deleted and _gen_state['spinner_cell']:
+                                    _gen_state['spinner_cell'].delete()
+                                break
+                            raise Exception("Pipeline returned None")
 
-                    if total_prompts == 1:
-                        safe_notify('Image generated successfully!', type='positive')
-                    else:
-                        safe_notify(f'Generated {idx+1}/{total_prompts}', type='positive', pos='bottom-right', timeout=2000)
+                        if job['remove_background_auto']:
+                            safe_notify('Removing background...', type='info', pos='bottom-right', timeout=1500)
+                            try:
+                                model_name = job['remove_background_model']
+                                output_path = await run.io_bound(_remove_background_file, output_path, model_name)
+                            except Exception as tool_exc:
+                                safe_notify(f'Background removal failed: {tool_exc}', type='negative')
+                            finally:
+                                await run.io_bound(_unload_remove_background_session)
 
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
-                    if not page_client._deleted and _gen_state['spinner_cell']:
-                        _gen_state['spinner_cell'].delete()
-                    safe_notify(f'Failed to generate image {idx+1}: {str(e)}', type='negative')
+                        user_storage['visual_last_image'] = output_path
+                        src = f'/{output_path}'
+                        
+                        dirname, fname = os.path.split(output_path)
+                        thumb_path = f"{dirname}/thumbs/{fname}".replace('\\', '/')
+                        thumb_src = f'/{thumb_path}' if os.path.exists(thumb_path) else src
+                        
+                        if not page_client._deleted and _gen_state['spinner_cell']:
+                            cell = _gen_state['spinner_cell']
+                            cell.clear()
+                            cell.style(
+                                'position: relative; overflow: hidden;'
+                                'aspect-ratio: 1 / 1;'
+                                f'{_CHECKER_BG}'
+                                'border: none; border-radius: 6px; cursor: pointer;'
+                                'display: block;'
+                            ).classes('group')
+                            with cell:
+                                ui.image(thumb_src).style('width:100%; height:100%; object-fit:cover; display:block;')
+                                _register_selectable_cell(cell, output_path)
+                                _add_delete_btn(cell, output_path)
+                                _add_regenerate_btn(cell, output_path)
+                                _add_info_btn(cell, output_path)
+                            cell.on('click', lambda s=src, p=output_path: _handle_grid_cell_click(s, p))
+                        
+                        if not page_client._deleted and not _grid_open['value']:
+                            container = _gen_state.get('image_container')
+                            if container and not _view_state['current_image']:
+                                show_image(f'/{output_path}')
+
+                        if total_prompts == 1:
+                            safe_notify('Image generated successfully!', type='positive')
+                        else:
+                            safe_notify(f'Generated {idx+1}/{total_prompts}', type='positive', pos='bottom-right', timeout=2000)
+
+                    except Exception as e:
+                        import traceback
+                        traceback.print_exc()
+                        if not page_client._deleted and _gen_state['spinner_cell']:
+                            _gen_state['spinner_cell'].delete()
+                        safe_notify(f'Failed to generate image {idx+1}: {str(e)}', type='negative')
         
         finally:
-            # Always ensure the visual pipeline is unloaded when generation finishes or fails
             try:
                 from services.visual_service import unload_pipeline
                 await run.io_bound(unload_pipeline)
             except Exception as e:
                 print(f"Failed to unload visual pipeline in finally block: {e}")
 
+            is_canceled = _gen_state.get('cancel', False)
             _gen_state['active'] = False
             _gen_state['cancel'] = False
             _gen_state['spinner_cell'] = None
@@ -1209,6 +1251,8 @@ def create_page():
                 generate_btn.set_text('Generate')
                 generate_btn.classes(add='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', remove='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
                 
+                _update_queue_ui()
+
                 if not _grid_open['value'] and not _view_state['current_image']:
                     last = user_storage.get('visual_last_image')
                     if last and os.path.exists(last):
@@ -1216,7 +1260,7 @@ def create_page():
                     else:
                         show_placeholder()
                 
-                if _gen_state.get('cancel'):
+                if is_canceled:
                     safe_notify('Generation stopped.', type='warning')
                 elif total_prompts > 1:
                     safe_notify(f'Batch processing of {total_prompts} prompts complete.', type='info')
@@ -1224,9 +1268,39 @@ def create_page():
     async def on_generate_click():
         if _gen_state.get('active'):
             _gen_state['cancel'] = True
+            _generation_queue.clear()
+            _update_queue_ui()
             generate_btn.set_text('Stopping...')
             generate_btn.disable()
         else:
+            raw_prompt_str = prompt.value
+            neg_prompt = negative_prompt.value
+            steps_val = int(steps.value)
+            size_val = image_size.value
+            batch_count_val = int(batch_count.value)
+            
+            success = _enqueue_job(raw_prompt_str, neg_prompt, steps_val, size_val, batch_count_val)
+            if not success:
+                ui.notify('Please enter a positive prompt', type='warning')
+                return
+            await on_generate()
+
+    async def on_queue_click():
+        raw_prompt_str = prompt.value
+        neg_prompt = negative_prompt.value
+        steps_val = int(steps.value)
+        size_val = image_size.value
+        batch_count_val = int(batch_count.value)
+        
+        success = _enqueue_job(raw_prompt_str, neg_prompt, steps_val, size_val, batch_count_val)
+        if not success:
+            ui.notify('Please enter a positive prompt', type='warning')
+            return
+            
+        ui.notify('Added to queue.', type='info')
+        if not _gen_state['active']:
             await on_generate()
 
     generate_btn.on('click', on_generate_click)
+    queue_btn.on('click', on_queue_click)
+    _update_queue_ui()
