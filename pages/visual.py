@@ -58,6 +58,11 @@ _gen_state = {
     'progress_sidebar_label': None,
     'progress_sidebar_bar': None,
     'preview_image': None,
+    'show_history': None,
+    'show_image': None,
+    'show_placeholder': None,
+    'inject_preview_canvas': None,
+    'update_progress_labels': None,
 }
 
 _generation_queue = []
@@ -1019,6 +1024,12 @@ def create_page():
         else:
             show_placeholder()
 
+    _gen_state['show_history'] = show_history
+    _gen_state['show_image'] = show_image
+    _gen_state['show_placeholder'] = show_placeholder
+    _gen_state['inject_preview_canvas'] = _inject_preview_canvas
+    _gen_state['update_progress_labels'] = _update_progress_labels
+
     if _grid_open['value']:
         show_history()
     elif _gen_state['active']:
@@ -1074,7 +1085,8 @@ def create_page():
         _page_state['current_page'] = 1
         if _grid_open['value']:
             _grid_element['ref'] = None
-            show_history()
+            if _gen_state.get('show_history'):
+                _gen_state['show_history']()
         else:
             _grid_element['ref'] = None
         
@@ -1132,7 +1144,8 @@ def create_page():
                 _page_state['current_page'] = 1
                 if _grid_open['value']:
                     _grid_element['ref'] = None
-                    show_history()
+                    if _gen_state.get('show_history'):
+                        _gen_state['show_history']()
                 else:
                     _grid_element['ref'] = None
                 _gen_state['total'] = total_prompts
@@ -1147,10 +1160,11 @@ def create_page():
                     _gen_state['batch_prefix'] = f"[{_gen_state['global_idx']}/{_gen_state['global_total']}] "
                     _gen_state['pct'] = 0
                     
-                    if not _grid_open['value']:
-                        _inject_preview_canvas()
+                    if not _grid_open['value'] and _gen_state.get('inject_preview_canvas'):
+                        _gen_state['inject_preview_canvas']()
                         
-                    _update_progress_labels()
+                    if _gen_state.get('update_progress_labels'):
+                        _gen_state['update_progress_labels']()
 
                     try:
                         w_str, h_str = job['image_size'].split('x')
@@ -1185,11 +1199,11 @@ def create_page():
                         _gen_state['preview_image'] = None
                         
                         if active_client and not active_client._deleted:
-                            if _grid_open['value']:
+                            if _grid_open['value'] and _gen_state.get('show_history'):
                                 _grid_element['ref'] = None
-                                show_history()
-                            elif not _view_state['current_image']:
-                                show_image(f'/{output_path}')
+                                _gen_state['show_history']()
+                            elif not _view_state['current_image'] and _gen_state.get('show_image'):
+                                _gen_state['show_image'](f'/{output_path}')
 
                         if total_prompts == 1:
                             safe_notify('Image generated successfully!', type='positive')
@@ -1232,9 +1246,11 @@ def create_page():
                 if not _grid_open['value'] and not _view_state['current_image']:
                     last = user_storage.get('visual_last_image')
                     if last and os.path.exists(last):
-                        show_image(f'/{last}')
+                        if _gen_state.get('show_image'):
+                            _gen_state['show_image'](f'/{last}')
                     else:
-                        show_placeholder()
+                        if _gen_state.get('show_placeholder'):
+                            _gen_state['show_placeholder']()
                 
                 if is_canceled:
                     safe_notify('Generation stopped.', type='warning')
