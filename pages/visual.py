@@ -244,7 +244,7 @@ def create_page():
 
     def _inject_grid_spinner():
         """Helper to inject a progress spinner into the history grid if active."""
-        if not _gen_state['active'] or _grid_element['ref'] is None:
+        if page_client._deleted or not _gen_state['active'] or _grid_element['ref'] is None:
             return
         
         grid = _grid_element['ref']
@@ -278,7 +278,7 @@ def create_page():
 
     def _inject_normal_progress():
         """Helper to inject a linear progress bar into the main view if active."""
-        if not _gen_state['active'] or _grid_open['value']:
+        if page_client._deleted or not _gen_state['active'] or _grid_open['value']:
             return
             
         full_view = _gen_state.get('full_view_container')
@@ -314,6 +314,8 @@ def create_page():
 
     # ── Helper: restore the "no image" placeholder ───────────────────────────
     def show_placeholder():
+        if page_client._deleted:
+            return
         _grid_open['value'] = False
         _view_state['current_image'] = None
         full_view = _gen_state.get('full_view_container')
@@ -403,6 +405,8 @@ def create_page():
     # ── Helper: show a single image full-size inside image_container ─────────
     def show_image(path: str):
         """path is the web-accessible URL string (e.g. '/data/visual/foo.png')."""
+        if page_client._deleted:
+            return
         _grid_open['value'] = False
         _view_state['current_image'] = path.lstrip('/')
         full_view = _gen_state.get('full_view_container')
@@ -988,7 +992,7 @@ def create_page():
         loop = asyncio.get_event_loop()
 
         def on_progress(step: int, total: int, preview_path: str = None):
-            if page_client._deleted or _gen_state.get('cancel'):
+            if _gen_state.get('cancel'):
                 return "CANCEL"
             if total == 0:
                 return
@@ -1020,8 +1024,6 @@ def create_page():
 
         try:
             for idx, current_p in enumerate(raw_prompts):
-                if page_client._deleted:
-                    break
                 _gen_state['idx'] = idx
                 _gen_state['batch_prefix'] = f"[{idx + 1}/{total_prompts}] " if total_prompts > 1 else ""
                 _gen_state['pct'] = 0
@@ -1051,9 +1053,6 @@ def create_page():
                         generate_previews=user_storage.get('visual_generate_previews', False)
                     )
                     
-                    if page_client._deleted:
-                        break
-
                     if not output_path:
                         if _gen_state.get('cancel'):
                             if not page_client._deleted and _gen_state['spinner_cell']:
@@ -1071,9 +1070,6 @@ def create_page():
                         finally:
                             await run.io_bound(_unload_remove_background_session)
 
-                    if page_client._deleted:
-                        break
-
                     user_storage['visual_last_image'] = output_path
                     src = f'/{output_path}'
                     
@@ -1082,7 +1078,7 @@ def create_page():
                     thumb_src = f'/{thumb_path}' if os.path.exists(thumb_path) else src
                     
                     # Handle completion UI
-                    if _gen_state['spinner_cell']:
+                    if not page_client._deleted and _gen_state['spinner_cell']:
                         cell = _gen_state['spinner_cell']
                         cell.clear()
                         cell.style(
@@ -1100,7 +1096,7 @@ def create_page():
                             _add_info_btn(cell, output_path)
                         cell.on('click', lambda s=src, p=output_path: _handle_grid_cell_click(s, p))
                     
-                    if not _grid_open['value']:
+                    if not page_client._deleted and not _grid_open['value']:
                         container = _gen_state.get('image_container')
                         if container:
                             show_image(f'/{output_path}')
@@ -1113,7 +1109,7 @@ def create_page():
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
-                    if _gen_state['spinner_cell']:
+                    if not page_client._deleted and _gen_state['spinner_cell']:
                         _gen_state['spinner_cell'].delete()
                     safe_notify(f'Failed to generate image {idx+1}: {str(e)}', type='negative')
         
