@@ -260,6 +260,9 @@ def create_page():
         """Helper to inject a progress spinner into the history grid if active."""
         if page_client._deleted or not _gen_state['active'] or _grid_element['ref'] is None:
             return
+            
+        if _gen_state.get('spinner_cell'):
+            return
         
         grid = _grid_element['ref']
         with grid:
@@ -744,6 +747,7 @@ def create_page():
         _selection_state['toggle_btn'] = None
         _selection_state['delete_btn'] = None
         _selection_state['count_label'] = None
+        _gen_state['spinner_cell'] = None
         
         with grid_view:
             # Header bar
@@ -967,17 +971,7 @@ def create_page():
             pass
 
     def _update_queue_ui():
-        try:
-            if not page_client._deleted:
-                q_len = len(_generation_queue)
-                if q_len > 0:
-                    queue_btn.set_text(f'{q_len}')
-                    queue_btn.props('color=purple')
-                else:
-                    queue_btn.set_text('')
-                    queue_btn.props('color=white')
-        except Exception:
-            pass
+        pass
 
     async def _regenerate_image(fpath: str):
         try:
@@ -1126,6 +1120,13 @@ def create_page():
         generate_btn.set_text('Stop')
         generate_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
         
+        _page_state['current_page'] = 1
+        if _grid_open['value']:
+            _grid_element['ref'] = None
+            show_history()
+        else:
+            _grid_element['ref'] = None
+        
         _gen_state['global_idx'] = 0
         _gen_state['global_total'] = sum(len(job['prompts']) for job in _generation_queue)
         
@@ -1178,7 +1179,11 @@ def create_page():
                 total_prompts = len(raw_prompts)
                 
                 _page_state['current_page'] = 1
-                _grid_element['ref'] = None
+                if _grid_open['value']:
+                    _grid_element['ref'] = None
+                    show_history()
+                else:
+                    _grid_element['ref'] = None
                 _gen_state['total'] = total_prompts
                 _gen_state['pct'] = 0
                 
@@ -1191,15 +1196,11 @@ def create_page():
                     _gen_state['batch_prefix'] = f"[{_gen_state['global_idx']}/{_gen_state['global_total']}] "
                     _gen_state['pct'] = 0
                     
-                    _gen_state['spinner_cell'] = None
-                    _gen_state['circ_progress'] = None
-                    _gen_state['linear_progress'] = None
-                    _gen_state['progress_label'] = None
-                    _gen_state['preview_image'] = None
-
                     _inject_grid_spinner()
                     if not _grid_open['value']:
                         _inject_normal_progress()
+                        
+                    _update_progress_labels()
 
                     try:
                         w_str, h_str = job['image_size'].split('x')
@@ -1256,6 +1257,12 @@ def create_page():
                                 _add_regenerate_btn(cell, output_path)
                                 _add_info_btn(cell, output_path)
                             cell.on('click', lambda s=src, p=output_path: _handle_grid_cell_click(s, p))
+                            _gen_state['spinner_cell'] = None
+                            _gen_state['circ_progress'] = None
+                            _gen_state['grid_progress_label'] = None
+                            _gen_state['linear_progress'] = None
+                            _gen_state['progress_label'] = None
+                            _gen_state['preview_image'] = None
                         
                         if not page_client._deleted and not _grid_open['value']:
                             container = _gen_state.get('image_container')
@@ -1272,6 +1279,12 @@ def create_page():
                         traceback.print_exc()
                         if not page_client._deleted and _gen_state['spinner_cell']:
                             _gen_state['spinner_cell'].delete()
+                        _gen_state['spinner_cell'] = None
+                        _gen_state['circ_progress'] = None
+                        _gen_state['grid_progress_label'] = None
+                        _gen_state['linear_progress'] = None
+                        _gen_state['progress_label'] = None
+                        _gen_state['preview_image'] = None
                         safe_notify(f'Failed to generate image {idx+1}: {str(e)}', type='negative')
         
         finally:
