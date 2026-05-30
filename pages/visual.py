@@ -56,6 +56,10 @@ _gen_state = {
     'client': None,
     'global_idx': 0,
     'global_total': 0,
+    'generate_btn': None,
+    'queue_btn': None,
+    'remove_bg_btn': None,
+    'remove_bg_status': None,
 }
 
 _generation_queue = []
@@ -167,7 +171,9 @@ def create_page():
                     ).props('outline dense no-caps').classes('flex-1 text-sm').tooltip(
                         'Remove background from selected images or the current image'
                     )
+                    _gen_state['remove_bg_btn'] = remove_bg_btn
                 remove_bg_status = ui.label('').classes('hidden text-xs text-purple-300 font-mono')
+                _gen_state['remove_bg_status'] = remove_bg_status
 
             with ui.dialog() as remove_bg_dialog, ui.card().classes('w-96 max-w-full gap-4'):
                 ui.label('Remove Background').classes('text-lg font-semibold')
@@ -247,10 +253,12 @@ def create_page():
                     'bg-gradient-to-r from-purple-500 to-indigo-500 '
                     'hover:from-purple-600 hover:to-indigo-600 shadow-lg'
                 ).style('flex: 4;')
+                _gen_state['generate_btn'] = generate_btn
                 
                 queue_btn = ui.button(icon='queue_play_next').props('outline').classes(
                     'h-16 text-lg transition-all duration-300'
                 ).style('flex: 1; min-width: 64px;').tooltip('Queue Generation')
+                _gen_state['queue_btn'] = queue_btn
 
             pass
 
@@ -1108,17 +1116,20 @@ def create_page():
         user_storage = app.storage.user
         def safe_notify(msg, **kwargs):
             try:
-                if not page_client._deleted:
-                    page_client.notify(msg, **kwargs)
+                active_client = _gen_state.get('client')
+                if active_client and not active_client._deleted:
+                    active_client.notify(msg, **kwargs)
             except Exception:
                 pass
 
         _gen_state['active'] = True
         _gen_state['cancel'] = False
         
-        generate_btn.props('color=red icon=stop')
-        generate_btn.set_text('Stop')
-        generate_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
+        gen_btn = _gen_state.get('generate_btn')
+        if gen_btn:
+            gen_btn.props('color=red icon=stop')
+            gen_btn.set_text('Stop')
+            gen_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
         
         _page_state['current_page'] = 1
         if _grid_open['value']:
@@ -1149,7 +1160,8 @@ def create_page():
             
             def _update():
                 try:
-                    if page_client._deleted:
+                    active_client = _gen_state.get('client')
+                    if not active_client or active_client._deleted:
                         return
                     if _gen_state['circ_progress']:
                         _gen_state['circ_progress'].set_value(pct)
@@ -1217,11 +1229,10 @@ def create_page():
                         )
                         
                         if not output_path:
-                            if _gen_state.get('cancel'):
-                                if not page_client._deleted and _gen_state['spinner_cell']:
-                                    _gen_state['spinner_cell'].delete()
-                                break
-                            raise Exception("Pipeline returned None")
+                            if _gen_state.get('cancel') and not _gen_state['client']._deleted and _gen_state['spinner_cell']:
+                                _gen_state['spinner_cell'].delete()
+                            break
+                        raise Exception("Pipeline returned None")
 
                         if job['remove_background_auto']:
                             safe_notify('Removing background...', type='info', pos='bottom-right', timeout=1500)
@@ -1240,7 +1251,8 @@ def create_page():
                         thumb_path = f"{dirname}/thumbs/{fname}".replace('\\', '/')
                         thumb_src = f'/{thumb_path}' if os.path.exists(thumb_path) else src
                         
-                        if not page_client._deleted and _gen_state['spinner_cell']:
+                        active_client = _gen_state.get('client')
+                        if active_client and not active_client._deleted and _gen_state['spinner_cell']:
                             cell = _gen_state['spinner_cell']
                             cell.clear()
                             cell.style(
@@ -1264,7 +1276,7 @@ def create_page():
                             _gen_state['progress_label'] = None
                             _gen_state['preview_image'] = None
                         
-                        if not page_client._deleted and not _grid_open['value']:
+                        if active_client and not active_client._deleted and not _grid_open['value']:
                             container = _gen_state.get('image_container')
                             if container and not _view_state['current_image']:
                                 show_image(f'/{output_path}')
@@ -1277,7 +1289,8 @@ def create_page():
                     except Exception as e:
                         import traceback
                         traceback.print_exc()
-                        if not page_client._deleted and _gen_state['spinner_cell']:
+                        active_client = _gen_state.get('client')
+                        if active_client and not active_client._deleted and _gen_state['spinner_cell']:
                             _gen_state['spinner_cell'].delete()
                         _gen_state['spinner_cell'] = None
                         _gen_state['circ_progress'] = None
@@ -1304,11 +1317,14 @@ def create_page():
             _gen_state['preview_image'] = None
             _gen_state['grid_preview_image'] = None
 
-            if not page_client._deleted:
-                generate_btn.enable()
-                generate_btn.props('color=primary icon=brush')
-                generate_btn.set_text('Generate')
-                generate_btn.classes(add='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', remove='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
+            active_client = _gen_state.get('client')
+            if active_client and not active_client._deleted:
+                gen_btn = _gen_state.get('generate_btn')
+                if gen_btn:
+                    gen_btn.enable()
+                    gen_btn.props('color=primary icon=brush')
+                    gen_btn.set_text('Generate')
+                    gen_btn.classes(add='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', remove='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
                 
                 _update_queue_ui()
 
@@ -1329,8 +1345,10 @@ def create_page():
             _gen_state['cancel'] = True
             _generation_queue.clear()
             _update_queue_ui()
-            generate_btn.set_text('Stopping...')
-            generate_btn.disable()
+            gen_btn = _gen_state.get('generate_btn')
+            if gen_btn:
+                gen_btn.set_text('Stopping...')
+                gen_btn.disable()
         else:
             raw_prompt_str = prompt.value
             neg_prompt = negative_prompt.value
@@ -1360,6 +1378,10 @@ def create_page():
         if not _gen_state['active']:
             await on_generate()
 
-    generate_btn.on('click', on_generate_click)
-    queue_btn.on('click', on_queue_click)
+    gen_btn = _gen_state.get('generate_btn')
+    q_btn = _gen_state.get('queue_btn')
+    if gen_btn:
+        gen_btn.on('click', on_generate_click)
+    if q_btn:
+        q_btn.on('click', on_queue_click)
     _update_queue_ui()
