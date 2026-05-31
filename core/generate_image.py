@@ -166,6 +166,7 @@ def generate_anima_image(
     progress_callback = None,
     unload_after: bool = True,
     vram_limit: float = None,
+    turbo_lora: float = 0.0,
 ) -> str:
     """
     Generates an image using the Anima diffusion model and saves it to the output path.
@@ -178,6 +179,30 @@ def generate_anima_image(
             vram_limit = 6.0
 
     pipe = get_pipeline(vram_limit)
+
+    # Enable hot loading to allow clearing LoRA weights dynamically without fusing
+    if hasattr(pipe, "enable_lora_hot_loading"):
+        pipe.enable_lora_hot_loading(pipe.dit)
+
+    # Manage Turbo LoRA
+    if hasattr(pipe, "clear_lora"):
+        pipe.clear_lora()
+
+    if turbo_lora > 0.0:
+        models_base = os.environ.get("DIFFSYNTH_MODEL_BASE_PATH", os.path.abspath(os.path.join(SCRIPT_DIR, "../models")))
+        lora_dir = os.path.join(models_base, "loras")
+        os.makedirs(lora_dir, exist_ok=True)
+        lora_path = os.path.join(lora_dir, "anima-turbo-lora-v0.2.safetensors")
+
+        if not os.path.exists(lora_path):
+            print(f"Downloading Turbo LoRA from Hugging Face...")
+            import urllib.request
+            url = "https://huggingface.co/circlestone-labs/Anima-Official-LoRAs/resolve/main/anima-turbo-lora-v0.2.safetensors"
+            urllib.request.urlretrieve(url, lora_path)
+            print("Turbo LoRA downloaded successfully.")
+
+        print(f"Applying Turbo LoRA with strength: {turbo_lora}")
+        pipe.load_lora(pipe.dit, lora_path, alpha=turbo_lora)
 
     print(f"Generating image: {prompt[:50]}...")
     
@@ -264,7 +289,8 @@ def generate_anima_image(
         "height": height,
         "seed": seed,
         "cfg_scale": cfg_scale,
-        "model": "Anima Base v1.0"
+        "model": "Anima Base v1.0",
+        "turbo_lora": turbo_lora
     }
     metadata.add_text("parameters", json.dumps(params, indent=2))
     
@@ -291,6 +317,7 @@ if __name__ == '__main__':
     parser.add_argument("--cfg", type=float, default=4.0, help="Classifier free guidance scale (CFG)")
     parser.add_argument("--vram-limit", type=float, default=None, help="VRAM limit in GB")
     parser.add_argument("--previews", action="store_true", help="Enable generating intermediate previews (saves preview images during process)")
+    parser.add_argument("--turbo-lora", type=float, default=0.0, help="Strength of the Turbo LoRA (0.0 to disable)")
     
     args = parser.parse_args()
     
@@ -306,6 +333,7 @@ if __name__ == '__main__':
             cfg_scale=args.cfg,
             generate_previews=args.previews,
             vram_limit=args.vram_limit,
+            turbo_lora=args.turbo_lora,
             unload_after=True,
         )
     except Exception as e:
