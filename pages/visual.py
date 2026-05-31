@@ -212,16 +212,16 @@ def create_page():
             pass
 
         # Right column – settings (30%)
-        with ui.column().classes('gap-6').style('flex: 3;'):
+        with ui.column().classes('gap-3').style('flex: 3;'):
             prompt = ui.textarea(
                 'Positive Prompt', placeholder='masterpiece, best quality... (Use /// to separate multiple prompts)'
-            ).classes('w-full text-lg').props('outlined rows="10"').bind_value(
+            ).classes('w-full text-sm').props('outlined rows="12"').bind_value(
                 app.storage.user, 'visual_positive_prompt'
             )
 
             negative_prompt = ui.textarea(
                 'Negative Prompt', placeholder='worst quality, low quality, …'
-            ).classes('w-full').props('outlined rows="4"').bind_value(
+            ).classes('w-full text-sm').props('outlined rows="2"').bind_value(
                 app.storage.user, 'visual_negative_prompt'
             )
 
@@ -262,21 +262,22 @@ def create_page():
                     on_change=lambda e: cfg_scale_label.set_text(f"{e.value:.1f}")
                 ).classes('w-full').bind_value(app.storage.user, 'visual_cfg_scale')
 
-            with ui.row().classes('w-full items-center justify-between'):
-                turbo_checkbox = ui.checkbox('Turbo LoRA').bind_value(
+            with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
+                turbo_checkbox = ui.checkbox().bind_value(
                     app.storage.user, 'visual_turbo_lora_enabled'
                 ).tooltip('Enable Turbo LoRA for faster generation (fewer steps needed)')
-
-            with ui.column().classes('w-full gap-1').bind_visibility_from(app.storage.user, 'visual_turbo_lora_enabled'):
-                with ui.row().classes('w-full justify-between items-center'):
-                    ui.label('Turbo Strength').classes('text-sm text-gray-400')
-                    turbo_strength_label = ui.label(
-                        f"{app.storage.user.get('visual_turbo_lora_strength', 1.0):.2f}"
-                    ).classes('text-sm text-gray-300 font-mono')
+                ui.label('Turbo').classes('text-sm text-gray-400')
                 turbo_strength_slider = ui.slider(
-                    min=0.1, max=2.0, step=0.05,
-                    on_change=lambda e: turbo_strength_label.set_text(f"{e.value:.2f}")
-                ).classes('w-full').bind_value(app.storage.user, 'visual_turbo_lora_strength')
+                    min=0.1, max=2.0, step=0.05
+                ).classes('flex-grow').bind_value(
+                    app.storage.user, 'visual_turbo_lora_strength'
+                ).bind_enabled_from(
+                    app.storage.user, 'visual_turbo_lora_enabled'
+                )
+                turbo_strength_label = ui.label().classes('text-sm text-gray-300 font-mono w-8 text-right')
+                turbo_strength_label.bind_text_from(
+                    turbo_strength_slider, 'value', backward=lambda v: f"{v:.2f}"
+                )
 
             ui.checkbox('Generate Intermediate Previews').bind_value(
                 app.storage.user, 'visual_generate_previews'
@@ -285,14 +286,14 @@ def create_page():
             # Generate
             with ui.row().classes('w-full gap-4 mt-2 flex-nowrap items-center'):
                 generate_btn = ui.button('Generate', icon='brush').classes(
-                    'w-full h-16 text-xl transition-all duration-300 '
+                    'w-full h-12 text-lg transition-all duration-300 '
                     'bg-gradient-to-r from-purple-500 to-indigo-500 '
                     'hover:from-purple-600 hover:to-indigo-600 shadow-lg'
                 ).style('flex: 4;')
                 _gen_state['generate_btn'] = generate_btn
                 
                 queue_btn = ui.button(icon='queue_play_next').props('outline').classes(
-                    'h-16 text-lg transition-all duration-300'
+                    'h-12 text-md transition-all duration-300'
                 ).style('flex: 1; min-width: 64px;').tooltip('Queue Generation')
                 _gen_state['queue_btn'] = queue_btn
 
