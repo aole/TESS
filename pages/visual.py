@@ -152,6 +152,12 @@ def create_page():
         app.storage.user['visual_remove_background_models'] = ['isnet-anime']
     if app.storage.user['visual_remove_background_model'] not in app.storage.user['visual_remove_background_models']:
         app.storage.user['visual_remove_background_models'].append(app.storage.user['visual_remove_background_model'])
+    if 'visual_cfg_scale' not in app.storage.user:
+        app.storage.user['visual_cfg_scale'] = 4.0
+    if 'visual_turbo_lora_enabled' not in app.storage.user:
+        app.storage.user['visual_turbo_lora_enabled'] = False
+    if 'visual_turbo_lora_strength' not in app.storage.user:
+        app.storage.user['visual_turbo_lora_strength'] = 1.0
 
     # ── Main layout ──────────────────────────────────────────────────────────
     with ui.row().classes('w-full max-w-screen-2xl mx-auto gap-6 p-4 flex-nowrap items-start'):
@@ -244,6 +250,33 @@ def create_page():
                     min=1, max=50,
                     on_change=lambda e: steps_label.set_text(str(int(e.value)))
                 ).classes('w-full').bind_value(app.storage.user, 'visual_inference_steps')
+
+            with ui.column().classes('w-full gap-1'):
+                with ui.row().classes('w-full justify-between items-center'):
+                    ui.label('CFG Scale').classes('text-sm text-gray-400')
+                    cfg_scale_label = ui.label(
+                        f"{app.storage.user.get('visual_cfg_scale', 4.0):.1f}"
+                    ).classes('text-sm text-gray-300 font-mono')
+                cfg_scale_slider = ui.slider(
+                    min=1.0, max=20.0, step=0.1,
+                    on_change=lambda e: cfg_scale_label.set_text(f"{e.value:.1f}")
+                ).classes('w-full').bind_value(app.storage.user, 'visual_cfg_scale')
+
+            with ui.row().classes('w-full items-center justify-between'):
+                turbo_checkbox = ui.checkbox('Turbo LoRA').bind_value(
+                    app.storage.user, 'visual_turbo_lora_enabled'
+                ).tooltip('Enable Turbo LoRA for faster generation (fewer steps needed)')
+
+            with ui.column().classes('w-full gap-1').bind_visibility_from(app.storage.user, 'visual_turbo_lora_enabled'):
+                with ui.row().classes('w-full justify-between items-center'):
+                    ui.label('Turbo Strength').classes('text-sm text-gray-400')
+                    turbo_strength_label = ui.label(
+                        f"{app.storage.user.get('visual_turbo_lora_strength', 1.0):.2f}"
+                    ).classes('text-sm text-gray-300 font-mono')
+                turbo_strength_slider = ui.slider(
+                    min=0.1, max=2.0, step=0.05,
+                    on_change=lambda e: turbo_strength_label.set_text(f"{e.value:.2f}")
+                ).classes('w-full').bind_value(app.storage.user, 'visual_turbo_lora_strength')
 
             ui.checkbox('Generate Intermediate Previews').bind_value(
                 app.storage.user, 'visual_generate_previews'
@@ -869,7 +902,7 @@ def create_page():
             expanded.append(new_prompt)
         return expanded
 
-    def _enqueue_job(raw_prompt_str: str, neg_prompt: str, steps_val: int, size_val: str, batch_count_val: int):
+    def _enqueue_job(raw_prompt_str: str, neg_prompt: str, steps_val: int, size_val: str, batch_count_val: int, cfg_scale_val: float = None, turbo_lora_val: float = None):
         raw_prompts = [p.strip() for p in raw_prompt_str.split('///') if p.strip()]
         if not raw_prompts:
             return False
@@ -879,6 +912,11 @@ def create_page():
             for ep in expand_prompt(p):
                 expanded_prompts.extend([ep] * batch_count_val)
                 
+        if cfg_scale_val is None:
+            cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
+        if turbo_lora_val is None:
+            turbo_lora_val = float(app.storage.user.get('visual_turbo_lora_strength', 1.0)) if app.storage.user.get('visual_turbo_lora_enabled', False) else 0.0
+
         job = {
             'prompts': expanded_prompts,
             'negative_prompt': neg_prompt,
@@ -887,6 +925,8 @@ def create_page():
             'remove_background_auto': app.storage.user.get('visual_remove_background_auto', False),
             'remove_background_model': app.storage.user.get('visual_remove_background_model', 'isnet-anime'),
             'generate_previews': app.storage.user.get('visual_generate_previews', False),
+            'cfg_scale': cfg_scale_val,
+            'turbo_lora': turbo_lora_val,
         }
         _generation_queue.append(job)
         _update_queue_ui()
@@ -931,8 +971,10 @@ def create_page():
             w = params.get('width', 1024)
             h = params.get('height', 1024)
             size_val = f"{w}x{h}"
+            cfg_scale_val = params.get('cfg_scale', 4.0)
+            turbo_lora_val = params.get('turbo_lora', 0.0)
             
-            success = _enqueue_job(prompt_val, neg_prompt, steps_val, size_val, 1)
+            success = _enqueue_job(prompt_val, neg_prompt, steps_val, size_val, 1, cfg_scale_val=cfg_scale_val, turbo_lora_val=turbo_lora_val)
             if success:
                 if _gen_state['active']:
                     ui.notify('Regeneration added to queue.', type='info')
@@ -973,6 +1015,18 @@ def create_page():
             w = params.get('width', 1024)
             h = params.get('height', 1024)
             image_size.value = f"{w}x{h}"
+            
+            cfg_val = params.get('cfg_scale', 4.0)
+            cfg_scale_slider.value = cfg_val
+            cfg_scale_label.set_text(f"{cfg_val:.1f}")
+            
+            turbo_val = params.get('turbo_lora', 0.0)
+            if turbo_val > 0.0:
+                turbo_checkbox.value = True
+                turbo_strength_slider.value = turbo_val
+                turbo_strength_label.set_text(f"{turbo_val:.2f}")
+            else:
+                turbo_checkbox.value = False
             
             ui.notify('Parameters loaded from metadata.', type='info')
             
@@ -1177,7 +1231,9 @@ def create_page():
                             int(h_str),
                             on_progress,
                             unload_after=False,
-                            generate_previews=job['generate_previews']
+                            generate_previews=job['generate_previews'],
+                            cfg_scale=job['cfg_scale'],
+                            turbo_lora=job['turbo_lora']
                         )
                         
                         if not output_path:

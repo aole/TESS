@@ -10,7 +10,9 @@ def generate_image_task(
     height: int = 1024,
     progress_callback = None,
     unload_after: bool = True,
-    generate_previews: bool = False
+    generate_previews: bool = False,
+    cfg_scale: float = 4.0,
+    turbo_lora: float = 0.0,
 ) -> str:
     """
     NiceGUI-specific wrapper that generates an image using Anima and handles
@@ -56,6 +58,8 @@ def generate_image_task(
         preview_callback=internal_preview_callback if generate_previews else None,
         progress_callback=progress_callback,
         unload_after=unload_after,
+        cfg_scale=cfg_scale,
+        turbo_lora=turbo_lora,
     )
 
     if not res_path:
