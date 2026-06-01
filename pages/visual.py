@@ -158,6 +158,8 @@ def create_page():
         app.storage.user['visual_turbo_lora_enabled'] = False
     if 'visual_turbo_lora_strength' not in app.storage.user:
         app.storage.user['visual_turbo_lora_strength'] = 1.0
+    if 'visual_denoising_strength' not in app.storage.user:
+        app.storage.user['visual_denoising_strength'] = 0.6
 
     # ── Main layout ──────────────────────────────────────────────────────────
     with ui.row().classes('w-full max-w-screen-2xl mx-auto gap-6 p-4 flex-nowrap items-start'):
@@ -296,6 +298,26 @@ def create_page():
                     'h-12 text-md transition-all duration-300'
                 ).style('flex: 1; min-width: 64px;').tooltip('Queue Generation')
                 _gen_state['queue_btn'] = queue_btn
+
+            # Denoising and i2i button
+            with ui.row().classes('w-full gap-4 mt-2 flex-nowrap items-center'):
+                with ui.column().classes('flex-grow gap-0'):
+                    with ui.row().classes('w-full justify-between items-center'):
+                        ui.label('Denoising Strength').classes('text-sm text-gray-400')
+                        denoising_label = ui.label(
+                            f"{app.storage.user.get('visual_denoising_strength', 0.6):.2f}"
+                        ).classes('text-sm text-gray-300 font-mono')
+                    denoising_slider = ui.slider(
+                        min=0.01, max=1.0, step=0.01,
+                        on_change=lambda e: denoising_label.set_text(f"{e.value:.2f}")
+                    ).classes('w-full').bind_value(app.storage.user, 'visual_denoising_strength')
+                
+                itoi_btn = ui.button('i2i', icon='image').classes(
+                    'h-12 text-md transition-all duration-300 '
+                    'bg-gradient-to-r from-teal-500 to-emerald-500 '
+                    'hover:from-teal-600 hover:to-emerald-600 shadow-lg'
+                ).style('flex: 0 0 auto; width: 90px;').tooltip('Image to Image (itoi) Generation')
+                _gen_state['itoi_btn'] = itoi_btn
 
             # Progress section below generate/queue buttons
             progress_sidebar = ui.column().classes('w-full gap-2 mt-2 hidden')
@@ -903,7 +925,7 @@ def create_page():
             expanded.append(new_prompt)
         return expanded
 
-    def _enqueue_job(raw_prompt_str: str, neg_prompt: str, steps_val: int, size_val: str, batch_count_val: int, cfg_scale_val: float = None, turbo_lora_val: float = None):
+    def _enqueue_job(raw_prompt_str: str, neg_prompt: str, steps_val: int, size_val: str, batch_count_val: int, cfg_scale_val: float = None, turbo_lora_val: float = None, input_image_val = None, denoising_strength_val: float = 1.0):
         raw_prompts = [p.strip() for p in raw_prompt_str.split('///') if p.strip()]
         if not raw_prompts:
             return False
@@ -928,6 +950,8 @@ def create_page():
             'generate_previews': app.storage.user.get('visual_generate_previews', False),
             'cfg_scale': cfg_scale_val,
             'turbo_lora': turbo_lora_val,
+            'input_image': input_image_val,
+            'denoising_strength': denoising_strength_val,
         }
         _generation_queue.append(job)
         _update_queue_ui()
@@ -1100,6 +1124,9 @@ def create_page():
         generate_btn.props('color=red icon=stop')
         generate_btn.set_text('Stop')
         generate_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
+        itoi_btn = _gen_state.get('itoi_btn')
+        if itoi_btn:
+            itoi_btn.disable()
         if progress_sidebar:
             progress_sidebar.classes(remove='hidden')
             g_idx = _gen_state.get('global_idx', 1)
@@ -1136,6 +1163,10 @@ def create_page():
             gen_btn.props('color=red icon=stop')
             gen_btn.set_text('Stop')
             gen_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
+        
+        i_btn = _gen_state.get('itoi_btn')
+        if i_btn:
+            i_btn.disable()
         
         _page_state['current_page'] = 1
         if _grid_open['value']:
@@ -1234,7 +1265,9 @@ def create_page():
                             unload_after=False,
                             generate_previews=job['generate_previews'],
                             cfg_scale=job['cfg_scale'],
-                            turbo_lora=job['turbo_lora']
+                            turbo_lora=job['turbo_lora'],
+                            input_image=job.get('input_image'),
+                            denoising_strength=job.get('denoising_strength', 1.0)
                         )
                         
                         if not output_path:
@@ -1298,6 +1331,10 @@ def create_page():
                     gen_btn.set_text('Generate')
                     gen_btn.classes(add='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', remove='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
                 
+                i_btn = _gen_state.get('itoi_btn')
+                if i_btn:
+                    i_btn.enable()
+                
                 _update_queue_ui()
 
                 if not _grid_open['value'] and not _view_state['current_image']:
@@ -1330,7 +1367,18 @@ def create_page():
             size_val = image_size.value
             batch_count_val = int(batch_count.value)
             
-            success = _enqueue_job(raw_prompt_str, neg_prompt, steps_val, size_val, batch_count_val)
+            cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
+            turbo_lora_val = float(app.storage.user.get('visual_turbo_lora_strength', 1.0)) if app.storage.user.get('visual_turbo_lora_enabled', False) else 0.0
+            
+            success = _enqueue_job(
+                raw_prompt_str, 
+                neg_prompt, 
+                steps_val, 
+                size_val, 
+                batch_count_val,
+                cfg_scale_val=cfg_scale_val,
+                turbo_lora_val=turbo_lora_val
+            )
             if not success:
                 ui.notify('Please enter a positive prompt', type='warning')
                 return
@@ -1343,7 +1391,18 @@ def create_page():
         size_val = image_size.value
         batch_count_val = int(batch_count.value)
         
-        success = _enqueue_job(raw_prompt_str, neg_prompt, steps_val, size_val, batch_count_val)
+        cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
+        turbo_lora_val = float(app.storage.user.get('visual_turbo_lora_strength', 1.0)) if app.storage.user.get('visual_turbo_lora_enabled', False) else 0.0
+        
+        success = _enqueue_job(
+            raw_prompt_str, 
+            neg_prompt, 
+            steps_val, 
+            size_val, 
+            batch_count_val,
+            cfg_scale_val=cfg_scale_val,
+            turbo_lora_val=turbo_lora_val
+        )
         if not success:
             ui.notify('Please enter a positive prompt', type='warning')
             return
@@ -1352,10 +1411,56 @@ def create_page():
         if not _gen_state['active']:
             await on_generate()
 
-    gen_btn = _gen_state.get('generate_btn')
-    q_btn = _gen_state.get('queue_btn')
-    if gen_btn:
-        gen_btn.on('click', on_generate_click)
-    if q_btn:
-        q_btn.on('click', on_queue_click)
+    async def on_itoi_click():
+        if _gen_state.get('active'):
+            return
+            
+        try:
+            input_paths = _tool_context_paths()
+            if not input_paths:
+                ui.notify('Please select an image in the history grid or open an image first to use as the input image.', type='warning')
+                return
+                
+            raw_prompt_str = prompt.value
+            if not raw_prompt_str or not raw_prompt_str.strip():
+                ui.notify('Please enter a positive prompt', type='warning')
+                return
+                
+            neg_prompt = negative_prompt.value
+            steps_val = int(steps.value)
+            size_val = image_size.value
+            batch_count_val = int(batch_count.value)
+            
+            cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
+            turbo_lora_val = float(app.storage.user.get('visual_turbo_lora_strength', 1.0)) if app.storage.user.get('visual_turbo_lora_enabled', False) else 0.0
+            denoising_strength_val = float(app.storage.user.get('visual_denoising_strength', 0.6))
+            
+            # Enqueue a job for each selected input image
+            for path in input_paths:
+                _enqueue_job(
+                    raw_prompt_str,
+                    neg_prompt,
+                    steps_val,
+                    size_val,
+                    batch_count_val,
+                    cfg_scale_val=cfg_scale_val,
+                    turbo_lora_val=turbo_lora_val,
+                    input_image_val=path,
+                    denoising_strength_val=denoising_strength_val
+                )
+                
+            ui.notify(f'Added {len(input_paths)} image-to-image job(s) to queue.', type='info')
+            await on_generate()
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            print(f"Error in on_itoi_click: {e}\n{tb}")
+            ui.notify(f"Error starting i2i: {e}", type='negative')
+ 
+    if generate_btn:
+        generate_btn.on('click', on_generate_click)
+    if queue_btn:
+        queue_btn.on('click', on_queue_click)
+    if itoi_btn:
+        itoi_btn.on('click', on_itoi_click)
     _update_queue_ui()
