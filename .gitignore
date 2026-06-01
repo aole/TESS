@@ -33,6 +33,7 @@ data/voices/
 data/visual/
 models/
 data/tmp/
+scratch/
 
 # Google Auth
 client_secret.json

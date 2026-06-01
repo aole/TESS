@@ -13,6 +13,8 @@ def generate_image_task(
     generate_previews: bool = False,
     cfg_scale: float = 4.0,
     turbo_lora: float = 0.0,
+    input_image = None,
+    denoising_strength: float = 1.0,
 ) -> str:
     """
     NiceGUI-specific wrapper that generates an image using Anima and handles
@@ -60,6 +62,8 @@ def generate_image_task(
         unload_after=unload_after,
         cfg_scale=cfg_scale,
         turbo_lora=turbo_lora,
+        input_image=input_image,
+        denoising_strength=denoising_strength,
     )
 
     if not res_path:

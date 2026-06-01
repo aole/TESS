@@ -167,10 +167,19 @@ def generate_anima_image(
     unload_after: bool = True,
     vram_limit: float = None,
     turbo_lora: float = 0.0,
+    input_image = None,
+    denoising_strength: float = 1.0,
 ) -> str:
     """
     Generates an image using the Anima diffusion model and saves it to the output path.
     """
+    orig_input_image_path = input_image if isinstance(input_image, str) else None
+    if input_image is not None:
+        from PIL import Image
+        if isinstance(input_image, str):
+            print(f"Loading input image: {input_image}")
+            input_image = Image.open(input_image).convert("RGB")
+        input_image = input_image.resize((width, height), Image.Resampling.LANCZOS)
     if vram_limit is None:
         if torch.cuda.is_available():
             vram_info = torch.cuda.mem_get_info("cuda")
@@ -245,6 +254,8 @@ def generate_anima_image(
             image = pipe(
                 prompt,
                 negative_prompt=negative_prompt,
+                input_image=input_image,
+                denoising_strength=denoising_strength,
                 num_inference_steps=steps,
                 width=width,
                 height=height,
@@ -292,6 +303,10 @@ def generate_anima_image(
         "model": "Anima Base v1.0",
         "turbo_lora": turbo_lora
     }
+    if input_image is not None:
+        params["denoising_strength"] = denoising_strength
+        if orig_input_image_path:
+            params["input_image_path"] = orig_input_image_path
     metadata.add_text("parameters", json.dumps(params, indent=2))
     
     # Save the generated image
@@ -318,6 +333,8 @@ if __name__ == '__main__':
     parser.add_argument("--vram-limit", type=float, default=None, help="VRAM limit in GB")
     parser.add_argument("--previews", action="store_true", help="Enable generating intermediate previews (saves preview images during process)")
     parser.add_argument("--turbo-lora", type=float, default=0.0, help="Strength of the Turbo LoRA (0.0 to disable)")
+    parser.add_argument("--input-image", "-i", type=str, default=None, help="Optional input image path for image-to-image (itoi) generation")
+    parser.add_argument("--denoising-strength", "-d", type=float, default=1.0, help="Denoising strength for image-to-image generation (0.0 to 1.0)")
     
     args = parser.parse_args()
     
@@ -335,6 +352,8 @@ if __name__ == '__main__':
             vram_limit=args.vram_limit,
             turbo_lora=args.turbo_lora,
             unload_after=True,
+            input_image=args.input_image,
+            denoising_strength=args.denoising_strength,
         )
     except Exception as e:
         print(f"Failed to generate image: {e}")
