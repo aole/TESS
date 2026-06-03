@@ -2,7 +2,6 @@ from typing import Callable, Optional
 from nicegui import app, ui
 from utils.llm_client import client
 from services.rating_service import rating_service
-from services.persona_service import persona_service, NO_PERSONA_ID
 import asyncio
 from dataclasses import dataclass
 
@@ -240,7 +239,6 @@ def create_page():
         saved_min_p = model_cfg.get('min_p', 0.0)
         saved_repeat_penalty = model_cfg.get('repeat_penalty', 1.1)
         saved_top_k = model_cfg.get('top_k', 40)
-        saved_persona = model_cfg.get('persona_id', NO_PERSONA_ID)
         tools_permanently_disabled = not supports_tools(model_name, family_str)
         saved_tools = False if tools_permanently_disabled else model_cfg.get('tools_enabled', True)
         saved_memory = False if (tools_permanently_disabled or not saved_tools) else model_cfg.get('memory_enabled', True)
@@ -330,14 +328,6 @@ def create_page():
                                 ui.label(tag).classes('text-gray-300')
                                 ui.label(f"{data['average']}★ ({data['count']} ratings)").classes('text-yellow-400 font-bold')
 
-            # Persona dropdown
-            ui.label('Default Persona').classes('text-sm font-medium text-gray-400 mb-1')
-            persona_opts = {p['id']: p['name'] for p in persona_service.get_all_persona_options()}
-
-            persona_select = ui.select(
-                options=persona_opts,
-                value=saved_persona
-            ).props('dense options-dense outlined dark').classes('w-full text-sm mb-4')
 
             # Sliders for parameters
             with ui.expansion('Model Parameters', icon='tune', value=True).classes('w-full bg-white/5 rounded-lg mb-4').props('dense'):
@@ -422,9 +412,6 @@ def create_page():
                 # Store configurations in app.storage.general
                 if 'model_configurations' not in app.storage.general:
                     app.storage.general['model_configurations'] = {}
-
-                selected_persona = persona_service.get_persona(persona_select.value)
-                system_prompt = selected_persona['system_prompt'] if selected_persona else ''
                 
                 app.storage.general['model_configurations'][model_name] = {
                     'temperature': temp_slider.value,
@@ -432,8 +419,6 @@ def create_page():
                     'min_p': min_p_slider.value,
                     'repeat_penalty': repeat_penalty_slider.value,
                     'top_k': int(top_k_slider.value),
-                    'system_prompt': system_prompt,
-                    'persona_id': persona_select.value,
                     'tools_enabled': tools_checkbox.value,
                     'memory_enabled': memory_checkbox.value
                 }

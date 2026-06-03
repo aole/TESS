@@ -28,6 +28,6 @@ async def generate_image(prompt: str) -> str:
         from services.visual_service import generate_image_task
         print(f"Generating image with prompt: {prompt}")
         output_path = await run.io_bound(generate_image_task, prompt, negative_prompt, steps, 1024, 1024)
-        return f"Image successfully generated. Display the image using the following syntax:\n\n![Generated Image](/{output_path})"
+        return f"Image successfully generated. Display the image using the following markdown:\n\n![Generated Image](/{output_path})"
     except Exception as e:
         return f"Failed to generate image: {str(e)}"

@@ -190,15 +190,17 @@ async def create_page(model_param: str = None, new_chat: bool = False):
             _default_persona = persona_service.get_default_persona()
             _initial_persona_id = app.storage.user.get(
                 'selected_persona_id',
-                _default_persona['id'],
+                app.storage.general.get('last_used_persona_id', _default_persona['id']),
             )
-            # Pre-fill system prompt from default persona if none saved yet
+            # Pre-fill system prompt from persona if none saved yet
             if _saved_prompt is None:
-                app.storage.user['system_prompt'] = _default_persona['system_prompt']
+                _init_persona = persona_service.get_persona(_initial_persona_id)
+                app.storage.user['system_prompt'] = _init_persona['system_prompt'] if _init_persona else ''
 
             def _on_persona_change(e):
                 pid = e.value
                 app.storage.user['selected_persona_id'] = pid
+                app.storage.general['last_used_persona_id'] = pid  # Save last used persona
                 persona = persona_service.get_persona(pid)
                 if persona is not None:
                     system_prompt.value = persona['system_prompt']
@@ -474,19 +476,6 @@ async def create_page(model_param: str = None, new_chat: bool = False):
             model_configs = app.storage.general.get('model_configurations', {})
             model_cfg = model_configs.get(model_select.value)
             if model_cfg:
-                # Apply system prompt / persona
-                persona_id = model_cfg.get('persona_id', NO_PERSONA_ID)
-                app.storage.user['selected_persona_id'] = persona_id
-                
-                if persona_id != NO_PERSONA_ID:
-                    persona = persona_service.get_persona(persona_id)
-                    if persona:
-                        app.storage.user['system_prompt'] = persona['system_prompt']
-                    else:
-                        app.storage.user['system_prompt'] = model_cfg.get('system_prompt', '')
-                else:
-                    app.storage.user['system_prompt'] = model_cfg.get('system_prompt', '')
-
                 # Tools configuration
                 tools_enabled = model_cfg.get('tools_enabled', True)
                 app.storage.user['tools_enabled'] = tools_enabled
@@ -507,36 +496,27 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 if tools_enabled:
                     app.storage.user['memory_enabled'] = model_cfg.get('memory_enabled', True)
 
-                # Sync UI components
-                try:
-                    system_prompt.value = app.storage.user.get('system_prompt', '')
-                except:
-                    pass
-                try:
-                    persona_select.value = app.storage.user.get('selected_persona_id', NO_PERSONA_ID)
-                except:
-                    pass
-
                 # Call the UI updater if defined
                 if 'update_tool_buttons' in locals():
                     try:
                         update_tool_buttons()
                     except Exception:
                         pass
-                return
 
-            # If this is the initial load and we have saved settings, don't overwrite them with model defaults
-            has_saved = any(k in app.storage.user for k in ['system_prompt'])
-            if initial and has_saved and app.storage.user.get('system_prompt'):
-                return
-
-            new_params = await client.get_model_parameters(model_select.value)
-            
-            if 'system' in new_params:
-                app.storage.user['system_prompt'] = new_params['system']
-            
-            # Sync side prompt if needed
-            system_prompt.value = app.storage.user.get('system_prompt', '')
+            # Update system prompt only if NOT using a persona
+            current_persona_id = app.storage.user.get('selected_persona_id', NO_PERSONA_ID)
+            if current_persona_id == NO_PERSONA_ID:
+                has_saved = any(k in app.storage.user for k in ['system_prompt'])
+                if not (initial and has_saved and app.storage.user.get('system_prompt')):
+                    try:
+                        new_params = await client.get_model_parameters(model_select.value)
+                        if 'system' in new_params:
+                            app.storage.user['system_prompt'] = new_params['system']
+                        else:
+                            app.storage.user['system_prompt'] = ''
+                        system_prompt.value = app.storage.user.get('system_prompt', '')
+                    except Exception:
+                        pass
 
 
     # Layout (just chat area now)
