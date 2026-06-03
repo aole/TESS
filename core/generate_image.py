@@ -268,11 +268,13 @@ def generate_anima_image(
     except InterruptedError:
         print("Generation cancelled by user")
         if unload_after:
+            del pipe
             unload_pipeline()
         return None
     except Exception as e:
         print(f"Error during inference: {e}")
         if unload_after:
+            del pipe
             unload_pipeline()
         raise e
 
@@ -314,6 +316,7 @@ def generate_anima_image(
     print(f"Success: saved as {output_path}")
 
     if unload_after:
+        del pipe
         unload_pipeline()
         
     return output_path
