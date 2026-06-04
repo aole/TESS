@@ -1287,9 +1287,6 @@ def create_page():
         generate_btn.props('color=red icon=stop')
         generate_btn.set_text('Stop')
         generate_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
-        itoi_btn = _gen_state.get('itoi_btn')
-        if itoi_btn:
-            itoi_btn.disable()
         if progress_sidebar:
             progress_sidebar.classes(remove='hidden')
             g_idx = _gen_state.get('global_idx', 1)
@@ -1326,10 +1323,6 @@ def create_page():
             gen_btn.props('color=red icon=stop')
             gen_btn.set_text('Stop')
             gen_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
-        
-        i_btn = _gen_state.get('itoi_btn')
-        if i_btn:
-            i_btn.disable()
         
         _page_state['current_page'] = 1
         if _grid_open['value']:
@@ -1494,10 +1487,6 @@ def create_page():
                     gen_btn.set_text('Generate')
                     gen_btn.classes(add='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', remove='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
                 
-                i_btn = _gen_state.get('itoi_btn')
-                if i_btn:
-                    i_btn.enable()
-                
                 _update_queue_ui()
 
                 if not _grid_open['value'] and not _view_state['current_image']:
@@ -1575,9 +1564,6 @@ def create_page():
             await on_generate()
 
     async def on_itoi_click():
-        if _gen_state.get('active'):
-            return
-            
         try:
             input_paths = _tool_context_paths()
             if not input_paths:
@@ -1613,7 +1599,8 @@ def create_page():
                 )
                 
             ui.notify(f'Added {len(input_paths)} image-to-image job(s) to queue.', type='info')
-            await on_generate()
+            if not _gen_state.get('active'):
+                await on_generate()
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
