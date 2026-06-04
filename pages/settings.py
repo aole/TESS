@@ -536,7 +536,7 @@ def create_page():
 
             # ── Visual ────────────────────────────────────────────────────────
             with ui_card(heading="Visual Settings", heading_icon="image", heading_color="indigo"):
-                ui.checkbox('Show Hidden Images').bind_value(
+                ui.checkbox('Show Hidden').bind_value(
                     app.storage.user, 'visual_show_hidden'
                 ).classes('text-gray-300').tooltip('Show hidden images in the history grid')
 

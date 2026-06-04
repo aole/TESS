@@ -6,7 +6,7 @@ from utils.config import config_manager
 
 
 _VISUAL_EXTS = {'.png', '.jpg', '.jpeg', '.webp'}
-_VISUAL_DIR  = 'data/visual'
+_VISUAL_DIR  = 'data/visual/images'
 _CHECKER_BG = (
     'background-color: #1f2937;'
     'background-image: '
@@ -590,8 +590,8 @@ def create_page():
     def _remove_image_files(fpath: str):
         if os.path.exists(fpath):
             os.remove(fpath)
-        dirname, fname = os.path.split(fpath)
-        thumb_path = f"{dirname}/thumbs/{fname}".replace('\\', '/')
+        fname = os.path.basename(fpath)
+        thumb_path = f"data/visual/thumbs/{fname}"
         if os.path.exists(thumb_path):
             os.remove(thumb_path)
 
@@ -671,10 +671,10 @@ def create_page():
     def _create_thumbnail(fpath: str):
         try:
             from PIL import Image
-            dirname, fname = os.path.split(fpath)
-            thumb_dir = os.path.join(dirname, 'thumbs').replace('\\', '/')
+            fname = os.path.basename(fpath)
+            thumb_dir = 'data/visual/thumbs'
             os.makedirs(thumb_dir, exist_ok=True)
-            thumb_path = os.path.join(thumb_dir, os.path.basename(fpath)).replace('\\', '/')
+            thumb_path = os.path.join(thumb_dir, fname).replace('\\', '/')
             with Image.open(fpath) as img:
                 img.thumbnail((256, 256))
                 img.save(thumb_path)
@@ -943,11 +943,11 @@ def create_page():
                 )
                 _grid_element['ref'] = grid
                 with grid:
-                    os.makedirs(f"{_VISUAL_DIR}/thumbs", exist_ok=True)
+                    os.makedirs("data/visual/thumbs", exist_ok=True)
                     for fname in visible_images:
                         fpath = f'{_VISUAL_DIR}/{fname}'
                         src = f'/{fpath}'
-                        thumb_path = f'{_VISUAL_DIR}/thumbs/{fname}'
+                        thumb_path = f'data/visual/thumbs/{fname}'
                         
                         if not os.path.exists(thumb_path):
                             thumb_src = src

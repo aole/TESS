@@ -43,10 +43,11 @@ def generate_image_task(
 
     # 3. Setup output paths
     import datetime
+    os.makedirs("data/visual/images", exist_ok=True)
     os.makedirs("data/visual/thumbs", exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     fname = f"tess_{timestamp}.png"
-    output_path = f"data/visual/{fname}"
+    output_path = f"data/visual/images/{fname}"
 
     # 4. Generate the image
     res_path = generate_anima_image(
