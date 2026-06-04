@@ -2,6 +2,7 @@ import os
 import asyncio
 from nicegui import ui, run, app
 from services.visual_service import generate_image_task
+from utils.config import config_manager
 
 
 _VISUAL_EXTS = {'.png', '.jpg', '.jpeg', '.webp'}
@@ -136,6 +137,19 @@ def create_page():
         )
     if 'visual_image_size' not in app.storage.user:
         app.storage.user['visual_image_size'] = '1024x1024'
+    if 'visual_image_width' not in app.storage.user or 'visual_image_height' not in app.storage.user:
+        old_size = app.storage.user.get('visual_image_size', '1024x1024')
+        try:
+            w_str, h_str = old_size.split('x')
+            if 'visual_image_width' not in app.storage.user:
+                app.storage.user['visual_image_width'] = int(w_str)
+            if 'visual_image_height' not in app.storage.user:
+                app.storage.user['visual_image_height'] = int(h_str)
+        except Exception:
+            if 'visual_image_width' not in app.storage.user:
+                app.storage.user['visual_image_width'] = 1024
+            if 'visual_image_height' not in app.storage.user:
+                app.storage.user['visual_image_height'] = 1024
     if 'visual_inference_steps' not in app.storage.user:
         app.storage.user['visual_inference_steps'] = 30
     if 'visual_batch_count' not in app.storage.user:
@@ -227,18 +241,27 @@ def create_page():
                 app.storage.user, 'visual_negative_prompt'
             )
 
+            width_options = list(config_manager.config.get('visual_image_widths', [
+                512, 576, 640, 704, 768, 832, 896, 960, 1024, 1088, 1152, 1216, 1280, 1344, 1408, 1472, 1536
+            ]))
+            height_options = list(config_manager.config.get('visual_image_heights', [
+                512, 576, 640, 704, 768, 832, 896, 960, 1024, 1088, 1152, 1216, 1280, 1344, 1408, 1472, 1536
+            ]))
+
             with ui.row().classes('w-full gap-4 flex-nowrap'):
                 with ui.column().classes('flex-grow gap-1'):
-                    ui.label('Image Size').classes('text-sm text-gray-400')
-                    image_size = ui.select(
-                        options={
-                            '1024x1024': '1024 × 1024 (1:1)',
-                            '896x1152':  '896 × 1152 (3:4)',
-                            '1152x896':  '1152 × 896 (4:3)',
-                        }
-                    ).classes('w-full').bind_value(app.storage.user, 'visual_image_size')
+                    ui.label('Width').classes('text-sm text-gray-400')
+                    image_width = ui.select(
+                        options=width_options
+                    ).classes('w-full').bind_value(app.storage.user, 'visual_image_width')
                 
-                with ui.column().classes('w-24 gap-1'):
+                with ui.column().classes('flex-grow gap-1'):
+                    ui.label('Height').classes('text-sm text-gray-400')
+                    image_height = ui.select(
+                        options=height_options
+                    ).classes('w-full').bind_value(app.storage.user, 'visual_image_height')
+                
+                with ui.column().classes('w-20 gap-1'):
                     ui.label('Count').classes('text-sm text-gray-400')
                     batch_count = ui.number(value=1, min=1, max=50, format='%d').classes('w-full').bind_value(app.storage.user, 'visual_batch_count')
 
@@ -926,6 +949,17 @@ def create_page():
         return expanded
 
     def _enqueue_job(raw_prompt_str: str, neg_prompt: str, steps_val: int, size_val: str, batch_count_val: int, cfg_scale_val: float = None, turbo_lora_val: float = None, input_image_val = None, denoising_strength_val: float = 1.0):
+        try:
+            w_str, h_str = size_val.split('x')
+            w, h = int(w_str), int(h_str)
+            pixels = w * h
+            if pixels < 512 * 512 or pixels > 1536 * 1536:
+                ui.notify(f"Resolution {w}x{h} ({pixels} pixels) is outside the supported range of 512² to 1536² pixels.", type='warning')
+                return False
+        except Exception as e:
+            ui.notify(f"Invalid image resolution: {e}", type='warning')
+            return False
+
         raw_prompts = [p.strip() for p in raw_prompt_str.split('///') if p.strip()]
         if not raw_prompts:
             return False
@@ -1037,9 +1071,31 @@ def create_page():
             prompt.value = params.get('prompt', '')
             negative_prompt.value = params.get('negative_prompt', '')
             steps.value = params.get('steps', 30)
-            w = params.get('width', 1024)
-            h = params.get('height', 1024)
-            image_size.value = f"{w}x{h}"
+            w = int(params.get('width', 1024))
+            h = int(params.get('height', 1024))
+            
+            if isinstance(image_width.options, list):
+                if w not in image_width.options:
+                    image_width.options.append(w)
+                    image_width.options.sort()
+                    image_width.update()
+            elif isinstance(image_width.options, dict):
+                if w not in image_width.options:
+                    image_width.options[w] = str(w)
+                    image_width.update()
+                    
+            if isinstance(image_height.options, list):
+                if h not in image_height.options:
+                    image_height.options.append(h)
+                    image_height.options.sort()
+                    image_height.update()
+            elif isinstance(image_height.options, dict):
+                if h not in image_height.options:
+                    image_height.options[h] = str(h)
+                    image_height.update()
+            
+            image_width.value = w
+            image_height.value = h
             
             cfg_val = params.get('cfg_scale', 4.0)
             cfg_scale_slider.value = cfg_val
@@ -1364,7 +1420,7 @@ def create_page():
             raw_prompt_str = prompt.value
             neg_prompt = negative_prompt.value
             steps_val = int(steps.value)
-            size_val = image_size.value
+            size_val = f"{image_width.value}x{image_height.value}"
             batch_count_val = int(batch_count.value)
             
             cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
@@ -1388,7 +1444,7 @@ def create_page():
         raw_prompt_str = prompt.value
         neg_prompt = negative_prompt.value
         steps_val = int(steps.value)
-        size_val = image_size.value
+        size_val = f"{image_width.value}x{image_height.value}"
         batch_count_val = int(batch_count.value)
         
         cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
@@ -1428,7 +1484,7 @@ def create_page():
                 
             neg_prompt = negative_prompt.value
             steps_val = int(steps.value)
-            size_val = image_size.value
+            size_val = f"{image_width.value}x{image_height.value}"
             batch_count_val = int(batch_count.value)
             
             cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
