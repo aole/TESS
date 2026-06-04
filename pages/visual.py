@@ -31,8 +31,10 @@ _selection_state = {
     'cells': {},
     'toggle_btn': None,
     'delete_btn': None,
+    'hide_btn': None,
     'count_label': None,
 }
+_initialized_users = set()
 _view_state = {
     'current_image': None,
 }
@@ -125,6 +127,17 @@ def create_page():
         _remember_remove_background_model(model_name)
         remove_bg_dialog.close()
         await _run_remove_background_from_context(model_name=model_name)
+
+    global _initialized_users
+    user_id = app.storage.user.get('id') or 'default_user'
+    if user_id not in _initialized_users:
+        app.storage.user['visual_show_hidden'] = False
+        _initialized_users.add(user_id)
+
+    if 'visual_hidden_images' not in app.storage.user:
+        app.storage.user['visual_hidden_images'] = []
+    if 'visual_show_hidden' not in app.storage.user:
+        app.storage.user['visual_show_hidden'] = False
 
     if 'visual_positive_prompt' not in app.storage.user:
         app.storage.user['visual_positive_prompt'] = (
@@ -405,13 +418,22 @@ def create_page():
 
     # ── Helper: render full image with navigation ────────────────────────────
     def _render_image_with_nav(path: str):
+        hidden_images = app.storage.user.get('visual_hidden_images', [])
+        if not isinstance(hidden_images, list):
+            hidden_images = []
+        hidden_set = set(hidden_images)
+
         images = []
         if os.path.isdir(_VISUAL_DIR):
-            images = sorted(
+            all_files = sorted(
                 [f for f in os.listdir(_VISUAL_DIR)
                  if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
                 reverse=True,
             )
+            if app.storage.user.get('visual_show_hidden', False):
+                images = all_files
+            else:
+                images = [f for f in all_files if f not in hidden_set]
             
         filename = path.split('/')[-1]
         prev_img = None
@@ -491,6 +513,7 @@ def create_page():
         selected_count = len(_selection_state['selected'])
         toggle_btn = _selection_state.get('toggle_btn')
         delete_btn = _selection_state.get('delete_btn')
+        hide_btn = _selection_state.get('hide_btn')
         count_label = _selection_state.get('count_label')
 
         if toggle_btn:
@@ -504,6 +527,12 @@ def create_page():
                 delete_btn.enable()
             else:
                 delete_btn.disable()
+
+        if hide_btn:
+            if _selection_state['active'] and selected_count:
+                hide_btn.enable()
+            else:
+                hide_btn.disable()
 
         if count_label:
             count_label.set_text(f'{selected_count} selected' if _selection_state['active'] else '')
@@ -565,6 +594,42 @@ def create_page():
         thumb_path = f"{dirname}/thumbs/{fname}".replace('\\', '/')
         if os.path.exists(thumb_path):
             os.remove(thumb_path)
+
+    def _toggle_selected_images_hide():
+        selected = list(_selection_state['selected'])
+        if not selected:
+            return
+            
+        hidden_images = app.storage.user.get('visual_hidden_images', [])
+        if not isinstance(hidden_images, list):
+            hidden_images = []
+            
+        any_visible = False
+        for fpath in selected:
+            fname = os.path.basename(fpath)
+            if fname not in hidden_images:
+                any_visible = True
+                break
+                
+        if any_visible:
+            for fpath in selected:
+                fname = os.path.basename(fpath)
+                if fname not in hidden_images:
+                    hidden_images.append(fname)
+            ui.notify(f"Hid {len(selected)} image(s).", type='info')
+        else:
+            for fpath in selected:
+                fname = os.path.basename(fpath)
+                if fname in hidden_images:
+                    hidden_images.remove(fname)
+            ui.notify(f"Unhid {len(selected)} image(s).", type='info')
+            
+        app.storage.user['visual_hidden_images'] = hidden_images
+        _selection_state['selected'].clear()
+        _selection_state['active'] = False
+        _grid_element['ref'] = None
+        show_history()
+        _update_selection_controls()
 
     def _delete_selected_images():
         selected = list(_selection_state['selected'])
@@ -745,10 +810,19 @@ def create_page():
             show_history()
 
     def next_page():
+        hidden_images = app.storage.user.get('visual_hidden_images', [])
+        if not isinstance(hidden_images, list):
+            hidden_images = []
+        hidden_set = set(hidden_images)
+
         images = []
         if os.path.isdir(_VISUAL_DIR):
-            images = [f for f in os.listdir(_VISUAL_DIR)
-                      if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS]
+            all_files = [f for f in os.listdir(_VISUAL_DIR)
+                         if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS]
+            if app.storage.user.get('visual_show_hidden', False):
+                images = all_files
+            else:
+                images = [f for f in all_files if f not in hidden_set]
         total_pages = max(1, (len(images) + _page_state['page_size'] - 1) // _page_state['page_size'])
         if _page_state['current_page'] < total_pages:
             _page_state['current_page'] += 1
@@ -768,13 +842,22 @@ def create_page():
         if _grid_element.get('ref') is not None:
             return  # Grid already built
 
+        hidden_images = app.storage.user.get('visual_hidden_images', [])
+        if not isinstance(hidden_images, list):
+            hidden_images = []
+        hidden_set = set(hidden_images)
+
         images = []
         if os.path.isdir(_VISUAL_DIR):
-            images = sorted(
+            all_files = sorted(
                 [f for f in os.listdir(_VISUAL_DIR)
                  if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
                 reverse=True,
             )
+            if app.storage.user.get('visual_show_hidden', False):
+                images = all_files
+            else:
+                images = [f for f in all_files if f not in hidden_set]
 
         total_images = len(images)
         page_size = _page_state['page_size']
@@ -789,6 +872,7 @@ def create_page():
         _selection_state['cells'] = {}
         _selection_state['toggle_btn'] = None
         _selection_state['delete_btn'] = None
+        _selection_state['hide_btn'] = None
         _selection_state['count_label'] = None
         
         with grid_view:
@@ -824,6 +908,12 @@ def create_page():
                     ).props('flat dense round color=negative').style(
                         'width: 30px; height: 30px; min-height: unset;'
                     ).tooltip('Delete selected images')
+                    _selection_state['hide_btn'] = ui.button(
+                        icon='visibility_off',
+                        on_click=_toggle_selected_images_hide,
+                    ).props('flat dense round color=warning').style(
+                        'width: 30px; height: 30px; min-height: unset;'
+                    ).tooltip('Hide/Unhide selected images')
                     _selection_state['count_label'] = ui.label('').classes('text-white/40 text-xs font-mono')
                     _update_selection_controls()
                 ui.button(icon='close', on_click=_restore_last).props('flat dense').classes(
@@ -873,12 +963,20 @@ def create_page():
             next_to_show = None
             if not _grid_open['value']:
                 filename = os.path.basename(fpath)
+                hidden_images = app.storage.user.get('visual_hidden_images', [])
+                if not isinstance(hidden_images, list):
+                    hidden_images = []
+                hidden_set = set(hidden_images)
                 if os.path.isdir(_VISUAL_DIR):
-                    images = sorted(
+                    all_files = sorted(
                         [f for f in os.listdir(_VISUAL_DIR)
                          if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
                         reverse=True,
                     )
+                    if app.storage.user.get('visual_show_hidden', False):
+                        images = all_files
+                    else:
+                        images = [f for f in all_files if f not in hidden_set]
                     try:
                         idx = images.index(filename)
                         if idx < len(images) - 1:
@@ -1140,6 +1238,15 @@ def create_page():
                 ui.image(thumb_src).style(
                     'width:100%; height:100%; object-fit:cover; display:block;'
                 )
+                
+                # Check if this image is hidden
+                fname = os.path.basename(fpath)
+                hidden_images = app.storage.user.get('visual_hidden_images', [])
+                if not isinstance(hidden_images, list):
+                    hidden_images = []
+                if fname in hidden_images:
+                    with ui.element('div').classes('absolute inset-0 bg-black/60 flex items-center justify-center pointer-events-none'):
+                        ui.icon('visibility_off', size='24px').classes('text-white/60')
             _register_selectable_cell(cell, fpath)
             _add_delete_btn(cell, fpath)
             _add_regenerate_btn(cell, fpath)
