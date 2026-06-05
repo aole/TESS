@@ -139,17 +139,6 @@ def remove_background_file(fpath: str, model_name: str) -> str:
     create_thumbnail(output_path)
     return output_path
 
-def create_plain_image_file(rgb: str, width: int, height: int) -> str:
-    from core.create_image import create_image as core_create_image
-    output_path = new_visual_output_path()
-    core_create_image(
-        output_path=output_path,
-        rgb=rgb,
-        width=width,
-        height=height,
-    )
-    create_thumbnail(output_path)
-    return output_path
 
 
 _grid_open = {'value': True}
