@@ -60,11 +60,9 @@ _gen_state = {
     'progress_sidebar': None,
     'progress_sidebar_label': None,
     'progress_sidebar_bar': None,
-    'preview_image': None,
     'show_history': None,
     'show_image': None,
     'show_placeholder': None,
-    'inject_preview_canvas': None,
     'update_progress_labels': None,
 }
 
@@ -169,8 +167,6 @@ def create_page():
         app.storage.user['visual_batch_count'] = 1
     if 'visual_remove_background_auto' not in app.storage.user:
         app.storage.user['visual_remove_background_auto'] = False
-    if 'visual_generate_previews' not in app.storage.user:
-        app.storage.user['visual_generate_previews'] = False
     if 'visual_remove_background_model' not in app.storage.user:
         app.storage.user['visual_remove_background_model'] = 'isnet-anime'
     if 'visual_remove_background_models' not in app.storage.user:
@@ -316,11 +312,6 @@ def create_page():
                 turbo_strength_label.bind_text_from(
                     turbo_strength_slider, 'value', backward=lambda v: f"{v:.2f}"
                 )
-
-            ui.checkbox('Generate Intermediate Previews').bind_value(
-                app.storage.user, 'visual_generate_previews'
-            ).tooltip('Generate and show intermediate preview images (increases VRAM usage during generation)')
-
             # Generate
             with ui.row().classes('w-full gap-4 mt-2 flex-nowrap items-center'):
                 generate_btn = ui.button('Generate', icon='brush').classes(
@@ -365,33 +356,6 @@ def create_page():
             _gen_state['progress_sidebar_bar'] = progress_sidebar_bar
 
     # State is now managed at the module level
-
-    def _inject_preview_canvas():
-        """Helper to inject a clean preview image container into the main view if active."""
-        if page_client._deleted or not _gen_state['active'] or _grid_open['value']:
-            return
-            
-        full_view = _gen_state.get('full_view_container')
-        grid_view = _gen_state.get('grid_view_container')
-        if not full_view or not grid_view: return
-        
-        grid_view.classes(add='hidden')
-        full_view.classes(remove='hidden')
-        
-        if _view_state['current_image']:
-            return
-            
-        full_view.clear()
-        with full_view:
-            with ui.element('div').classes('w-full h-full relative'):
-                ui.button(icon='grid_view', on_click=show_history).props('flat dense round').style(
-                    'position: absolute; top: 16px; right: 16px;'
-                    'width: 40px; height: 40px; background: rgba(0,0,0,0.5); color: white; z-index: 10;'
-                ).tooltip('Visual History Grid')
-                with ui.element('div').classes('w-full h-full overflow-auto flex flex-col').style(_CHECKER_BG):
-                    _gen_state['preview_image'] = ui.element('img').props('src=""').classes(
-                        'm-auto w-full h-full object-contain rounded-lg shadow-xl hidden transition-all duration-300'
-                    )
 
     # ── Helper: restore the "no image" placeholder ───────────────────────────
     def show_placeholder():
@@ -1071,7 +1035,6 @@ def create_page():
             cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
         if turbo_lora_val is None:
             turbo_lora_val = float(app.storage.user.get('visual_turbo_lora_strength', 1.0)) if app.storage.user.get('visual_turbo_lora_enabled', False) else 0.0
-
         job = {
             'prompts': expanded_prompts,
             'negative_prompt': neg_prompt,
@@ -1079,7 +1042,6 @@ def create_page():
             'image_size': size_val,
             'remove_background_auto': app.storage.user.get('visual_remove_background_auto', False),
             'remove_background_model': app.storage.user.get('visual_remove_background_model', 'isnet-anime'),
-            'generate_previews': app.storage.user.get('visual_generate_previews', False),
             'cfg_scale': cfg_scale_val,
             'turbo_lora': turbo_lora_val,
             'input_image': input_image_val,
@@ -1257,7 +1219,7 @@ def create_page():
         _grid_open['value'] = False
         
         if _gen_state['active']:
-            _inject_preview_canvas()
+            show_placeholder()
             return
             
         last = app.storage.user.get('visual_last_image')
@@ -1269,13 +1231,12 @@ def create_page():
     _gen_state['show_history'] = show_history
     _gen_state['show_image'] = show_image
     _gen_state['show_placeholder'] = show_placeholder
-    _gen_state['inject_preview_canvas'] = _inject_preview_canvas
     _gen_state['update_progress_labels'] = _update_progress_labels
 
     if _grid_open['value']:
         show_history()
     elif _gen_state['active']:
-        _inject_preview_canvas()
+        show_placeholder()
     else:
         last = app.storage.user.get('visual_last_image')
         if last and os.path.exists(last):
@@ -1344,7 +1305,7 @@ def create_page():
 
         loop = asyncio.get_event_loop()
 
-        def on_progress(step: int, total: int, preview_path: str = None):
+        def on_progress(step: int, total: int):
             if _gen_state.get('cancel'):
                 return "CANCEL"
             if total == 0:
@@ -1365,12 +1326,6 @@ def create_page():
                         _gen_state['progress_sidebar_label'].set_text(
                             f"Generating {g_idx} of {g_tot} (Step {step}/{total})"
                         )
-                    if preview_path and os.path.exists(preview_path):
-                        import time
-                        ts = int(time.time() * 1000)
-                        if _gen_state.get('preview_image'):
-                            _gen_state['preview_image'].classes(remove='hidden')
-                            _gen_state['preview_image'].props(f'src="/{preview_path}?t={ts}"')
                 except Exception:
                     pass
             loop.call_soon_threadsafe(_update)
@@ -1402,9 +1357,6 @@ def create_page():
                     _gen_state['batch_prefix'] = f"[{_gen_state['global_idx']}/{_gen_state['global_total']}] "
                     _gen_state['pct'] = 0
                     
-                    if not _grid_open['value'] and _gen_state.get('inject_preview_canvas'):
-                        _gen_state['inject_preview_canvas']()
-                        
                     if _gen_state.get('update_progress_labels'):
                         _gen_state['update_progress_labels']()
 
@@ -1419,7 +1371,6 @@ def create_page():
                             int(h_str),
                             on_progress,
                             unload_after=False,
-                            generate_previews=job['generate_previews'],
                             cfg_scale=job['cfg_scale'],
                             turbo_lora=job['turbo_lora'],
                             input_image=job.get('input_image'),
@@ -1442,7 +1393,6 @@ def create_page():
                         user_storage['visual_last_image'] = output_path
                         
                         active_client = _gen_state.get('client')
-                        _gen_state['preview_image'] = None
                         
                         if active_client and not active_client._deleted:
                             if _grid_open['value'] and _gen_state.get('show_history'):
@@ -1459,7 +1409,6 @@ def create_page():
                     except Exception as e:
                         import traceback
                         traceback.print_exc()
-                        _gen_state['preview_image'] = None
                         safe_notify(f'Failed to generate image {idx+1}: {str(e)}', type='negative')
         
         finally:
@@ -1472,7 +1421,6 @@ def create_page():
             is_canceled = _gen_state.get('cancel', False)
             _gen_state['active'] = False
             _gen_state['cancel'] = False
-            _gen_state['preview_image'] = None
 
             active_client = _gen_state.get('client')
             if active_client and not active_client._deleted:

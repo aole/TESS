@@ -10,7 +10,6 @@ def generate_image_task(
     height: int = 1024,
     progress_callback = None,
     unload_after: bool = True,
-    generate_previews: bool = False,
     cfg_scale: float = 4.0,
     turbo_lora: float = 0.0,
     input_image = None,
@@ -20,28 +19,7 @@ def generate_image_task(
     NiceGUI-specific wrapper that generates an image using Anima and handles
     intermediate preview files and thumbnail creation.
     """
-    # 1. Clean up old preview if exists
-    preview_file = "data/visual/temp_preview.png"
-    if os.path.exists(preview_file):
-        try:
-            os.remove(preview_file)
-        except Exception:
-            pass
-
-    # 2. Setup preview_callback wrapper to save preview file for NiceGUI
-    def internal_preview_callback(preview_pil, progress_id, total_steps):
-        try:
-            os.makedirs("data/visual", exist_ok=True)
-            preview_pil.save(preview_file)
-            if progress_callback:
-                try:
-                    return progress_callback(progress_id, total_steps, preview_path=preview_file)
-                except TypeError:
-                    return progress_callback(progress_id, total_steps)
-        except Exception as e:
-            print(f"Error in preview_callback: {e}")
-
-    # 3. Setup output paths
+    # 1. Setup output paths
     import datetime
     os.makedirs("data/visual/images", exist_ok=True)
     os.makedirs("data/visual/thumbs", exist_ok=True)
@@ -49,7 +27,7 @@ def generate_image_task(
     fname = f"tess_{timestamp}.png"
     output_path = f"data/visual/images/{fname}"
 
-    # 4. Generate the image
+    # 2. Generate the image
     res_path = generate_anima_image(
         prompt=prompt,
         output_path=output_path,
@@ -57,8 +35,6 @@ def generate_image_task(
         steps=steps,
         width=width,
         height=height,
-        generate_previews=generate_previews,
-        preview_callback=internal_preview_callback if generate_previews else None,
         progress_callback=progress_callback,
         unload_after=unload_after,
         cfg_scale=cfg_scale,

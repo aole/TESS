@@ -25,94 +25,6 @@ def flush():
 
 _cached_pipe = None
 
-# Monkey patch AnimaImagePipeline.__call__ to support intermediate previews.
-@torch.no_grad()
-def custom_anima_call(
-    self,
-    prompt: str = "",
-    negative_prompt: str = "",
-    cfg_scale: float = 4.0,
-    input_image = None,
-    denoising_strength: float = 1.0,
-    height: int = 1024,
-    width: int = 1024,
-    seed: int = None,
-    rand_device: str = "cpu",
-    num_inference_steps: int = 30,
-    sigma_shift: float = None,
-    progress_bar_cmd = None,
-    preview_callback = None,
-    preview_interval = 2,
-):
-    from tqdm import tqdm
-    if progress_bar_cmd is None:
-        progress_bar_cmd = tqdm
-
-    # Scheduler
-    self.scheduler.set_timesteps(num_inference_steps, denoising_strength=denoising_strength, shift=sigma_shift)
-    
-    # Parameters
-    inputs_posi = {
-        "prompt": prompt,
-    }
-    inputs_nega = {
-        "negative_prompt": negative_prompt,
-    }
-    inputs_shared = {
-        "cfg_scale": cfg_scale,
-        "input_image": input_image, "denoising_strength": denoising_strength,
-        "height": height, "width": width,
-        "seed": seed, "rand_device": rand_device,
-        "num_inference_steps": num_inference_steps,
-    }
-    for unit in self.units:
-        inputs_shared, inputs_posi, inputs_nega = self.unit_runner(unit, self, inputs_shared, inputs_posi, inputs_nega)
-
-    # Denoise
-    self.load_models_to_device(self.in_iteration_models)
-    models = {name: getattr(self, name) for name in self.in_iteration_models}
-    for progress_id, timestep in enumerate(progress_bar_cmd(self.scheduler.timesteps)):
-        timestep = timestep.unsqueeze(0).to(dtype=self.torch_dtype, device=self.device)
-        noise_pred = self.cfg_guided_model_fn(
-            self.model_fn, cfg_scale,
-            inputs_shared, inputs_posi, inputs_nega,
-            **models, timestep=timestep, progress_id=progress_id
-        )
-        inputs_shared["latents"] = self.step(self.scheduler, progress_id=progress_id, noise_pred=noise_pred, **inputs_shared)
-        
-        # Intermediate preview generation
-        if preview_callback is not None and (progress_id % preview_interval == 0 or progress_id == num_inference_steps - 1):
-            try:
-                # Load VAE if VRAM management is active
-                if self.vram_management_enabled:
-                    self.load_models_to_device(['vae'])
-                
-                # Decode current latents
-                latents_temp = inputs_shared["latents"]
-                image_temp = self.vae.decode(latents_temp.unsqueeze(2), device=self.device).squeeze(2)
-                image_temp = self.vae_output_to_image(image_temp)
-                
-                # Restore iteration models if VRAM management is active
-                if self.vram_management_enabled:
-                    self.load_models_to_device(self.in_iteration_models)
-                
-                res = preview_callback(image_temp, progress_id, num_inference_steps)
-                if res == "CANCEL":
-                    raise InterruptedError("Cancelled")
-            except InterruptedError:
-                raise
-            except Exception as e:
-                print(f"Error in preview generation callback: {e}")
-
-    # Decode final image
-    self.load_models_to_device(['vae'])
-    image = self.vae.decode(inputs_shared["latents"].unsqueeze(2), device=self.device).squeeze(2)
-    image = self.vae_output_to_image(image)
-    self.load_models_to_device([])
-
-    return image
-
-AnimaImagePipeline.__call__ = custom_anima_call
 
 
 def get_pipeline(vram_limit: float):
@@ -161,8 +73,6 @@ def generate_anima_image(
     height: int = 1024,
     seed: int = None,
     cfg_scale: float = 4.0,
-    generate_previews: bool = False,
-    preview_callback = None,
     progress_callback = None,
     unload_after: bool = True,
     vram_limit: float = None,
@@ -215,31 +125,20 @@ def generate_anima_image(
 
     print(f"Generating image: {prompt[:50]}...")
     
-    preview_interval = 2
-    
-    def internal_preview_callback(preview_pil, progress_id, total_steps):
-        if preview_callback:
-            try:
-                return preview_callback(preview_pil, progress_id, total_steps)
-            except Exception as e:
-                print(f"Error in preview_callback: {e}")
-                
     def _progress_bar_cmd(iterable, **kwargs):
         from tqdm import tqdm
         items = list(iterable)
         total = len(items)
         if progress_callback:
             for i, item in enumerate(items):
-                is_preview_step = generate_previews and (i % preview_interval == 0 or i == total - 1)
-                if not is_preview_step:
-                    try:
-                        res = progress_callback(i, total)
-                        if res == "CANCEL":
-                            raise InterruptedError("Cancelled")
-                    except InterruptedError:
-                        raise
-                    except Exception:
-                        pass
+                try:
+                    res = progress_callback(i, total)
+                    if res == "CANCEL":
+                        raise InterruptedError("Cancelled")
+                except InterruptedError:
+                    raise
+                except Exception:
+                    pass
                 yield item
             try:
                 progress_callback(total, total)
@@ -262,8 +161,6 @@ def generate_anima_image(
                 seed=seed,
                 cfg_scale=cfg_scale,
                 progress_bar_cmd=_progress_bar_cmd,
-                preview_callback=internal_preview_callback if generate_previews else None,
-                preview_interval=preview_interval,
             )
     except InterruptedError:
         print("Generation cancelled by user")
@@ -334,7 +231,6 @@ if __name__ == '__main__':
     parser.add_argument("--seed", type=int, default=None, help="Optional seed for generation")
     parser.add_argument("--cfg", type=float, default=4.0, help="Classifier free guidance scale (CFG)")
     parser.add_argument("--vram-limit", type=float, default=None, help="VRAM limit in GB")
-    parser.add_argument("--previews", action="store_true", help="Enable generating intermediate previews (saves preview images during process)")
     parser.add_argument("--turbo-lora", type=float, default=0.0, help="Strength of the Turbo LoRA (0.0 to disable)")
     parser.add_argument("--input-image", "-i", type=str, default=None, help="Optional input image path for image-to-image (itoi) generation")
     parser.add_argument("--denoising-strength", "-d", type=float, default=1.0, help="Denoising strength for image-to-image generation (0.0 to 1.0)")
@@ -351,7 +247,6 @@ if __name__ == '__main__':
             height=args.height,
             seed=args.seed,
             cfg_scale=args.cfg,
-            generate_previews=args.previews,
             vram_limit=args.vram_limit,
             turbo_lora=args.turbo_lora,
             unload_after=True,
