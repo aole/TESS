@@ -9,7 +9,15 @@ from services.visual_service import (
     create_thumbnail as _create_thumbnail,
     remove_image_files as _remove_image_files,
     unload_remove_background_session as _unload_remove_background_session,
-    remove_background_file as _remove_background_file
+    remove_background_file as _remove_background_file,
+    _grid_open,
+    _grid_element,
+    _page_state,
+    _selection_state,
+    _initialized_users,
+    _view_state,
+    _gen_state,
+    _generation_queue
 )
 from utils.config import config_manager
 
@@ -25,52 +33,6 @@ _CHECKER_BG = (
     'background-position: 0 0, 0 12px, 12px -12px, -12px 0;'
 )
 
-
-_grid_open = {'value': True}
-_grid_element = {'ref': None}
-_page_state = {
-    'current_page': 1,
-    'page_size': 25,
-}
-_selection_state = {
-    'active': False,
-    'selected': set(),
-    'cells': {},
-    'toggle_btn': None,
-    'delete_btn': None,
-    'hide_btn': None,
-    'count_label': None,
-}
-_initialized_users = set()
-_view_state = {
-    'current_image': None,
-}
-
-
-_gen_state = {
-    'active': False,
-    'idx': 0,
-    'total': 0,
-    'pct': 0,
-    'batch_prefix': '',
-    'image_container': None,
-    'client': None,
-    'global_idx': 0,
-    'global_total': 0,
-    'generate_btn': None,
-    'queue_btn': None,
-    'remove_bg_btn': None,
-    'remove_bg_status': None,
-    'progress_sidebar': None,
-    'progress_sidebar_label': None,
-    'progress_sidebar_bar': None,
-    'show_history': None,
-    'show_image': None,
-    'show_placeholder': None,
-    'update_progress_labels': None,
-}
-
-_generation_queue = []
 
 def create_page():
     page_client = ui.context.client
