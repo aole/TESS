@@ -6,12 +6,11 @@ import re
 import gc
 import itertools
 import io
-from rembg import new_session, remove
 from PIL import Image
 from nicegui import ui, run, app
 from core.generate_image import generate_anima_image, unload_pipeline
 from utils.llm_client import client as llm_client
-from PIL.PngImagePlugin import PngInfo
+from core.modify_image import modify_image as core_modify_image, unload_session as unload_modify_image_session
 
 def generate_image_task(
     prompt: str,
@@ -72,10 +71,7 @@ def generate_image_task(
 _VISUAL_EXTS = {'.png', '.jpg', '.jpeg', '.webp'}
 _VISUAL_DIR  = 'data/visual/images'
 
-_rembg_state = {
-    'session': None,
-    'model': None,
-}
+# State is managed in core/modify_image.py
 
 def expand_prompt(prompt_str: str) -> list:
     pattern = re.compile(r'\[\[(.*?)\]\]')
@@ -128,63 +124,18 @@ def remove_image_files(fpath: str):
     if os.path.exists(thumb_path):
         os.remove(thumb_path)
 
-def image_text_metadata(fpath: str) -> dict:
-    try:
-        with Image.open(fpath) as img:
-            metadata = img.text if hasattr(img, 'text') else img.info
-            return {
-                key: value for key, value in metadata.items()
-                if isinstance(key, str) and isinstance(value, str)
-            }
-    except Exception:
-        return {}
-
-def tool_png_metadata(source_path: str, tool_meta: dict):
-    source_metadata = image_text_metadata(source_path)
-    metadata = PngInfo()
-
-    for key, value in source_metadata.items():
-        metadata.add_text(key, value)
-
-    existing_tools = []
-    if source_metadata.get('tools'):
-        try:
-            parsed_tools = json.loads(source_metadata['tools'])
-            if isinstance(parsed_tools, list):
-                existing_tools = parsed_tools
-        except Exception:
-            existing_tools = []
-
-    metadata.add_text('source_image', source_path.replace('\\', '/'))
-    metadata.add_text('source_metadata', json.dumps(source_metadata, indent=2))
-    metadata.add_text('tools', json.dumps([*existing_tools, tool_meta], indent=2))
-    return metadata
-
 def unload_remove_background_session():
-    _rembg_state['session'] = None
-    _rembg_state['model'] = None
-    gc.collect()
+    unload_modify_image_session()
 
 def remove_background_file(fpath: str, model_name: str) -> str:
-    if _rembg_state['session'] is None or _rembg_state['model'] != model_name:
-        _rembg_state['session'] = new_session(model_name)
-        _rembg_state['model'] = model_name
-
     output_path = new_visual_output_path()
-    with open(fpath, 'rb') as input_file:
-        input_bytes = input_file.read()
-    output_bytes = remove(input_bytes, session=_rembg_state['session'])
-
-    tool_meta = {
-        'name': 'remove_background',
-        'model': model_name,
-        'source_image': fpath.replace('\\', '/'),
-        'created_at': datetime.datetime.now().isoformat(timespec='seconds'),
-    }
-    metadata = tool_png_metadata(fpath, tool_meta)
-    with Image.open(io.BytesIO(output_bytes)) as img:
-        img.save(output_path, pnginfo=metadata)
-
+    core_modify_image(
+        input_path=fpath,
+        output_path=output_path,
+        operation="remove_background",
+        model_name=model_name,
+        unload_after=False,
+    )
     create_thumbnail(output_path)
     return output_path
 
