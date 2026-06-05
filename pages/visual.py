@@ -1,12 +1,19 @@
 import os
 import asyncio
 from nicegui import ui, run, app
-from services.visual_service import generate_image_task
+from services.visual_service import (
+    generate_image_task,
+    _VISUAL_EXTS,
+    _VISUAL_DIR,
+    expand_prompt,
+    create_thumbnail as _create_thumbnail,
+    remove_image_files as _remove_image_files,
+    unload_remove_background_session as _unload_remove_background_session,
+    remove_background_file as _remove_background_file
+)
 from utils.config import config_manager
 
 
-_VISUAL_EXTS = {'.png', '.jpg', '.jpeg', '.webp'}
-_VISUAL_DIR  = 'data/visual/images'
 _CHECKER_BG = (
     'background-color: #1f2937;'
     'background-image: '
@@ -38,10 +45,7 @@ _initialized_users = set()
 _view_state = {
     'current_image': None,
 }
-_rembg_state = {
-    'session': None,
-    'model': None,
-}
+
 
 _gen_state = {
     'active': False,
@@ -551,14 +555,6 @@ def create_page():
         _selection_state['cells'][fpath] = {'cell': cell, 'overlay': overlay}
         _update_cell_selection(fpath)
 
-    def _remove_image_files(fpath: str):
-        if os.path.exists(fpath):
-            os.remove(fpath)
-        fname = os.path.basename(fpath)
-        thumb_path = f"data/visual/thumbs/{fname}"
-        if os.path.exists(thumb_path):
-            os.remove(thumb_path)
-
     def _toggle_selected_images_hide():
         selected = list(_selection_state['selected'])
         if not selected:
@@ -619,102 +615,6 @@ def create_page():
             ui.notify(f'Could not delete selected images: {exc}', type='negative')
         finally:
             _update_selection_controls()
-
-    def _new_visual_output_path(ext: str = '.png') -> str:
-        import datetime
-
-        os.makedirs(_VISUAL_DIR, exist_ok=True)
-        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        candidate = os.path.join(_VISUAL_DIR, f'tess_{timestamp}{ext}').replace('\\', '/')
-        idx = 2
-        while os.path.exists(candidate):
-            candidate = os.path.join(_VISUAL_DIR, f'tess_{timestamp}_{idx}{ext}').replace('\\', '/')
-            idx += 1
-        return candidate
-
-    def _create_thumbnail(fpath: str):
-        try:
-            from PIL import Image
-            fname = os.path.basename(fpath)
-            thumb_dir = 'data/visual/thumbs'
-            os.makedirs(thumb_dir, exist_ok=True)
-            thumb_path = os.path.join(thumb_dir, fname).replace('\\', '/')
-            with Image.open(fpath) as img:
-                img.thumbnail((256, 256))
-                img.save(thumb_path)
-        except Exception:
-            pass
-
-    def _image_text_metadata(fpath: str) -> dict:
-        try:
-            from PIL import Image
-            with Image.open(fpath) as img:
-                metadata = img.text if hasattr(img, 'text') else img.info
-                return {
-                    key: value for key, value in metadata.items()
-                    if isinstance(key, str) and isinstance(value, str)
-                }
-        except Exception:
-            return {}
-
-    def _tool_png_metadata(source_path: str, tool_meta: dict):
-        import json
-        from PIL.PngImagePlugin import PngInfo
-
-        source_metadata = _image_text_metadata(source_path)
-        metadata = PngInfo()
-
-        for key, value in source_metadata.items():
-            metadata.add_text(key, value)
-
-        existing_tools = []
-        if source_metadata.get('tools'):
-            try:
-                parsed_tools = json.loads(source_metadata['tools'])
-                if isinstance(parsed_tools, list):
-                    existing_tools = parsed_tools
-            except Exception:
-                existing_tools = []
-
-        metadata.add_text('source_image', source_path.replace('\\', '/'))
-        metadata.add_text('source_metadata', json.dumps(source_metadata, indent=2))
-        metadata.add_text('tools', json.dumps([*existing_tools, tool_meta], indent=2))
-        return metadata
-
-    def _unload_remove_background_session():
-        import gc
-
-        _rembg_state['session'] = None
-        _rembg_state['model'] = None
-        gc.collect()
-
-    def _remove_background_file(fpath: str, model_name: str) -> str:
-        import datetime
-        import io
-        from rembg import new_session, remove
-        from PIL import Image
-
-        if _rembg_state['session'] is None or _rembg_state['model'] != model_name:
-            _rembg_state['session'] = new_session(model_name)
-            _rembg_state['model'] = model_name
-
-        output_path = _new_visual_output_path()
-        with open(fpath, 'rb') as input_file:
-            input_bytes = input_file.read()
-        output_bytes = remove(input_bytes, session=_rembg_state['session'])
-
-        tool_meta = {
-            'name': 'remove_background',
-            'model': model_name,
-            'source_image': fpath.replace('\\', '/'),
-            'created_at': datetime.datetime.now().isoformat(timespec='seconds'),
-        }
-        metadata = _tool_png_metadata(fpath, tool_meta)
-        with Image.open(io.BytesIO(output_bytes)) as img:
-            img.save(output_path, pnginfo=metadata)
-
-        _create_thumbnail(output_path)
-        return output_path
 
     def _tool_context_paths():
         if _grid_open['value']:
@@ -986,29 +886,6 @@ def create_page():
                 'z-index: 10;'
             ).classes('text-xs opacity-0 group-hover:opacity-100')
             btn.on('click.stop', lambda p=fpath, c=cell_div: _delete_image(p, c))
-
-    def expand_prompt(prompt_str: str) -> list:
-        import re
-        import itertools
-        pattern = re.compile(r'\[\[(.*?)\]\]')
-        matches = list(pattern.finditer(prompt_str))
-        if not matches:
-            return [prompt_str]
-        groups_options = []
-        for match in matches:
-            options = [opt.strip() for opt in match.group(1).split('|')]
-            groups_options.append(options)
-        combinations = list(itertools.product(*groups_options))
-        expanded = []
-        for combo in combinations:
-            new_prompt = ""
-            last_idx = 0
-            for match, opt in zip(matches, combo):
-                new_prompt += prompt_str[last_idx:match.start()] + opt
-                last_idx = match.end()
-            new_prompt += prompt_str[last_idx:]
-            expanded.append(new_prompt)
-        return expanded
 
     def _enqueue_job(raw_prompt_str: str, neg_prompt: str, steps_val: int, size_val: str, batch_count_val: int, cfg_scale_val: float = None, turbo_lora_val: float = None, input_image_val = None, denoising_strength_val: float = 1.0):
         try:
