@@ -8,6 +8,7 @@ from services.visual_service import (
     remove_image_files as _remove_image_files,
     unload_remove_background_session as _unload_remove_background_session,
     remove_background_file as _remove_background_file,
+    create_plain_image_file as _create_plain_image_file,
     _grid_open,
     _grid_element,
     _page_state,
@@ -97,6 +98,39 @@ def create_page():
         remove_bg_dialog.close()
         await _run_remove_background_from_context(model_name=model_name)
 
+    def _open_create_image_dialog():
+        create_image_rgb_input.value = app.storage.user.get('visual_create_image_rgb', '#ffffff')
+        create_image_dialog.open()
+
+    async def _run_create_image():
+        rgb_val = (create_image_rgb_input.value or '').strip()
+        if not rgb_val:
+            _notify('Please choose a color.', type='warning')
+            return
+
+        app.storage.user['visual_create_image_rgb'] = rgb_val
+        create_image_dialog.close()
+
+        width = int(app.storage.user.get('visual_image_width', 1024))
+        height = int(app.storage.user.get('visual_image_height', 1024))
+
+        _notify('Creating plain image...', type='info', pos='bottom-right', timeout=1500)
+        try:
+            output_path = await run.io_bound(_create_plain_image_file, rgb_val, width, height)
+            if output_path:
+                app.storage.user['visual_last_image'] = output_path
+                _grid_element['ref'] = None
+                if _grid_open['value']:
+                    _page_state['current_page'] = 1
+                    _selection_state['selected'].clear()
+                    _selection_state['active'] = False
+                    show_history()
+                else:
+                    show_image(f'/{output_path}')
+                _notify('Plain image created successfully!', type='positive')
+        except Exception as exc:
+            _notify(f'Failed to create plain image: {exc}', type='negative')
+
     global _initialized_users
     user_id = app.storage.user.get('id') or 'default_user'
     if user_id not in _initialized_users:
@@ -154,6 +188,8 @@ def create_page():
         app.storage.user['visual_turbo_lora_strength'] = 1.0
     if 'visual_denoising_strength' not in app.storage.user:
         app.storage.user['visual_denoising_strength'] = 0.6
+    if 'visual_create_image_rgb' not in app.storage.user:
+        app.storage.user['visual_create_image_rgb'] = '#ffffff'
 
     # ── Main layout ──────────────────────────────────────────────────────────
     with ui.row().classes('w-full max-w-screen-2xl mx-auto gap-6 p-4 flex-nowrap items-start'):
@@ -180,6 +216,15 @@ def create_page():
                 remove_bg_status = ui.label('').classes('hidden text-xs text-purple-300 font-mono')
                 _gen_state['remove_bg_status'] = remove_bg_status
 
+                with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
+                    ui.button(
+                        'Create Image',
+                        icon='palette',
+                        on_click=_open_create_image_dialog,
+                    ).props('outline dense no-caps').classes('flex-1 text-sm').tooltip(
+                        'Create a plain color background image'
+                    )
+
             with ui.dialog() as remove_bg_dialog, ui.card().classes('w-96 max-w-full gap-4'):
                 ui.label('Remove Background').classes('text-lg font-semibold')
                 remove_bg_model_input = ui.select(
@@ -193,6 +238,20 @@ def create_page():
                         'Run',
                         icon='play_arrow',
                         on_click=_run_remove_background_from_dialog,
+                    ).props('no-caps')
+
+            with ui.dialog() as create_image_dialog, ui.card().classes('w-96 max-w-full gap-4'):
+                ui.label('Create Plain Image').classes('text-lg font-semibold')
+                create_image_rgb_input = ui.color_input(
+                    label='Background Color',
+                    value=app.storage.user.get('visual_create_image_rgb', '#ffffff'),
+                ).props('outlined dense').classes('w-full')
+                with ui.row().classes('w-full justify-end gap-2'):
+                    ui.button('Cancel', on_click=create_image_dialog.close).props('flat no-caps')
+                    ui.button(
+                        'Run',
+                        icon='play_arrow',
+                        on_click=_run_create_image,
                     ).props('no-caps')
 
         # Center column – image area

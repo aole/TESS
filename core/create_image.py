@@ -17,15 +17,24 @@ def create_image(
     # Parse and validate RGB parameter
     if isinstance(rgb, str):
         rgb_str = rgb.strip()
-        if rgb_str.lower().startswith("rgb"):
-            rgb_str = rgb_str[3:].strip("() ")
-        try:
-            parts = [int(p.strip()) for p in rgb_str.split(",")]
-        except ValueError as e:
-            raise ValueError(f"RGB values must be integers. Details: {e}")
-        if len(parts) != 3:
-            raise ValueError(f"RGB string must have 3 comma-separated components: {rgb}")
-        rgb = tuple(parts)
+        if rgb_str.startswith("#"):
+            rgb_str = rgb_str.lstrip('#')
+            if len(rgb_str) == 6:
+                rgb = tuple(int(rgb_str[i:i+2], 16) for i in (0, 2, 4))
+            elif len(rgb_str) == 3:
+                rgb = tuple(int(c * 2, 16) for c in rgb_str)
+            else:
+                raise ValueError(f"Invalid hex color length: #{rgb_str}")
+        else:
+            if rgb_str.lower().startswith("rgb"):
+                rgb_str = rgb_str[3:].strip("() ")
+            try:
+                parts = [int(p.strip()) for p in rgb_str.split(",")]
+            except ValueError as e:
+                raise ValueError(f"RGB values must be integers. Details: {e}")
+            if len(parts) != 3:
+                raise ValueError(f"RGB string must have 3 comma-separated components: {rgb}")
+            rgb = tuple(parts)
     elif isinstance(rgb, (list, tuple)):
         if len(rgb) != 3:
             raise ValueError(f"RGB tuple/list must have exactly 3 components: {rgb}")
