@@ -2,10 +2,8 @@ import os
 import asyncio
 from nicegui import ui, run, app
 from services.visual_service import (
-    generate_image_task,
     _VISUAL_EXTS,
     _VISUAL_DIR,
-    expand_prompt,
     create_thumbnail as _create_thumbnail,
     remove_image_files as _remove_image_files,
     unload_remove_background_session as _unload_remove_background_session,
@@ -17,7 +15,14 @@ from services.visual_service import (
     _initialized_users,
     _view_state,
     _gen_state,
-    _generation_queue
+    _generation_queue,
+    _settings_ui,
+    _update_progress_labels,
+    _update_queue_ui,
+    _enqueue_job,
+    _regenerate_image,
+    _load_metadata,
+    on_generate
 )
 from utils.config import config_manager
 
@@ -278,6 +283,17 @@ def create_page():
                 turbo_strength_label.bind_text_from(
                     turbo_strength_slider, 'value', backward=lambda v: f"{v:.2f}"
                 )
+            
+            _settings_ui['prompt'] = prompt
+            _settings_ui['negative_prompt'] = negative_prompt
+            _settings_ui['steps'] = steps
+            _settings_ui['image_width'] = image_width
+            _settings_ui['image_height'] = image_height
+            _settings_ui['cfg_scale_slider'] = cfg_scale_slider
+            _settings_ui['cfg_scale_label'] = cfg_scale_label
+            _settings_ui['turbo_checkbox'] = turbo_checkbox
+            _settings_ui['turbo_strength_slider'] = turbo_strength_slider
+            _settings_ui['turbo_strength_label'] = turbo_strength_label
             # Generate
             with ui.row().classes('w-full gap-4 mt-2 flex-nowrap items-center'):
                 generate_btn = ui.button('Generate', icon='brush').classes(
@@ -849,99 +865,7 @@ def create_page():
             ).classes('text-xs opacity-0 group-hover:opacity-100')
             btn.on('click.stop', lambda p=fpath, c=cell_div: _delete_image(p, c))
 
-    def _enqueue_job(raw_prompt_str: str, neg_prompt: str, steps_val: int, size_val: str, batch_count_val: int, cfg_scale_val: float = None, turbo_lora_val: float = None, input_image_val = None, denoising_strength_val: float = 1.0):
-        try:
-            w_str, h_str = size_val.split('x')
-            w, h = int(w_str), int(h_str)
-            pixels = w * h
-            if pixels < 512 * 512 or pixels > 1536 * 1536:
-                ui.notify(f"Resolution {w}x{h} ({pixels} pixels) is outside the supported range of 512² to 1536² pixels.", type='warning')
-                return False
-        except Exception as e:
-            ui.notify(f"Invalid image resolution: {e}", type='warning')
-            return False
 
-        raw_prompts = [p.strip() for p in raw_prompt_str.split('///') if p.strip()]
-        if not raw_prompts:
-            return False
-            
-        expanded_prompts = []
-        for p in raw_prompts:
-            for ep in expand_prompt(p):
-                expanded_prompts.extend([ep] * batch_count_val)
-                
-        if cfg_scale_val is None:
-            cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
-        if turbo_lora_val is None:
-            turbo_lora_val = float(app.storage.user.get('visual_turbo_lora_strength', 1.0)) if app.storage.user.get('visual_turbo_lora_enabled', False) else 0.0
-        job = {
-            'prompts': expanded_prompts,
-            'negative_prompt': neg_prompt,
-            'steps': steps_val,
-            'image_size': size_val,
-            'remove_background_auto': app.storage.user.get('visual_remove_background_auto', False),
-            'remove_background_model': app.storage.user.get('visual_remove_background_model', 'isnet-anime'),
-            'cfg_scale': cfg_scale_val,
-            'turbo_lora': turbo_lora_val,
-            'input_image': input_image_val,
-            'denoising_strength': denoising_strength_val,
-        }
-        _generation_queue.append(job)
-        _update_queue_ui()
-        if _gen_state['active']:
-            _gen_state['global_total'] += len(expanded_prompts)
-            _update_progress_labels()
-        return True
-
-    def _update_progress_labels():
-        try:
-            if page_client._deleted or not _gen_state['active']:
-                return
-                
-            g_idx = _gen_state.get('global_idx', 1)
-            g_tot = _gen_state.get('global_total', 1)
-            
-            if _gen_state.get('progress_sidebar_label'):
-                _gen_state['progress_sidebar_label'].set_text(
-                    f"Generating {g_idx} of {g_tot} (Preparing...)"
-                )
-        except Exception:
-            pass
-
-    def _update_queue_ui():
-        pass
-
-    async def _regenerate_image(fpath: str):
-        try:
-            from PIL import Image
-            import json
-            with Image.open(fpath) as img:
-                metadata = img.text if hasattr(img, 'text') else img.info
-                params_str = metadata.get('parameters')
-                if not params_str:
-                    ui.notify('No generation metadata found in this image.', type='warning')
-                    return
-                params = json.loads(params_str)
-            
-            prompt_val = params.get('prompt', '')
-            neg_prompt = params.get('negative_prompt', '')
-            steps_val = params.get('steps', 30)
-            w = params.get('width', 1024)
-            h = params.get('height', 1024)
-            size_val = f"{w}x{h}"
-            cfg_scale_val = params.get('cfg_scale', 4.0)
-            turbo_lora_val = params.get('turbo_lora', 0.0)
-            
-            success = _enqueue_job(prompt_val, neg_prompt, steps_val, size_val, 1, cfg_scale_val=cfg_scale_val, turbo_lora_val=turbo_lora_val)
-            if success:
-                if _gen_state['active']:
-                    ui.notify('Regeneration added to queue.', type='info')
-                else:
-                    ui.notify('Regenerating from metadata...', type='info')
-                    await on_generate()
-            
-        except Exception as e:
-            ui.notify(f"Could not read metadata: {e}", type='negative')
 
     def _add_regenerate_btn(cell_div, fpath: str):
         with cell_div:
@@ -955,63 +879,7 @@ def create_page():
             ).classes('text-xs opacity-0 group-hover:opacity-100').tooltip('Regenerate')
             btn.on('click.stop', lambda p=fpath: _regenerate_image(p))
 
-    def _load_metadata(fpath: str):
-        try:
-            from PIL import Image
-            import json
-            with Image.open(fpath) as img:
-                metadata = img.text if hasattr(img, 'text') else img.info
-                params_str = metadata.get('parameters')
-                if not params_str:
-                    ui.notify('No generation metadata found in this image.', type='warning')
-                    return
-                params = json.loads(params_str)
-            
-            prompt.value = params.get('prompt', '')
-            negative_prompt.value = params.get('negative_prompt', '')
-            steps.value = params.get('steps', 30)
-            w = int(params.get('width', 1024))
-            h = int(params.get('height', 1024))
-            
-            if isinstance(image_width.options, list):
-                if w not in image_width.options:
-                    image_width.options.append(w)
-                    image_width.options.sort()
-                    image_width.update()
-            elif isinstance(image_width.options, dict):
-                if w not in image_width.options:
-                    image_width.options[w] = str(w)
-                    image_width.update()
-                    
-            if isinstance(image_height.options, list):
-                if h not in image_height.options:
-                    image_height.options.append(h)
-                    image_height.options.sort()
-                    image_height.update()
-            elif isinstance(image_height.options, dict):
-                if h not in image_height.options:
-                    image_height.options[h] = str(h)
-                    image_height.update()
-            
-            image_width.value = w
-            image_height.value = h
-            
-            cfg_val = params.get('cfg_scale', 4.0)
-            cfg_scale_slider.value = cfg_val
-            cfg_scale_label.set_text(f"{cfg_val:.1f}")
-            
-            turbo_val = params.get('turbo_lora', 0.0)
-            if turbo_val > 0.0:
-                turbo_checkbox.value = True
-                turbo_strength_slider.value = turbo_val
-                turbo_strength_label.set_text(f"{turbo_val:.2f}")
-            else:
-                turbo_checkbox.value = False
-            
-            ui.notify('Parameters loaded from metadata.', type='info')
-            
-        except Exception as e:
-            ui.notify(f"Could not read metadata: {e}", type='negative')
+
 
     def _add_info_btn(cell_div, fpath: str):
         with cell_div:
@@ -1095,200 +963,7 @@ def create_page():
             progress_sidebar_label.set_text(f"Generating {g_idx} of {g_tot}")
             progress_sidebar_bar.set_value(pct / 100)
 
-    # ── Generate handler ─────────────────────────────────────────────────────
-    async def on_generate():
-        if _gen_state.get('active'):
-            return
-            
-        user_storage = app.storage.user
-        def safe_notify(msg, **kwargs):
-            try:
-                active_client = _gen_state.get('client')
-                if active_client and not active_client._deleted:
-                    active_client.notify(msg, **kwargs)
-            except Exception:
-                pass
 
-        _gen_state['active'] = True
-        _gen_state['cancel'] = False
-        
-        # Show sidebar progress UI
-        if _gen_state.get('progress_sidebar'):
-            _gen_state['progress_sidebar'].classes(remove='hidden')
-        if _gen_state.get('progress_sidebar_bar'):
-            _gen_state['progress_sidebar_bar'].set_value(0)
-            
-        gen_btn = _gen_state.get('generate_btn')
-        if gen_btn:
-            gen_btn.props('color=red icon=stop')
-            gen_btn.set_text('Stop')
-            gen_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
-        
-        _page_state['current_page'] = 1
-        if _grid_open['value']:
-            _grid_element['ref'] = None
-            if _gen_state.get('show_history'):
-                _gen_state['show_history']()
-        else:
-            _grid_element['ref'] = None
-        
-        _gen_state['global_idx'] = 0
-        _gen_state['global_total'] = sum(len(job['prompts']) for job in _generation_queue)
-        
-        # Free up VRAM by unloading any active LLMs
-        try:
-            from utils.llm_client import client as llm_client
-            await llm_client.unload_all_models()
-        except Exception as e:
-            print(f"Failed to unload LLMs before visual generation: {e}")
-
-        loop = asyncio.get_event_loop()
-
-        def on_progress(step: int, total: int):
-            if _gen_state.get('cancel'):
-                return "CANCEL"
-            if total == 0:
-                return
-            pct = min(round(step / total * 100), 100)
-            _gen_state['pct'] = pct
-            
-            def _update():
-                try:
-                    active_client = _gen_state.get('client')
-                    if not active_client or active_client._deleted:
-                        return
-                    if _gen_state.get('progress_sidebar_bar'):
-                        _gen_state['progress_sidebar_bar'].set_value(pct / 100)
-                    if _gen_state.get('progress_sidebar_label'):
-                        g_idx = _gen_state.get('global_idx', 1)
-                        g_tot = _gen_state.get('global_total', 1)
-                        _gen_state['progress_sidebar_label'].set_text(
-                            f"Generating {g_idx} of {g_tot} (Step {step}/{total})"
-                        )
-                except Exception:
-                    pass
-            loop.call_soon_threadsafe(_update)
-
-        try:
-            while _generation_queue and not _gen_state.get('cancel'):
-                job = _generation_queue.pop(0)
-                _update_queue_ui()
-                
-                raw_prompts = job['prompts']
-                total_prompts = len(raw_prompts)
-                
-                _page_state['current_page'] = 1
-                if _grid_open['value']:
-                    _grid_element['ref'] = None
-                    if _gen_state.get('show_history'):
-                        _gen_state['show_history']()
-                else:
-                    _grid_element['ref'] = None
-                _gen_state['total'] = total_prompts
-                _gen_state['pct'] = 0
-                
-                for idx, current_p in enumerate(raw_prompts):
-                    if _gen_state.get('cancel'):
-                        break
-                        
-                    _gen_state['global_idx'] += 1
-                    _gen_state['idx'] = idx
-                    _gen_state['batch_prefix'] = f"[{_gen_state['global_idx']}/{_gen_state['global_total']}] "
-                    _gen_state['pct'] = 0
-                    
-                    if _gen_state.get('update_progress_labels'):
-                        _gen_state['update_progress_labels']()
-
-                    try:
-                        w_str, h_str = job['image_size'].split('x')
-                        output_path = await run.io_bound(
-                            generate_image_task,
-                            current_p,
-                            job['negative_prompt'],
-                            job['steps'],
-                            int(w_str),
-                            int(h_str),
-                            on_progress,
-                            unload_after=False,
-                            cfg_scale=job['cfg_scale'],
-                            turbo_lora=job['turbo_lora'],
-                            input_image=job.get('input_image'),
-                            denoising_strength=job.get('denoising_strength', 1.0)
-                        )
-                        
-                        if not output_path:
-                            break
-
-                        if job['remove_background_auto']:
-                            safe_notify('Removing background...', type='info', pos='bottom-right', timeout=1500)
-                            try:
-                                model_name = job['remove_background_model']
-                                output_path = await run.io_bound(_remove_background_file, output_path, model_name)
-                            except Exception as tool_exc:
-                                safe_notify(f'Background removal failed: {tool_exc}', type='negative')
-                            finally:
-                                await run.io_bound(_unload_remove_background_session)
-
-                        user_storage['visual_last_image'] = output_path
-                        
-                        active_client = _gen_state.get('client')
-                        
-                        if active_client and not active_client._deleted:
-                            if _grid_open['value'] and _gen_state.get('show_history'):
-                                _grid_element['ref'] = None
-                                _gen_state['show_history']()
-                            elif not _view_state['current_image'] and _gen_state.get('show_image'):
-                                _gen_state['show_image'](f'/{output_path}')
-
-                        if total_prompts == 1:
-                            safe_notify('Image generated successfully!', type='positive')
-                        else:
-                            safe_notify(f'Generated {idx+1}/{total_prompts}', type='positive', pos='bottom-right', timeout=2000)
-
-                    except Exception as e:
-                        import traceback
-                        traceback.print_exc()
-                        safe_notify(f'Failed to generate image {idx+1}: {str(e)}', type='negative')
-        
-        finally:
-            try:
-                from services.visual_service import unload_pipeline
-                await run.io_bound(unload_pipeline)
-            except Exception as e:
-                print(f"Failed to unload visual pipeline in finally block: {e}")
-
-            is_canceled = _gen_state.get('cancel', False)
-            _gen_state['active'] = False
-            _gen_state['cancel'] = False
-
-            active_client = _gen_state.get('client')
-            if active_client and not active_client._deleted:
-                # Hide sidebar progress UI
-                if _gen_state.get('progress_sidebar'):
-                    _gen_state['progress_sidebar'].classes(add='hidden')
-
-                gen_btn = _gen_state.get('generate_btn')
-                if gen_btn:
-                    gen_btn.enable()
-                    gen_btn.props('color=primary icon=brush')
-                    gen_btn.set_text('Generate')
-                    gen_btn.classes(add='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', remove='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
-                
-                _update_queue_ui()
-
-                if not _grid_open['value'] and not _view_state['current_image']:
-                    last = user_storage.get('visual_last_image')
-                    if last and os.path.exists(last):
-                        if _gen_state.get('show_image'):
-                            _gen_state['show_image'](f'/{last}')
-                    else:
-                        if _gen_state.get('show_placeholder'):
-                            _gen_state['show_placeholder']()
-                
-                if is_canceled:
-                    safe_notify('Generation stopped.', type='warning')
-                elif total_prompts > 1:
-                    safe_notify(f'Batch processing of {total_prompts} prompts complete.', type='info')
 
     async def on_generate_click():
         if _gen_state.get('active'):
