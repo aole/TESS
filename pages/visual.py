@@ -461,6 +461,7 @@ def create_page():
             _add_delete_btn(img_div, fpath)
             _add_regenerate_btn(img_div, fpath)
             _add_info_btn(img_div, fpath)
+            _add_edit_btn(img_div, fpath)
             
             zoom_state = {'fit': True}
             
@@ -924,7 +925,17 @@ def create_page():
             ).classes('text-xs opacity-0 group-hover:opacity-100')
             btn.on('click.stop', lambda p=fpath, c=cell_div: _delete_image(p, c))
 
-
+    def _add_edit_btn(cell_div, fpath: str):
+        with cell_div:
+            btn = ui.button(icon='edit').props('flat dense round').style(
+                'position: absolute; bottom: 4px; right: 4px;'
+                'width: 26px; height: 26px; min-height: unset;'
+                'background: rgba(0,0,0,0.75);'
+                'color: white;'
+                'transition: opacity 0.15s ease;'
+                'z-index: 10;'
+            ).classes('text-xs opacity-0 group-hover:opacity-100').tooltip('Edit in Photopea')
+            btn.on('click.stop', lambda: ui.navigate.to(f'/edit?img={fpath}'))
 
     def _add_regenerate_btn(cell_div, fpath: str):
         with cell_div:
@@ -937,8 +948,6 @@ def create_page():
                 'z-index: 10;'
             ).classes('text-xs opacity-0 group-hover:opacity-100').tooltip('Regenerate')
             btn.on('click.stop', lambda p=fpath: _regenerate_image(p))
-
-
 
     def _add_info_btn(cell_div, fpath: str):
         with cell_div:
@@ -979,6 +988,7 @@ def create_page():
             _add_delete_btn(cell, fpath)
             _add_regenerate_btn(cell, fpath)
             _add_info_btn(cell, fpath)
+            _add_edit_btn(cell, fpath)
 
     def _restore_last():
         """Go back to the last generated image (or placeholder)."""
