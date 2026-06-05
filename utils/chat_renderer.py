@@ -95,20 +95,12 @@ class ConversationRenderer:
         with self.container:
             # Wrapper Row
             with ui.row().classes('w-full items-start gap-4 mb-4 group') as row:
-                # Avatar
-                if self.show_avatars:
-                    with ui.avatar(color='transparent', square=True).classes('size-8 shrink-0 mt-1'):
-                        if role == 'user':
-                            ui.icon('person', size='24px').classes('text-gray-400')
-                        elif role == 'assistant':
-                            ui.icon('smart_toy', size='24px').classes('text-indigo-400')
-                        elif role == 'tool':
-                            ui.icon('output', size='20px').classes('text-gray-500')
-                        else:
-                            ui.icon('help', size='20px').classes('text-gray-500')
 
                 # Content Column
-                with ui.column().classes('flex-grow min-w-0 gap-2'):
+                col_classes = 'flex-grow min-w-0 gap-2'
+                if role == 'user':
+                    col_classes += ' items-end'
+                with ui.column().classes(col_classes):
                     
                     # Header (Assistant Name / Model) & Controls
                     if role == 'assistant':
