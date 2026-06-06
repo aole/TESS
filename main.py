@@ -204,9 +204,9 @@ def visual_page():
     visual.create_page()
 
 @ui.page('/edit')
-def edit_page(img: str = None):
+def edit_page(img: str = None, imgs: str = None):
     layout('/edit')
-    edit.create_page(img)
+    edit.create_page(img, imgs)
 
 @ui.page('/settings')
 def settings_page():

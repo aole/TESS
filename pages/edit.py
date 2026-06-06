@@ -57,15 +57,19 @@ def get_image_files():
         return []
 
 
-def refresh_dropdown(dropdown):
-    files = get_image_files()
-    dropdown.options = {f: os.path.basename(f) for f in files}
-    dropdown.update()
 
 
-def create_page(initial_img: str = None):
+
+def create_page(initial_img: str = None, initial_imgs: str = None):
     # Resolve initial image:
-    if not initial_img:
+    remaining_web_urls = ""
+    if initial_imgs:
+        imgs_list = [img.strip().replace('\\', '/') for img in initial_imgs.split(',') if img.strip()]
+        if imgs_list:
+            initial_img = imgs_list[0]
+            remaining_imgs = imgs_list[1:]
+            remaining_web_urls = ",".join([f"/{path}" for path in remaining_imgs])
+    elif not initial_img:
         initial_img = app.storage.user.get('visual_last_image')
         
     if initial_img:
@@ -135,32 +139,6 @@ def create_page(initial_img: str = None):
                 ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/visual')).props('flat dense round').classes('text-gray-300 hover:text-white').tooltip('Back to Visual')
                 ui.label('Photopea Image Editor').classes('text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-400')
                 
-            with ui.row().classes('items-center gap-3 flex-grow justify-center'):
-                # Select dropdown
-                files = get_image_files()
-                options = {f: os.path.basename(f) for f in files}
-                image_select = ui.select(
-                    options,
-                    value=initial_img,
-                    label='Select Image to Edit'
-                ).classes('w-72 text-sm').props('outlined dense dark bg-color=dark')
-                
-                # Load button
-                def load_selected():
-                    selected = image_select.value
-                    if not selected:
-                        ui.notify("Please select an image first.", type='warning')
-                        return
-                    web_path = f"/{selected}"
-                    ui.notify("Loading image to Photopea...", type='info')
-                    ui.run_javascript(f"""
-                        const iframe = document.getElementById('photopea');
-                        iframe.dataset.currentPath = '{selected}';
-                        window.loadPhotopeaImage('{web_path}');
-                    """)
-                
-                ui.button('Load Image', icon='open_in_browser', on_click=load_selected).classes('glass-btn').props('dense no-caps')
-
             with ui.row().classes('items-center gap-3'):
                 # File uploader
                 async def handle_local_upload(e):
@@ -188,9 +166,6 @@ def create_page(initial_img: str = None):
                         print(f"Failed to generate thumbnail: {err}")
                         
                     app.storage.user['visual_last_image'] = output_path
-                    refresh_dropdown(image_select)
-                    image_select.value = output_path
-                    
                     web_path = f"/{output_path}"
                     ui.notify(f"Uploaded: {filename}", type='info')
                     ui.run_javascript(f"""
@@ -198,14 +173,6 @@ def create_page(initial_img: str = None):
                         iframe.dataset.currentPath = '{output_path}';
                         window.loadPhotopeaImage('{web_path}');
                     """)
-                    local_uploader.reset()
-
-                local_uploader = ui.upload(
-                    label="Upload Local File",
-                    auto_upload=True,
-                    on_upload=handle_local_upload,
-                    max_files=1
-                ).props('flat dense color=purple icon=cloud_upload label-color=white').classes('h-10 text-xs')
 
                 # Save / Export button
                 ui.button('Save to Tess', icon='save', on_click=lambda: ui.run_javascript('window.exportPhotopeaImage();')).classes('save-btn').props('dense no-caps')
@@ -218,6 +185,7 @@ def create_page(initial_img: str = None):
               src="https://www.photopea.com"
               style="width: 100%; height: 100%; border: 0; border-radius: 8px; box-shadow: inset 0 0 10px rgba(0,0,0,0.5);"
               {"data-pending-img=" + web_url if web_url else ""}
+              {"data-pending-layers=" + remaining_web_urls if remaining_web_urls else ""}
               {"data-current-path=" + initial_img if initial_img else ""}
             ></iframe>
             """
@@ -252,6 +220,31 @@ def create_page(initial_img: str = None):
         }
       };
 
+      window.loadPhotopeaLayer = async function(imageUrl) {
+        console.log("Loading layer into Photopea:", imageUrl);
+        const iframe = getIframe();
+        if (!iframe || !iframe.contentWindow) {
+          console.error("Photopea iframe not found");
+          return;
+        }
+        
+        try {
+          const response = await fetch(imageUrl);
+          if (!response.ok) throw new Error("Fetch failed: " + response.statusText);
+          const blob = await response.blob();
+          
+          const reader = new FileReader();
+          reader.onloadend = function() {
+            const dataUrl = reader.result;
+            iframe.contentWindow.postMessage(`app.open("${dataUrl}", null, true);`, "*");
+            console.log("Sent layer script to Photopea");
+          };
+          reader.readAsDataURL(blob);
+        } catch (err) {
+          console.error("Failed to load layer into Photopea:", err);
+        }
+      };
+
       window.exportPhotopeaImage = function() {
         const iframe = getIframe();
         if (iframe && iframe.contentWindow) {
@@ -266,12 +259,27 @@ def create_page(initial_img: str = None):
         if (e.data === "done") {
           console.log("Photopea ready");
           const iframe = getIframe();
-          if (iframe && iframe.dataset.pendingImg) {
-            const imgUrl = iframe.dataset.pendingImg;
-            iframe.removeAttribute('data-pending-img');
-            setTimeout(() => {
-              window.loadPhotopeaImage(imgUrl);
-            }, 200);
+          if (iframe) {
+            if (iframe.dataset.pendingImg) {
+              const imgUrl = iframe.dataset.pendingImg;
+              iframe.removeAttribute('data-pending-img');
+              setTimeout(() => {
+                window.loadPhotopeaImage(imgUrl);
+              }, 200);
+            } else if (iframe.dataset.pendingLayers) {
+              const layers = iframe.dataset.pendingLayers.split(',');
+              const nextLayer = layers.shift();
+              if (layers.length > 0) {
+                iframe.dataset.pendingLayers = layers.join(',');
+              } else {
+                iframe.removeAttribute('data-pending-layers');
+              }
+              if (nextLayer) {
+                setTimeout(() => {
+                  window.loadPhotopeaLayer(nextLayer);
+                }, 200);
+              }
+            }
           }
         }
 
@@ -321,8 +329,6 @@ def create_page(initial_img: str = None):
             
         if saved_path:
             ui.notify(f"Image saved successfully as: {filename}", type='positive')
-            refresh_dropdown(image_select)
-            image_select.value = saved_path
             ui.run_javascript(f"document.getElementById('photopea').dataset.currentPath = '{saved_path}';")
 
     ui.on('photopea-saved', handle_photopea_saved)

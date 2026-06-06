@@ -467,6 +467,7 @@ def create_page():
         toggle_btn = _selection_state.get('toggle_btn')
         delete_btn = _selection_state.get('delete_btn')
         hide_btn = _selection_state.get('hide_btn')
+        edit_layers_btn = _selection_state.get('edit_layers_btn')
         count_label = _selection_state.get('count_label')
 
         if toggle_btn:
@@ -486,6 +487,12 @@ def create_page():
                 hide_btn.enable()
             else:
                 hide_btn.disable()
+
+        if edit_layers_btn:
+            if _selection_state['active'] and selected_count:
+                edit_layers_btn.enable()
+            else:
+                edit_layers_btn.disable()
 
         if count_label:
             count_label.set_text(f'{selected_count} selected' if _selection_state['active'] else '')
@@ -600,6 +607,14 @@ def create_page():
             ui.notify(f'Could not delete selected images: {exc}', type='negative')
         finally:
             _update_selection_controls()
+
+    def _edit_selected_images_as_layers():
+        selected = list(_selection_state['selected'])
+        if not selected:
+            ui.notify('No images selected.', type='warning')
+            return
+        imgs_param = ",".join(selected)
+        ui.navigate.to(f'/edit?imgs={imgs_param}')
 
     def _tool_context_paths():
         if _grid_open['value']:
@@ -722,6 +737,7 @@ def create_page():
         _selection_state['toggle_btn'] = None
         _selection_state['delete_btn'] = None
         _selection_state['hide_btn'] = None
+        _selection_state['edit_layers_btn'] = None
         _selection_state['count_label'] = None
         
         with grid_view:
@@ -740,7 +756,7 @@ def create_page():
                         next_btn.disable()
 
                 with ui.row().classes('items-center justify-center gap-2'):
-                    ui.label('Generation History').classes(
+                    ui.label('Select').classes(
                         'text-white/60 text-sm font-semibold uppercase tracking-widest'
                     )
                     _selection_state['toggle_btn'] = ui.button(
@@ -763,6 +779,12 @@ def create_page():
                     ).props('flat dense round color=warning').style(
                         'width: 30px; height: 30px; min-height: unset;'
                     ).tooltip('Hide/Unhide selected images')
+                    _selection_state['edit_layers_btn'] = ui.button(
+                        icon='layers',
+                        on_click=_edit_selected_images_as_layers,
+                    ).props('flat dense round color=primary').style(
+                        'width: 30px; height: 30px; min-height: unset;'
+                    ).tooltip('Send selected images to edit page as layers')
                     _selection_state['count_label'] = ui.label('').classes('text-white/40 text-xs font-mono')
                     _update_selection_controls()
                 ui.button(icon='close', on_click=_restore_last).props('flat dense').classes(
