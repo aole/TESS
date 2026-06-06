@@ -283,59 +283,71 @@ async def _regenerate_image(fpath: str):
 
 def _load_metadata(fpath: str):
     try:
+        w = None
+        h = None
+        params = {}
+        has_params = False
+
         with Image.open(fpath) as img:
+            w, h = img.size
             metadata = img.text if hasattr(img, 'text') else img.info
-            params_str = metadata.get('parameters')
-            if not params_str:
-                ui.notify('No generation metadata found in this image.', type='warning')
-                return
-            params = json.loads(params_str)
+            if metadata:
+                params_str = metadata.get('parameters')
+                if params_str:
+                    try:
+                        params = json.loads(params_str)
+                        has_params = True
+                    except Exception:
+                        pass
         
-        _settings_ui['prompt'].value = params.get('prompt', '')
-        _settings_ui['negative_prompt'].value = params.get('negative_prompt', '')
-        _settings_ui['steps'].value = params.get('steps', 30)
-        w = int(params.get('width', 1024))
-        h = int(params.get('height', 1024))
-        
-        image_width = _settings_ui['image_width']
-        image_height = _settings_ui['image_height']
-        
-        if isinstance(image_width.options, list):
-            if w not in image_width.options:
-                image_width.options.append(w)
-                image_width.options.sort()
-                image_width.update()
-        elif isinstance(image_width.options, dict):
-            if w not in image_width.options:
-                image_width.options[w] = str(w)
-                image_width.update()
-                
-        if isinstance(image_height.options, list):
-            if h not in image_height.options:
-                image_height.options.append(h)
-                image_height.options.sort()
-                image_height.update()
-        elif isinstance(image_height.options, dict):
-            if h not in image_height.options:
-                image_height.options[h] = str(h)
-                image_height.update()
-        
-        image_width.value = w
-        image_height.value = h
-        
-        cfg_val = params.get('cfg_scale', 4.0)
-        _settings_ui['cfg_scale_slider'].value = cfg_val
-        _settings_ui['cfg_scale_label'].set_text(f"{cfg_val:.1f}")
-        
-        turbo_val = params.get('turbo_lora', 0.0)
-        if turbo_val > 0.0:
-            _settings_ui['turbo_checkbox'].value = True
-            _settings_ui['turbo_strength_slider'].value = turbo_val
-            _settings_ui['turbo_strength_label'].set_text(f"{turbo_val:.2f}")
+        if has_params:
+            _settings_ui['prompt'].value = params.get('prompt', '')
+            _settings_ui['negative_prompt'].value = params.get('negative_prompt', '')
+            _settings_ui['steps'].value = params.get('steps', 30)
+            
+            cfg_val = params.get('cfg_scale', 4.0)
+            _settings_ui['cfg_scale_slider'].value = cfg_val
+            _settings_ui['cfg_scale_label'].set_text(f"{cfg_val:.1f}")
+            
+            turbo_val = params.get('turbo_lora', 0.0)
+            if turbo_val > 0.0:
+                _settings_ui['turbo_checkbox'].value = True
+                _settings_ui['turbo_strength_slider'].value = turbo_val
+                _settings_ui['turbo_strength_label'].set_text(f"{turbo_val:.2f}")
+            else:
+                _settings_ui['turbo_checkbox'].value = False
         else:
-            _settings_ui['turbo_checkbox'].value = False
-        
-        ui.notify('Parameters loaded from metadata.', type='info')
+            ui.notify('No generation metadata found, loaded image dimensions instead.', type='warning')
+
+        if w is not None and h is not None:
+            image_width = _settings_ui['image_width']
+            image_height = _settings_ui['image_height']
+            
+            if isinstance(image_width.options, list):
+                if w not in image_width.options:
+                    image_width.options.append(w)
+                    image_width.options.sort()
+                    image_width.update()
+            elif isinstance(image_width.options, dict):
+                if w not in image_width.options:
+                    image_width.options[w] = str(w)
+                    image_width.update()
+                    
+            if isinstance(image_height.options, list):
+                if h not in image_height.options:
+                    image_height.options.append(h)
+                    image_height.options.sort()
+                    image_height.update()
+            elif isinstance(image_height.options, dict):
+                if h not in image_height.options:
+                    image_height.options[h] = str(h)
+                    image_height.update()
+            
+            image_width.value = w
+            image_height.value = h
+
+        if has_params:
+            ui.notify('Parameters loaded from metadata.', type='info')
         
     except Exception as e:
         ui.notify(f"Could not read metadata: {e}", type='negative')
