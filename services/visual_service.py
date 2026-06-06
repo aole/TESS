@@ -281,6 +281,17 @@ async def _regenerate_image(fpath: str):
     except Exception as e:
         ui.notify(f"Could not read metadata: {e}", type='negative')
 
+def _update_select_options(select_el, val):
+    if isinstance(select_el.options, list):
+        if val not in select_el.options:
+            select_el.options.append(val)
+            select_el.options.sort()
+            select_el.update()
+    elif isinstance(select_el.options, dict):
+        if val not in select_el.options:
+            select_el.options[val] = str(val)
+            select_el.update()
+
 def _load_metadata(fpath: str):
     try:
         w = None
@@ -304,6 +315,8 @@ def _load_metadata(fpath: str):
             _settings_ui['prompt'].value = params.get('prompt', '')
             _settings_ui['negative_prompt'].value = params.get('negative_prompt', '')
             _settings_ui['steps'].value = params.get('steps', 30)
+            w = int(params.get('width', w))
+            h = int(params.get('height', h))
             
             cfg_val = params.get('cfg_scale', 4.0)
             _settings_ui['cfg_scale_slider'].value = cfg_val
@@ -323,25 +336,8 @@ def _load_metadata(fpath: str):
             image_width = _settings_ui['image_width']
             image_height = _settings_ui['image_height']
             
-            if isinstance(image_width.options, list):
-                if w not in image_width.options:
-                    image_width.options.append(w)
-                    image_width.options.sort()
-                    image_width.update()
-            elif isinstance(image_width.options, dict):
-                if w not in image_width.options:
-                    image_width.options[w] = str(w)
-                    image_width.update()
-                    
-            if isinstance(image_height.options, list):
-                if h not in image_height.options:
-                    image_height.options.append(h)
-                    image_height.options.sort()
-                    image_height.update()
-            elif isinstance(image_height.options, dict):
-                if h not in image_height.options:
-                    image_height.options[h] = str(h)
-                    image_height.update()
+            _update_select_options(image_width, w)
+            _update_select_options(image_height, h)
             
             image_width.value = w
             image_height.value = h
