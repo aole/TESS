@@ -22,6 +22,7 @@ from services.visual_service import (
     _enqueue_job,
     _regenerate_image,
     _load_metadata,
+    _update_select_options,
     on_generate
 )
 from utils.config import config_manager
@@ -228,23 +229,59 @@ def create_page():
             )
 
             width_options = list(config_manager.config.get('visual_image_widths', [
-                512, 576, 640, 704, 768, 832, 896, 960, 1024, 1088, 1152, 1216, 1280, 1344, 1408, 1472, 1536
+                512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536
             ]))
             height_options = list(config_manager.config.get('visual_image_heights', [
-                512, 576, 640, 704, 768, 832, 896, 960, 1024, 1088, 1152, 1216, 1280, 1344, 1408, 1472, 1536
+                512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536
             ]))
 
-            with ui.row().classes('w-full gap-4 flex-nowrap'):
+            stored_w = app.storage.user.get('visual_image_width')
+            if stored_w and stored_w not in width_options:
+                try:
+                    width_options.append(int(stored_w))
+                except ValueError:
+                    ui.notify(f"Invalid width: {stored_w}", type="warning")
+
+            stored_h = app.storage.user.get('visual_image_height')
+            if stored_h and stored_h not in height_options:
+                try:
+                    height_options.append(int(stored_h))
+                except ValueError:
+                    ui.notify(f"Invalid height: {stored_h}", type="warning")
+
+            def on_width_change(e):
+                val = e.value
+                if isinstance(val, str) and val.isdigit():
+                    val = int(val)
+                if val is not None:
+                    _update_select_options(image_width, val)
+                    if image_width.value != val:
+                        image_width.value = val
+
+            def on_height_change(e):
+                val = e.value
+                if isinstance(val, str) and val.isdigit():
+                    val = int(val)
+                if val is not None:
+                    _update_select_options(image_height, val)
+                    if image_height.value != val:
+                        image_height.value = val
+
+            with ui.row().classes('w-full gap-2 flex-nowrap'):
                 with ui.column().classes('flex-grow gap-1'):
                     ui.label('Width').classes('text-sm text-gray-400')
                     image_width = ui.select(
-                        options=width_options
+                        options=width_options,
+                        new_value_mode='add-unique',
+                        on_change=on_width_change
                     ).classes('w-full').bind_value(app.storage.user, 'visual_image_width')
                 
                 with ui.column().classes('flex-grow gap-1'):
                     ui.label('Height').classes('text-sm text-gray-400')
                     image_height = ui.select(
-                        options=height_options
+                        options=height_options,
+                        new_value_mode='add-unique',
+                        on_change=on_height_change
                     ).classes('w-full').bind_value(app.storage.user, 'visual_image_height')
                 
                 with ui.column().classes('w-20 gap-1'):
