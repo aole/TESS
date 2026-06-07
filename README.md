@@ -1,5 +1,5 @@
 # TESS (Text Evaluation & Synthesis System)
-
+![TESS Screenshot](Screenshot04.png)
 **TESS** is a comprehensive local AI workspace built on top of [Ollama](https://ollama.com). It provides a powerful, unified interface for managing, testing, and interacting with your local large language models.
 
 ![TESS Screenshot](Screenshot03.png)
