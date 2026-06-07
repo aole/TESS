@@ -121,7 +121,7 @@ def create_thumbnail(fpath: str):
             img.thumbnail((256, 256))
             img.save(thumb_path)
     except Exception:
-        pass
+        ui.notify('Failed to generate thumbnail', type='error')
 
 def remove_image_files(fpath: str):
     if os.path.exists(fpath):
@@ -156,8 +156,8 @@ def get_hidden_images() -> list:
             data = json.load(f)
             if isinstance(data, list):
                 return data
-    except Exception:
-        pass
+    except Exception as e:
+        ui.notify(f'Failed to load hidden images: {e}', type='error')
     return []
 
 def set_hidden_images(hidden_list: list):
@@ -166,7 +166,7 @@ def set_hidden_images(hidden_list: list):
         with open(_HIDDEN_IMAGES_FILE, 'w') as f:
             json.dump(hidden_list, f, indent=4)
     except Exception as e:
-        print(f"Error saving hidden images: {e}")
+        ui.notify(f'Failed to save hidden images: {e}', type='error')
 
 def _update_select_options(select_el, val):
     if isinstance(select_el.options, list):

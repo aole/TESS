@@ -21,17 +21,6 @@ from pages.components.visual_components import (
     add_grid_cell
 )
 
-_CHECKER_BG = (
-    'background-color: #1f2937;'
-    'background-image: '
-    'linear-gradient(45deg, rgba(255,255,255,0.16) 25%, transparent 25%),'
-    'linear-gradient(-45deg, rgba(255,255,255,0.16) 25%, transparent 25%),'
-    'linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.16) 75%),'
-    'linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.16) 75%);'
-    'background-size: 24px 24px;'
-    'background-position: 0 0, 0 12px, 12px -12px, -12px 0;'
-)
-
 def initialize_user_defaults(user_storage):
     global _initialized_users
     user_id = user_storage.get('id') or 'default_user'

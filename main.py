@@ -57,6 +57,34 @@ def layout(page_path: str = ''):
             .toolbar-unload-button .q-icon {
                 font-size: 14px !important;
             }
+            .checkerboard-bg {
+                background-color: #1f2937;
+                background-image: 
+                    linear-gradient(45deg, rgba(255,255,255,0.16) 25%, transparent 25%),
+                    linear-gradient(-45deg, rgba(255,255,255,0.16) 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.16) 75%),
+                    linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.16) 75%);
+                background-size: 24px 24px;
+                background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+            }
+            .visual-action-btn {
+                min-width: 26px !important;
+                width: 26px !important;
+                height: 26px !important;
+                min-height: unset !important;
+                padding: 0 !important;
+                background: rgba(0,0,0,0.75) !important;
+                color: white !important;
+                transition: opacity 0.15s ease !important;
+                z-index: 10 !important;
+            }
+            .visual-grid-cell {
+                position: relative;
+                overflow: hidden;
+                cursor: pointer;
+                aspect-ratio: 1 / 1;
+                transition: transform 0.15s ease, box-shadow 0.15s ease;
+            }
         </style>
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
         <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
