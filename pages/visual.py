@@ -40,6 +40,63 @@ _CHECKER_BG = (
     'background-position: 0 0, 0 12px, 12px -12px, -12px 0;'
 )
 
+def initialize_user_defaults(user_storage):
+    global _initialized_users
+    user_id = user_storage.get('id') or 'default_user'
+    if user_id not in _initialized_users:
+        user_storage['visual_show_hidden'] = False
+        _initialized_users.add(user_id)
+
+    if 'visual_show_hidden' not in user_storage:
+        user_storage['visual_show_hidden'] = False
+
+    if 'visual_positive_prompt' not in user_storage:
+        user_storage['visual_positive_prompt'] = (
+            "masterpiece, best quality, score_7, safe, abandoned cathedral, nature reclaiming architecture, "
+            "vines and flowers, shafts of sunlight, dust particles, tranquil atmosphere, Studio Ghibli inspired"
+        )
+    if 'visual_negative_prompt' not in user_storage:
+        user_storage['visual_negative_prompt'] = (
+            "worst quality, low quality, score_1, score_2, score_3, artist name, sepia"
+        )
+    if 'visual_image_size' not in user_storage:
+        user_storage['visual_image_size'] = '1024x1024'
+    if 'visual_image_width' not in user_storage or 'visual_image_height' not in user_storage:
+        old_size = user_storage.get('visual_image_size', '1024x1024')
+        try:
+            w_str, h_str = old_size.split('x')
+            if 'visual_image_width' not in user_storage:
+                user_storage['visual_image_width'] = int(w_str)
+            if 'visual_image_height' not in user_storage:
+                user_storage['visual_image_height'] = int(h_str)
+        except Exception:
+            if 'visual_image_width' not in user_storage:
+                user_storage['visual_image_width'] = 1024
+            if 'visual_image_height' not in user_storage:
+                user_storage['visual_image_height'] = 1024
+    if 'visual_inference_steps' not in user_storage:
+        user_storage['visual_inference_steps'] = 30
+    if 'visual_batch_count' not in user_storage:
+        user_storage['visual_batch_count'] = 1
+    if 'visual_remove_background_auto' not in user_storage:
+        user_storage['visual_remove_background_auto'] = False
+    if 'visual_remove_background_model' not in user_storage:
+        user_storage['visual_remove_background_model'] = 'isnet-anime'
+    if 'visual_remove_background_models' not in user_storage:
+        user_storage['visual_remove_background_models'] = ['isnet-anime']
+    elif not isinstance(user_storage['visual_remove_background_models'], list):
+        user_storage['visual_remove_background_models'] = ['isnet-anime']
+    if user_storage['visual_remove_background_model'] not in user_storage['visual_remove_background_models']:
+        user_storage['visual_remove_background_models'].append(user_storage['visual_remove_background_model'])
+    if 'visual_cfg_scale' not in user_storage:
+        user_storage['visual_cfg_scale'] = 4.0
+    if 'visual_turbo_lora_enabled' not in user_storage:
+        user_storage['visual_turbo_lora_enabled'] = False
+    if 'visual_turbo_lora_strength' not in user_storage:
+        user_storage['visual_turbo_lora_strength'] = 1.0
+    if 'visual_denoising_strength' not in user_storage:
+        user_storage['visual_denoising_strength'] = 0.6
+
 def create_page():
     page_client = ui.context.client
 
@@ -97,61 +154,7 @@ def create_page():
 
 
 
-    global _initialized_users
-    user_id = app.storage.user.get('id') or 'default_user'
-    if user_id not in _initialized_users:
-        app.storage.user['visual_show_hidden'] = False
-        _initialized_users.add(user_id)
-
-    if 'visual_show_hidden' not in app.storage.user:
-        app.storage.user['visual_show_hidden'] = False
-
-    if 'visual_positive_prompt' not in app.storage.user:
-        app.storage.user['visual_positive_prompt'] = (
-            "masterpiece, best quality, score_7, safe, abandoned cathedral, nature reclaiming architecture, "
-            "vines and flowers, shafts of sunlight, dust particles, tranquil atmosphere, Studio Ghibli inspired"
-        )
-    if 'visual_negative_prompt' not in app.storage.user:
-        app.storage.user['visual_negative_prompt'] = (
-            "worst quality, low quality, score_1, score_2, score_3, artist name, sepia"
-        )
-    if 'visual_image_size' not in app.storage.user:
-        app.storage.user['visual_image_size'] = '1024x1024'
-    if 'visual_image_width' not in app.storage.user or 'visual_image_height' not in app.storage.user:
-        old_size = app.storage.user.get('visual_image_size', '1024x1024')
-        try:
-            w_str, h_str = old_size.split('x')
-            if 'visual_image_width' not in app.storage.user:
-                app.storage.user['visual_image_width'] = int(w_str)
-            if 'visual_image_height' not in app.storage.user:
-                app.storage.user['visual_image_height'] = int(h_str)
-        except Exception:
-            if 'visual_image_width' not in app.storage.user:
-                app.storage.user['visual_image_width'] = 1024
-            if 'visual_image_height' not in app.storage.user:
-                app.storage.user['visual_image_height'] = 1024
-    if 'visual_inference_steps' not in app.storage.user:
-        app.storage.user['visual_inference_steps'] = 30
-    if 'visual_batch_count' not in app.storage.user:
-        app.storage.user['visual_batch_count'] = 1
-    if 'visual_remove_background_auto' not in app.storage.user:
-        app.storage.user['visual_remove_background_auto'] = False
-    if 'visual_remove_background_model' not in app.storage.user:
-        app.storage.user['visual_remove_background_model'] = 'isnet-anime'
-    if 'visual_remove_background_models' not in app.storage.user:
-        app.storage.user['visual_remove_background_models'] = ['isnet-anime']
-    elif not isinstance(app.storage.user['visual_remove_background_models'], list):
-        app.storage.user['visual_remove_background_models'] = ['isnet-anime']
-    if app.storage.user['visual_remove_background_model'] not in app.storage.user['visual_remove_background_models']:
-        app.storage.user['visual_remove_background_models'].append(app.storage.user['visual_remove_background_model'])
-    if 'visual_cfg_scale' not in app.storage.user:
-        app.storage.user['visual_cfg_scale'] = 4.0
-    if 'visual_turbo_lora_enabled' not in app.storage.user:
-        app.storage.user['visual_turbo_lora_enabled'] = False
-    if 'visual_turbo_lora_strength' not in app.storage.user:
-        app.storage.user['visual_turbo_lora_strength'] = 1.0
-    if 'visual_denoising_strength' not in app.storage.user:
-        app.storage.user['visual_denoising_strength'] = 0.6
+    initialize_user_defaults(app.storage.user)
 
     # ── Main layout ──────────────────────────────────────────────────────────
     with ui.row().classes('w-full gap-3 p-2 flex-wrap'):
