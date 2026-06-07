@@ -28,17 +28,49 @@
 
 ## Getting Started
 
-1.  Ensure [Ollama](https://ollama.com) is installed and running.
-2.  Clone the repository:
+### Prerequisites
+
+1.  **Ollama**: Install and run [Ollama](https://ollama.com).
+2.  **uv**: Install [uv](https://github.com/astral-sh/uv), the fast Python package installer and manager:
+    *   **Windows (PowerShell)**:
+        ```powershell
+        powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+        ```
+    *   **macOS / Linux**:
+        ```bash
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        ```
+3.  **Local LLM**: Pull the default chat LLM in Ollama:
+    ```bash
+    ollama pull hf.co/unsloth/gemma-4-E4B-it-GGUF:Q4_K_M
+    ```
+4.  **Hardware (Recommended)**: An NVIDIA GPU with CUDA-compatible drivers (with at least 8GB VRAM required for running the Anima image generation model) is highly recommended for visual generation and voice synthesis (Kokoro/OmniVoice).
+
+### Installation & Launch
+
+1.  Clone the repository and enter the directory:
     ```bash
     git clone https://github.com/aole/TESS.git
     cd TESS
     ```
-3.  Run the application using [uv](https://github.com/astral-sh/uv) (which will automatically handle dependencies from `pyproject.toml`):
-    ```powershell
-    uv run main.py
-    ```
-4.  Open your browser to `http://localhost:8080`.
+2.  Run the application:
+    *   **Windows**: Run `run.bat` (which updates via git, syncs dependencies, and starts the server):
+        ```powershell
+        .\run.bat
+        ```
+    *   **macOS / Linux**: Run the main script with `uv`:
+        ```bash
+        uv run main.py
+        ```
+3.  Open your browser to `http://localhost:8080`.
+
+### Google Workspace Integration (Optional)
+
+To enable Google integration features (Gmail, YouTube, Drive indexing, and Google Drive Notes synchronization):
+1.  Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2.  Create a project and enable the **Gmail API**, **YouTube Data API v3**, and **Google Drive API**.
+3.  Configure the OAuth Consent Screen and create credentials for an **OAuth 2.0 Client ID** (select *Desktop app* as the application type).
+4.  Download the JSON client secret, rename it to `client_secret.json`, and place it in the root of the `TESS` folder (see `client_secret.json.example` for reference).
 
 ## Technology
 
