@@ -53,21 +53,18 @@ def create_page():
             pass
 
     def _set_remove_background_busy(active: bool):
-        try:
-            if active:
-                remove_bg_btn.disable()
-                remove_bg_btn.set_text('Working...')
-                remove_bg_btn.props('loading')
-                remove_bg_status.set_text('Remove BG is working...')
-                remove_bg_status.classes(remove='hidden')
-            else:
-                remove_bg_btn.enable()
-                remove_bg_btn.set_text('Remove BG')
-                remove_bg_btn.props(remove='loading')
-                remove_bg_status.set_text('')
-                remove_bg_status.classes(add='hidden')
-        except Exception:
-            pass
+        if active:
+            remove_bg_btn.disable()
+            remove_bg_btn.set_text('Working...')
+            remove_bg_btn.props('loading')
+            remove_bg_status.set_text('Remove BG is working...')
+            remove_bg_status.classes(remove='hidden')
+        else:
+            remove_bg_btn.enable()
+            remove_bg_btn.set_text('Remove BG')
+            remove_bg_btn.props(remove='loading')
+            remove_bg_status.set_text('')
+            remove_bg_status.classes(add='hidden')
 
     def _open_remove_background_dialog():
         remove_bg_model_input.options = app.storage.user.get('visual_remove_background_models', ['isnet-anime'])
@@ -212,7 +209,6 @@ def create_page():
             _gen_state['full_view_container'] = ui.element('div').classes('w-full h-full flex flex-col items-center justify-center hidden')
             _gen_state['grid_view_container'] = ui.element('div').classes('w-full h-full flex flex-col hidden')
             _grid_element['ref'] = None
-            pass
 
         # Right column – settings
         with ui.column().classes('gap-3').style('flex: 1;'):
@@ -836,7 +832,7 @@ def create_page():
             ):
                 grid = ui.element('div').style(
                     'display: grid;'
-                    'grid-template-columns: repeat(5, 1fr);'
+                    'grid-template-columns: repeat(4, 1fr);'
                     'gap: 8px;'
                 )
                 _grid_element['ref'] = grid
