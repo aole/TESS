@@ -283,10 +283,22 @@ async def _regenerate_image(fpath: str):
 
 def _update_select_options(select_el, val):
     if isinstance(select_el.options, list):
-        if val not in select_el.options:
-            select_el.options.append(val)
-            select_el.options.sort()
-            select_el.update()
+        seen = set()
+        cleaned = []
+        for x in select_el.options + [val]:
+            parsed = int(x) if str(x).isdigit() else x
+            if parsed not in seen:
+                seen.add(parsed)
+                cleaned.append(parsed)
+        try:
+            cleaned.sort(key=int)
+        except Exception:
+            try:
+                cleaned.sort()
+            except Exception:
+                pass
+        select_el.options = cleaned
+        select_el.update()
     elif isinstance(select_el.options, dict):
         if val not in select_el.options:
             select_el.options[val] = str(val)

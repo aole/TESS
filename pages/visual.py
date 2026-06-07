@@ -159,12 +159,12 @@ def create_page():
         app.storage.user['visual_denoising_strength'] = 0.6
 
     # ── Main layout ──────────────────────────────────────────────────────────
-    with ui.row().classes('w-full max-w-screen-2xl mx-auto gap-6 p-4 flex-nowrap items-start'):
+    with ui.row().classes('w-full gap-3 p-2 flex-wrap'):
 
         # Left column – image tools
         with ui.column().classes(
             'rounded-lg border border-white/10 bg-black/20 p-3 gap-3'
-        ).style('flex: 1.35; height: calc(100vh - 120px); min-height: 500px;'):
+        ).style('flex: 1;'):
             ui.label('Tools').classes('text-white/60 text-sm font-semibold uppercase tracking-widest')
             ui.separator().classes('bg-white/10')
             with ui.column().classes('w-full gap-2'):
@@ -204,9 +204,9 @@ def create_page():
 
         # Center column – image area
         with ui.column().classes(
-            'rounded-lg border border-white/10 overflow-hidden bg-black/20 '
+            'rounded-lg border border-white/10 bg-black/20 '
             'relative'
-        ).style('flex: 6.65; height: calc(100vh - 120px); min-height: 500px;') as image_container:
+        ).style('flex:3; min-width: 300px;') as image_container:
             _gen_state['image_container'] = image_container
             _gen_state['client'] = page_client
             _gen_state['full_view_container'] = ui.element('div').classes('w-full h-full flex flex-col items-center justify-center hidden')
@@ -214,10 +214,10 @@ def create_page():
             _grid_element['ref'] = None
             pass
 
-        # Right column – settings (30%)
-        with ui.column().classes('gap-3').style('flex: 3;'):
+        # Right column – settings
+        with ui.column().classes('gap-3').style('flex: 1;'):
             prompt = ui.textarea(
-                'Positive Prompt', placeholder='masterpiece, best quality... (Use /// to separate multiple prompts)'
+                'Positive Prompt', placeholder='masterpiece, best quality... (Use | to separate multiple prompts inside [[ ]])'
             ).classes('w-full text-sm').props('outlined rows="12"').bind_value(
                 app.storage.user, 'visual_positive_prompt'
             )
@@ -228,17 +228,14 @@ def create_page():
                 app.storage.user, 'visual_negative_prompt'
             )
 
-            width_options = list(config_manager.config.get('visual_image_widths', [
-                512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536
-            ]))
-            height_options = list(config_manager.config.get('visual_image_heights', [
-                512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536
-            ]))
+            width_options = [512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536]
+            height_options = [512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536]
 
             stored_w = app.storage.user.get('visual_image_width')
             if stored_w and stored_w not in width_options:
                 try:
                     width_options.append(int(stored_w))
+                    width_options.sort()
                 except ValueError:
                     ui.notify(f"Invalid width: {stored_w}", type="warning")
 
@@ -246,6 +243,7 @@ def create_page():
             if stored_h and stored_h not in height_options:
                 try:
                     height_options.append(int(stored_h))
+                    height_options.sort()
                 except ValueError:
                     ui.notify(f"Invalid height: {stored_h}", type="warning")
 
@@ -254,20 +252,20 @@ def create_page():
                 if isinstance(val, str) and val.isdigit():
                     val = int(val)
                 if val is not None:
-                    _update_select_options(image_width, val)
-                    if image_width.value != val:
-                        image_width.value = val
+                    _update_select_options(e.sender, val)
+                    if e.sender.value != val:
+                        e.sender.value = val
 
             def on_height_change(e):
                 val = e.value
                 if isinstance(val, str) and val.isdigit():
                     val = int(val)
                 if val is not None:
-                    _update_select_options(image_height, val)
-                    if image_height.value != val:
-                        image_height.value = val
+                    _update_select_options(e.sender, val)
+                    if e.sender.value != val:
+                        e.sender.value = val
 
-            with ui.row().classes('w-full gap-2 flex-nowrap'):
+            with ui.row().classes('w-full flex-nowrap'):
                 with ui.column().classes('flex-grow gap-1'):
                     ui.label('Width').classes('text-sm text-gray-400')
                     image_width = ui.select(
