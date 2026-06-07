@@ -276,27 +276,28 @@ def create_page():
                     ui.label('Count').classes('text-sm text-gray-400')
                     batch_count = ui.number(value=1, min=1, max=50, format='%d').classes('w-full').bind_value(app.storage.user, 'visual_batch_count')
 
-            with ui.column().classes('w-full gap-1'):
-                with ui.row().classes('w-full justify-between items-center'):
-                    ui.label('Inference Steps').classes('text-sm text-gray-400')
-                    steps_label = ui.label(
-                        str(app.storage.user['visual_inference_steps'])
-                     ).classes('text-sm text-gray-300 font-mono')
-                steps = ui.slider(
-                    min=1, max=50,
-                    on_change=lambda e: steps_label.set_text(str(int(e.value)))
-                ).classes('w-full').bind_value(app.storage.user, 'visual_inference_steps')
+            with ui.row().classes('w-full flex-nowrap gap-3'):
+                with ui.column().classes('flex-grow gap-1'):
+                    with ui.row().classes('w-full justify-between items-center'):
+                        ui.label('Steps').classes('text-sm text-gray-400')
+                        steps_label = ui.label(
+                            str(app.storage.user['visual_inference_steps'])
+                        ).classes('text-sm text-gray-300 font-mono')
+                    steps = ui.slider(
+                        min=1, max=50,
+                        on_change=lambda e: steps_label.set_text(str(int(e.value)))
+                    ).classes('w-full').bind_value(app.storage.user, 'visual_inference_steps')
 
-            with ui.column().classes('w-full gap-1'):
-                with ui.row().classes('w-full justify-between items-center'):
-                    ui.label('CFG Scale').classes('text-sm text-gray-400')
-                    cfg_scale_label = ui.label(
-                        f"{app.storage.user.get('visual_cfg_scale', 4.0):.1f}"
-                    ).classes('text-sm text-gray-300 font-mono')
-                cfg_scale_slider = ui.slider(
-                    min=1.0, max=20.0, step=0.1,
-                    on_change=lambda e: cfg_scale_label.set_text(f"{e.value:.1f}")
-                ).classes('w-full').bind_value(app.storage.user, 'visual_cfg_scale')
+                with ui.column().classes('flex-grow gap-1'):
+                    with ui.row().classes('w-full justify-between items-center'):
+                        ui.label('CFG Scale').classes('text-sm text-gray-400')
+                        cfg_scale_label = ui.label(
+                            f"{app.storage.user.get('visual_cfg_scale', 4.0):.1f}"
+                        ).classes('text-sm text-gray-300 font-mono')
+                    cfg_scale_slider = ui.slider(
+                        min=1.0, max=20.0, step=0.1,
+                        on_change=lambda e: cfg_scale_label.set_text(f"{e.value:.1f}")
+                    ).classes('w-full').bind_value(app.storage.user, 'visual_cfg_scale')
 
             with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
                 turbo_checkbox = ui.checkbox().bind_value(
