@@ -28,6 +28,10 @@ from services.visual_service import (
     on_generate
 )
 from utils.config import config_manager
+from pages.components.visual_components import (
+    render_image_with_nav,
+    add_grid_cell
+)
 
 _CHECKER_BG = (
     'background-color: #1f2937;'
@@ -397,80 +401,12 @@ def create_page():
                 ui.icon('image', size='64px').classes('text-white/10 mb-4')
                 ui.label('Generated image will appear here').classes('text-white/30 text-lg')
 
-    # ── Helper: render full image with navigation ────────────────────────────
-    def _render_image_with_nav(path: str):
-        hidden_images = get_hidden_images()
-        hidden_set = set(hidden_images)
-
-        images = []
-        if os.path.isdir(_VISUAL_DIR):
-            all_files = sorted(
-                [f for f in os.listdir(_VISUAL_DIR)
-                 if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
-                reverse=True,
-            )
-            if app.storage.user.get('visual_show_hidden', False):
-                images = all_files
-            else:
-                images = [f for f in all_files if f not in hidden_set]
-            
-        filename = path.split('/')[-1]
-        prev_img = None
-        next_img = None
-        
-        try:
-            idx = images.index(filename)
-            if idx > 0:
-                prev_img = f"/{_VISUAL_DIR}/{images[idx - 1]}"
-            if idx < len(images) - 1:
-                next_img = f"/{_VISUAL_DIR}/{images[idx + 1]}"
-        except ValueError:
-            pass
-
-        with ui.element('div').classes('w-full h-full relative group') as img_div:
-            with ui.element('div').classes('w-full h-full overflow-auto flex flex-col').style(_CHECKER_BG):
-                img = ui.element('img').props(f'src="{path}"').classes('m-auto w-full h-full object-contain rounded-lg shadow-xl transition-all duration-300')
-            
-            fpath = path.lstrip('/')
-            _add_delete_btn(img_div, fpath)
-            _add_regenerate_btn(img_div, fpath)
-            _add_info_btn(img_div, fpath)
-            _add_edit_btn(img_div, fpath)
-            
-            zoom_state = {'fit': True}
-            
-            with ui.row().classes(
-                'absolute left-1/2 -translate-x-1/2 flex items-center gap-2 '
-                'opacity-0 group-hover:opacity-100 transition-opacity z-10'
-            ).style('top: 4px;'):
-                def toggle_zoom():
-                    if zoom_state['fit']:
-                        img.classes(remove='h-full object-contain', add='h-auto')
-                        zoom_btn.props('icon=zoom_out')
-                        zoom_state['fit'] = False
-                    else:
-                        img.classes(remove='h-auto', add='h-full object-contain')
-                        zoom_btn.props('icon=zoom_in')
-                        zoom_state['fit'] = True
-                        
-                zoom_btn = ui.button(icon='zoom_in', on_click=toggle_zoom).props('flat dense round').style(
-                    'width: 26px; height: 26px; min-height: unset;'
-                    'background: rgba(0,0,0,0.75); color: white;'
-                ).classes('text-xs').tooltip('Toggle Zoom')
-                
-                ui.button(icon='grid_view', on_click=show_history).props('flat dense round').style(
-                    'width: 26px; height: 26px; min-height: unset;'
-                    'background: rgba(0,0,0,0.75); color: white;'
-                ).classes('text-xs').tooltip('Visual History Grid')
-            
-            if prev_img:
-                ui.button(icon='chevron_left', on_click=lambda p=prev_img: show_image(p)).props('round flat size=lg').classes(
-                    'absolute left-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white hover:bg-black/80 z-10'
-                )
-            if next_img:
-                ui.button(icon='chevron_right', on_click=lambda n=next_img: show_image(n)).props('round flat size=lg').classes(
-                    'absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white hover:bg-black/80 z-10'
-                )
+    def _get_image_callbacks():
+        return {
+            'delete': _delete_image,
+            'regenerate': _regenerate_image,
+            'info': _load_metadata
+        }
 
     # ── Helper: show a single image full-size inside image_container ─────────
     def show_image(path: str):
@@ -487,7 +423,12 @@ def create_page():
         full_view.classes(remove='hidden')
         full_view.clear()
         with full_view:
-            _render_image_with_nav(path)
+            render_image_with_nav(
+                path,
+                show_history,
+                show_image,
+                _get_image_callbacks()
+            )
 
     def _update_selection_controls():
         selected_count = len(_selection_state['selected'])
@@ -874,7 +815,13 @@ def create_page():
                         else:
                             thumb_src = f'/{thumb_path}'
                                 
-                        _add_grid_cell(grid, thumb_src, src, fpath)
+                        add_grid_cell(
+                            grid, thumb_src, src, fpath,
+                            fname in hidden_set,
+                            _handle_grid_cell_click,
+                            _register_selectable_cell,
+                            _get_image_callbacks()
+                        )
 
     # ── Helper: delete an image file and refresh the grid ───────────────────
     def _delete_image(fpath: str, cell_div=None):
@@ -927,81 +874,7 @@ def create_page():
         except Exception as exc:
             ui.notify(f'Could not delete image: {exc}', type='negative')
 
-    # ── Helper: add a hover-reveal delete button to an existing cell div ─────
-    def _add_delete_btn(cell_div, fpath: str):
-        with cell_div:
-            btn = ui.button(icon='delete').props('flat dense round').style(
-                'position: absolute; bottom: 4px; left: 4px;'
-                'width: 26px; height: 26px; min-height: unset;'
-                'background: rgba(0,0,0,0.75);'
-                'color: white;'
-                'transition: opacity 0.15s ease;'
-                'z-index: 10;'
-            ).classes('text-xs opacity-0 group-hover:opacity-100')
-            btn.on('click.stop', lambda p=fpath, c=cell_div: _delete_image(p, c))
 
-    def _add_edit_btn(cell_div, fpath: str):
-        with cell_div:
-            btn = ui.button(icon='edit').props('flat dense round').style(
-                'position: absolute; bottom: 4px; right: 4px;'
-                'width: 26px; height: 26px; min-height: unset;'
-                'background: rgba(0,0,0,0.75);'
-                'color: white;'
-                'transition: opacity 0.15s ease;'
-                'z-index: 10;'
-            ).classes('text-xs opacity-0 group-hover:opacity-100').tooltip('Edit in Photopea')
-            btn.on('click.stop', lambda: ui.navigate.to(f'/edit?img={fpath}'))
-
-    def _add_regenerate_btn(cell_div, fpath: str):
-        with cell_div:
-            btn = ui.button(icon='refresh').props('flat dense round').style(
-                'position: absolute; top: 4px; left: 4px;'
-                'width: 26px; height: 26px; min-height: unset;'
-                'background: rgba(0,0,0,0.75);'
-                'color: white;'
-                'transition: opacity 0.15s ease;'
-                'z-index: 10;'
-            ).classes('text-xs opacity-0 group-hover:opacity-100').tooltip('Regenerate')
-            btn.on('click.stop', lambda p=fpath: _regenerate_image(p))
-
-    def _add_info_btn(cell_div, fpath: str):
-        with cell_div:
-            btn = ui.button(icon='info').props('flat dense round').style(
-                'position: absolute; top: 4px; right: 4px;'
-                'width: 26px; height: 26px; min-height: unset;'
-                'background: rgba(0,0,0,0.75);'
-                'color: white;'
-                'transition: opacity 0.15s ease;'
-                'z-index: 10;'
-            ).classes('text-xs opacity-0 group-hover:opacity-100').tooltip('Load Parameters')
-            btn.on('click.stop', lambda p=fpath: _load_metadata(p))
-
-    # ── Helper: build a full grid cell (image + delete button) ───────────────
-    def _add_grid_cell(grid, thumb_src: str, full_src: str, fpath: str):
-        with grid:
-            cell = ui.element('div').classes('group').style(
-                'position: relative; overflow: hidden; cursor: pointer;'
-                'aspect-ratio: 1 / 1;'
-                f'{_CHECKER_BG}'
-                'transition: transform 0.15s ease, box-shadow 0.15s ease;'
-            )
-            cell.on('click', lambda s=full_src, p=fpath: _handle_grid_cell_click(s, p))
-            with cell:
-                ui.image(thumb_src).style(
-                    'width:100%; height:100%; object-fit:cover; display:block;'
-                )
-                
-                # Check if this image is hidden
-                fname = os.path.basename(fpath)
-                hidden_images = get_hidden_images()
-                if fname in hidden_images:
-                    with ui.element('div').classes('absolute inset-0 bg-black/60 flex items-center justify-center pointer-events-none'):
-                        ui.icon('visibility_off', size='24px').classes('text-white/60')
-            _register_selectable_cell(cell, fpath)
-            _add_delete_btn(cell, fpath)
-            _add_regenerate_btn(cell, fpath)
-            _add_info_btn(cell, fpath)
-            _add_edit_btn(cell, fpath)
 
     def _restore_last():
         """Go back to the last generated image (or placeholder)."""
