@@ -145,7 +145,7 @@ _grid_open = {'value': True}
 _grid_element = {'ref': None}
 _page_state = {
     'current_page': 1,
-    'page_size': 16,
+    'page_size': 12,
 }
 _selection_state = {
     'active': False,

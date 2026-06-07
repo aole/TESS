@@ -29,7 +29,6 @@ from services.visual_service import (
 )
 from utils.config import config_manager
 
-
 _CHECKER_BG = (
     'background-color: #1f2937;'
     'background-image: '
@@ -40,7 +39,6 @@ _CHECKER_BG = (
     'background-size: 24px 24px;'
     'background-position: 0 0, 0 12px, 12px -12px, -12px 0;'
 )
-
 
 def create_page():
     page_client = ui.context.client
@@ -180,8 +178,6 @@ def create_page():
                 remove_bg_status = ui.label('').classes('hidden text-xs text-purple-300 font-mono')
                 _gen_state['remove_bg_status'] = remove_bg_status
 
-
-
             with ui.dialog() as remove_bg_dialog, ui.card().classes('w-96 max-w-full gap-4'):
                 ui.label('Remove Background').classes('text-lg font-semibold')
                 remove_bg_model_input = ui.select(
@@ -196,8 +192,6 @@ def create_page():
                         icon='play_arrow',
                         on_click=_run_remove_background_from_dialog,
                     ).props('no-caps')
-
-
 
         # Center column – image area
         with ui.column().classes(
@@ -694,6 +688,12 @@ def create_page():
 
         return processed
 
+    def first_page():
+        if _page_state['current_page'] > 1:
+            _page_state['current_page'] = 1
+            _grid_element['ref'] = None
+            show_history()
+
     def prev_page():
         if _page_state['current_page'] > 1:
             _page_state['current_page'] -= 1
@@ -715,6 +715,24 @@ def create_page():
         total_pages = max(1, (len(images) + _page_state['page_size'] - 1) // _page_state['page_size'])
         if _page_state['current_page'] < total_pages:
             _page_state['current_page'] += 1
+            _grid_element['ref'] = None
+            show_history()
+
+    def last_page():
+        hidden_images = get_hidden_images()
+        hidden_set = set(hidden_images)
+
+        images = []
+        if os.path.isdir(_VISUAL_DIR):
+            all_files = [f for f in os.listdir(_VISUAL_DIR)
+                         if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS]
+            if app.storage.user.get('visual_show_hidden', False):
+                images = all_files
+            else:
+                images = [f for f in all_files if f not in hidden_set]
+        total_pages = max(1, (len(images) + _page_state['page_size'] - 1) // _page_state['page_size'])
+        if _page_state['current_page'] < total_pages:
+            _page_state['current_page'] = total_pages
             _grid_element['ref'] = None
             show_history()
 
@@ -769,14 +787,18 @@ def create_page():
                 'flex-shrink: 0;'
             ):
                 with ui.row().classes('items-center gap-1'):
-                    prev_btn = ui.button(icon='chevron_left', on_click=prev_page).props('flat dense round').classes('text-white/60 hover:text-white')
+                    first_btn = ui.button(icon='first_page', on_click=first_page).props('flat dense round').classes('text-white/60 hover:text-white').tooltip('First Page')
+                    prev_btn = ui.button(icon='chevron_left', on_click=prev_page).props('flat dense round').classes('text-white/60 hover:text-white').tooltip('Previous Page')
                     page_label = ui.label(f"{_page_state['current_page']} / {total_pages}").classes('text-white/80 text-xs font-mono')
-                    next_btn = ui.button(icon='chevron_right', on_click=next_page).props('flat dense round').classes('text-white/60 hover:text-white')
+                    next_btn = ui.button(icon='chevron_right', on_click=next_page).props('flat dense round').classes('text-white/60 hover:text-white').tooltip('Next Page')
+                    last_btn = ui.button(icon='last_page', on_click=last_page).props('flat dense round').classes('text-white/60 hover:text-white').tooltip('Last Page')
                     
                     if _page_state['current_page'] <= 1:
+                        first_btn.disable()
                         prev_btn.disable()
                     if _page_state['current_page'] >= total_pages:
                         next_btn.disable()
+                        last_btn.disable()
 
                 with ui.row().classes('items-center justify-center gap-2'):
                     ui.label('Select').classes(
@@ -826,14 +848,13 @@ def create_page():
             # Scrollable grid
             with ui.element('div').style(
                 'width: 100%;'
-                'overflow-y: auto;'
                 'flex: 1;'
                 'padding: 8px 12px 12px;'
             ):
                 grid = ui.element('div').style(
                     'display: grid;'
                     'grid-template-columns: repeat(4, 1fr);'
-                    'gap: 8px;'
+                    'gap: 5px;'
                 )
                 _grid_element['ref'] = grid
                 with grid:
@@ -1019,8 +1040,6 @@ def create_page():
             pct = _gen_state.get('pct', 0)
             progress_sidebar_label.set_text(f"Generating {g_idx} of {g_tot}")
             progress_sidebar_bar.set_value(pct / 100)
-
-
 
     async def on_generate_click():
         if _gen_state.get('active'):
