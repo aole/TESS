@@ -9,7 +9,7 @@ async def generate_image(prompt: str, negative_prompt: str = None) -> str:
         prompt: A detailed description of the image to generate. Ensure it's highly descriptive and includes anime style keywords.
                 Example keywords: "masterpiece, best quality, ultra-detailed, anime style, 2d illustration, vibrant colors".
                 Example prompt: "masterpiece, best quality, 1girl, solo, magical glowing forest, floating lights, anime style, highly detailed, beautiful eyes".
-        negative_prompt: Optional. A description of elements, styles, or defects to avoid in the generated image (e.g. "blurry, low quality").
+        negative_prompt: Optional. A description of elements, styles, or defects to avoid in the generated image (e.g. "worst quality, low quality, score_1, score_2, score_3").
 
     Returns:
         The file path to the generated image. You MUST show this image to the user in your markdown response using inline syntax: '![Generated Image](/{path})'
@@ -36,9 +36,9 @@ async def generate_image(prompt: str, negative_prompt: str = None) -> str:
             steps=steps,
             width=1024,
             height=1024,
-            cfg_scale=1.5,
-            turbo_lora=1.0
+            cfg_scale=4,
+            turbo_lora=0.8
         )
-        return f"Image successfully generated. Display the image using the following markdown:\n\n![Generated Image](/{output_path})"
+        return f"Image generated. In your markdown response, display the image using the exact markdown:\n\n![Generated Image](/{output_path})"
     except Exception as e:
         return f"Failed to generate image: {str(e)}"

@@ -35,8 +35,8 @@ def create_page():
         try:
             with open(PYTHON_SCRIPT_FILE, 'w', encoding='utf-8') as f:
                 f.write(python_code)
-        except Exception:
-            pass
+        except Exception as e:
+            ui.notify(f"Failed to save python code: {str(e)}", color="error")
 
     async def run_code():
         nonlocal process
@@ -57,7 +57,7 @@ def create_page():
             with open(PYTHON_SCRIPT_FILE, 'w', encoding='utf-8') as f:
                 f.write(python_code)
         except Exception as e:
-            output_log.push(f"Error saving file: {e}")
+            output_log.push(f"Error saving python code: {str(e)}")
             
         # Configure env to include current working directory in PYTHONPATH
         env = os.environ.copy()
