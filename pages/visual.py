@@ -8,24 +8,11 @@ from services.visual_service import (
     remove_image_files as _remove_image_files,
     unload_remove_background_session as _unload_remove_background_session,
     remove_background_file as _remove_background_file,
-    _grid_open,
-    _grid_element,
-    _page_state,
-    _selection_state,
     _initialized_users,
-    _view_state,
-    _gen_state,
-    _generation_queue,
-    _settings_ui,
-    _update_progress_labels,
-    _update_queue_ui,
-    _enqueue_job,
-    _regenerate_image,
-    _load_metadata,
     _update_select_options,
     get_hidden_images,
     set_hidden_images,
-    on_generate
+    VisualPageState
 )
 from utils.config import config_manager
 from pages.components.visual_components import (
@@ -103,6 +90,7 @@ def initialize_user_defaults(user_storage):
 
 def create_page():
     page_client = ui.context.client
+    state = VisualPageState(page_client)
 
     def _notify(msg, **kwargs):
         try:
@@ -113,17 +101,17 @@ def create_page():
 
     def _set_remove_background_busy(active: bool):
         if active:
-            remove_bg_btn.disable()
-            remove_bg_btn.set_text('Working...')
-            remove_bg_btn.props('loading')
-            remove_bg_status.set_text('Remove BG is working...')
-            remove_bg_status.classes(remove='hidden')
+            state.remove_bg_btn.disable()
+            state.remove_bg_btn.set_text('Working...')
+            state.remove_bg_btn.props('loading')
+            state.remove_bg_status.set_text('Remove BG is working...')
+            state.remove_bg_status.classes(remove='hidden')
         else:
-            remove_bg_btn.enable()
-            remove_bg_btn.set_text('Remove BG')
-            remove_bg_btn.props(remove='loading')
-            remove_bg_status.set_text('')
-            remove_bg_status.classes(add='hidden')
+            state.remove_bg_btn.enable()
+            state.remove_bg_btn.set_text('Remove BG')
+            state.remove_bg_btn.props(remove='loading')
+            state.remove_bg_status.set_text('')
+            state.remove_bg_status.classes(add='hidden')
 
     def _open_remove_background_dialog():
         remove_bg_model_input.options = app.storage.user.get('visual_remove_background_models', ['isnet-anime'])
@@ -156,8 +144,6 @@ def create_page():
         remove_bg_dialog.close()
         await _run_remove_background_from_context(model_name=model_name)
 
-
-
     initialize_user_defaults(app.storage.user)
 
     # ── Main layout ──────────────────────────────────────────────────────────
@@ -181,9 +167,9 @@ def create_page():
                     ).props('outline dense no-caps').classes('flex-1 text-sm').tooltip(
                         'Remove background from selected images or the current image'
                     )
-                    _gen_state['remove_bg_btn'] = remove_bg_btn
+                    state.remove_bg_btn = remove_bg_btn
                 remove_bg_status = ui.label('').classes('hidden text-xs text-purple-300 font-mono')
-                _gen_state['remove_bg_status'] = remove_bg_status
+                state.remove_bg_status = remove_bg_status
 
             with ui.dialog() as remove_bg_dialog, ui.card().classes('w-96 max-w-full gap-4'):
                 ui.label('Remove Background').classes('text-lg font-semibold')
@@ -205,11 +191,10 @@ def create_page():
             'rounded-lg border border-white/10 bg-black/20 '
             'relative'
         ).style('flex:3; min-width: 300px;') as image_container:
-            _gen_state['image_container'] = image_container
-            _gen_state['client'] = page_client
-            _gen_state['full_view_container'] = ui.element('div').classes('w-full h-full flex flex-col items-center justify-center hidden')
-            _gen_state['grid_view_container'] = ui.element('div').classes('w-full h-full flex flex-col hidden')
-            _grid_element['ref'] = None
+            state.image_container = image_container
+            state.full_view_container = ui.element('div').classes('w-full h-full flex flex-col items-center justify-center hidden')
+            state.grid_view_container = ui.element('div').classes('w-full h-full flex flex-col hidden')
+            state.grid_element_ref = None
 
         # Right column – settings
         with ui.column().classes('gap-3').style('flex: 1;'):
@@ -323,16 +308,16 @@ def create_page():
                     turbo_strength_slider, 'value', backward=lambda v: f"{v:.2f}"
                 )
             
-            _settings_ui['prompt'] = prompt
-            _settings_ui['negative_prompt'] = negative_prompt
-            _settings_ui['steps'] = steps
-            _settings_ui['image_width'] = image_width
-            _settings_ui['image_height'] = image_height
-            _settings_ui['cfg_scale_slider'] = cfg_scale_slider
-            _settings_ui['cfg_scale_label'] = cfg_scale_label
-            _settings_ui['turbo_checkbox'] = turbo_checkbox
-            _settings_ui['turbo_strength_slider'] = turbo_strength_slider
-            _settings_ui['turbo_strength_label'] = turbo_strength_label
+            state.settings_ui['prompt'] = prompt
+            state.settings_ui['negative_prompt'] = negative_prompt
+            state.settings_ui['steps'] = steps
+            state.settings_ui['image_width'] = image_width
+            state.settings_ui['image_height'] = image_height
+            state.settings_ui['cfg_scale_slider'] = cfg_scale_slider
+            state.settings_ui['cfg_scale_label'] = cfg_scale_label
+            state.settings_ui['turbo_checkbox'] = turbo_checkbox
+            state.settings_ui['turbo_strength_slider'] = turbo_strength_slider
+            state.settings_ui['turbo_strength_label'] = turbo_strength_label
             # Generate
             with ui.row().classes('w-full gap-4 mt-2 flex-nowrap items-center'):
                 generate_btn = ui.button('Generate', icon='brush').classes(
@@ -340,12 +325,12 @@ def create_page():
                     'bg-gradient-to-r from-purple-500 to-indigo-500 '
                     'hover:from-purple-600 hover:to-indigo-600 shadow-lg'
                 ).style('flex: 4;')
-                _gen_state['generate_btn'] = generate_btn
+                state.generate_btn = generate_btn
                 
                 queue_btn = ui.button(icon='queue_play_next').props('outline').classes(
                     'h-12 text-md transition-all duration-300'
                 ).style('flex: 1; min-width: 64px;').tooltip('Queue Generation')
-                _gen_state['queue_btn'] = queue_btn
+                state.queue_btn = queue_btn
 
             # Denoising and i2i button
             with ui.row().classes('w-full gap-4 mt-2 flex-nowrap items-center'):
@@ -365,27 +350,25 @@ def create_page():
                     'bg-gradient-to-r from-teal-500 to-emerald-500 '
                     'hover:from-teal-600 hover:to-emerald-600 shadow-lg'
                 ).style('flex: 0 0 auto; width: 90px;').tooltip('Image to Image (itoi) Generation')
-                _gen_state['itoi_btn'] = itoi_btn
+                state.itoi_btn = itoi_btn
 
             # Progress section below generate/queue buttons
             progress_sidebar = ui.column().classes('w-full gap-2 mt-2 hidden')
             with progress_sidebar:
                 progress_sidebar_label = ui.label('Generating 0 of 0').classes('text-sm text-gray-300 font-medium')
                 progress_sidebar_bar = ui.linear_progress(value=0, show_value=False).classes('w-full').props('rounded color=purple')
-            _gen_state['progress_sidebar'] = progress_sidebar
-            _gen_state['progress_sidebar_label'] = progress_sidebar_label
-            _gen_state['progress_sidebar_bar'] = progress_sidebar_bar
-
-    # State is now managed at the module level
+            state.progress_sidebar = progress_sidebar
+            state.progress_sidebar_label = progress_sidebar_label
+            state.progress_sidebar_bar = progress_sidebar_bar
 
     # ── Helper: restore the "no image" placeholder ───────────────────────────
     def show_placeholder():
         if page_client._deleted:
             return
-        _grid_open['value'] = False
-        _view_state['current_image'] = None
-        full_view = _gen_state.get('full_view_container')
-        grid_view = _gen_state.get('grid_view_container')
+        state.grid_open = False
+        state.current_image = None
+        full_view = state.full_view_container
+        grid_view = state.grid_view_container
         if not full_view or not grid_view: return
         
         grid_view.classes(add='hidden')
@@ -404,8 +387,8 @@ def create_page():
     def _get_image_callbacks():
         return {
             'delete': _delete_image,
-            'regenerate': _regenerate_image,
-            'info': _load_metadata
+            'regenerate': state.regenerate_image,
+            'info': state.load_metadata
         }
 
     # ── Helper: show a single image full-size inside image_container ─────────
@@ -413,10 +396,10 @@ def create_page():
         """path is the web-accessible URL string (e.g. '/data/visual/foo.png')."""
         if page_client._deleted:
             return
-        _grid_open['value'] = False
-        _view_state['current_image'] = path.lstrip('/')
-        full_view = _gen_state.get('full_view_container')
-        grid_view = _gen_state.get('grid_view_container')
+        state.grid_open = False
+        state.current_image = path.lstrip('/')
+        full_view = state.full_view_container
+        grid_view = state.grid_view_container
         if not full_view or not grid_view: return
         
         grid_view.classes(add='hidden')
@@ -431,71 +414,71 @@ def create_page():
             )
 
     def _update_selection_controls():
-        selected_count = len(_selection_state['selected'])
-        toggle_btn = _selection_state.get('toggle_btn')
-        delete_btn = _selection_state.get('delete_btn')
-        hide_btn = _selection_state.get('hide_btn')
-        edit_layers_btn = _selection_state.get('edit_layers_btn')
-        count_label = _selection_state.get('count_label')
+        selected_count = len(state.selected_images)
+        toggle_btn = state.toggle_btn
+        delete_btn = state.delete_btn
+        hide_btn = state.hide_btn
+        edit_layers_btn = state.edit_layers_btn
+        count_label = state.count_label
 
         if toggle_btn:
-            if _selection_state['active']:
+            if state.selection_active:
                 toggle_btn.props('icon=check_box color=primary')
             else:
                 toggle_btn.props('icon=check_box_outline_blank color=white')
 
         if delete_btn:
-            if _selection_state['active'] and selected_count:
+            if state.selection_active and selected_count:
                 delete_btn.enable()
             else:
                 delete_btn.disable()
 
         if hide_btn:
-            if _selection_state['active'] and selected_count:
+            if state.selection_active and selected_count:
                 hide_btn.enable()
             else:
                 hide_btn.disable()
 
         if edit_layers_btn:
-            if _selection_state['active'] and selected_count:
+            if state.selection_active and selected_count:
                 edit_layers_btn.enable()
             else:
                 edit_layers_btn.disable()
 
         if count_label:
-            count_label.set_text(f'{selected_count} selected' if _selection_state['active'] else '')
+            count_label.set_text(f'{selected_count} selected' if state.selection_active else '')
 
     def _update_cell_selection(fpath: str):
-        refs = _selection_state['cells'].get(fpath)
+        refs = state.cells.get(fpath)
         if not refs:
             return
         overlay = refs.get('overlay')
         if not overlay:
             return
-        if fpath in _selection_state['selected']:
+        if fpath in state.selected_images:
             overlay.classes(remove='hidden')
         else:
             overlay.classes(add='hidden')
 
     def _toggle_selection_mode():
-        _selection_state['active'] = not _selection_state['active']
-        if not _selection_state['active']:
-            selected = list(_selection_state['selected'])
-            _selection_state['selected'].clear()
+        state.selection_active = not state.selection_active
+        if not state.selection_active:
+            selected = list(state.selected_images)
+            state.selected_images.clear()
             for fpath in selected:
                 _update_cell_selection(fpath)
         _update_selection_controls()
 
     def _toggle_image_selection(fpath: str):
-        if fpath in _selection_state['selected']:
-            _selection_state['selected'].remove(fpath)
+        if fpath in state.selected_images:
+            state.selected_images.remove(fpath)
         else:
-            _selection_state['selected'].add(fpath)
+            state.selected_images.add(fpath)
         _update_cell_selection(fpath)
         _update_selection_controls()
 
     def _handle_grid_cell_click(full_src: str, fpath: str):
-        if _selection_state['active']:
+        if state.selection_active:
             _toggle_image_selection(fpath)
         else:
             show_image(full_src)
@@ -512,11 +495,11 @@ def create_page():
                 ui.icon('check_circle', size='30px').classes(
                     'absolute top-2 right-2 text-purple-200 drop-shadow'
                 )
-        _selection_state['cells'][fpath] = {'cell': cell, 'overlay': overlay}
+        state.cells[fpath] = {'cell': cell, 'overlay': overlay}
         _update_cell_selection(fpath)
 
     def _toggle_selected_images_hide():
-        selected = list(_selection_state['selected'])
+        selected = list(state.selected_images)
         if not selected:
             return
             
@@ -543,14 +526,14 @@ def create_page():
             ui.notify(f"Unhid {len(selected)} image(s).", type='info')
             
         set_hidden_images(hidden_images)
-        _selection_state['selected'].clear()
-        _selection_state['active'] = False
-        _grid_element['ref'] = None
+        state.selected_images.clear()
+        state.selection_active = False
+        state.grid_element_ref = None
         show_history()
         _update_selection_controls()
 
     def _delete_selected_images():
-        selected = list(_selection_state['selected'])
+        selected = list(state.selected_images)
         if not selected:
             return
 
@@ -564,9 +547,9 @@ def create_page():
             if last and any(os.path.normpath(last) == os.path.normpath(path) for path in selected):
                 app.storage.user['visual_last_image'] = None
 
-            _selection_state['selected'].clear()
-            _selection_state['active'] = False
-            _grid_element['ref'] = None
+            state.selected_images.clear()
+            state.selection_active = False
+            state.grid_element_ref = None
             ui.notify(f'Deleted {deleted} image{"s" if deleted != 1 else ""}.', type='info')
             show_history()
         except Exception as exc:
@@ -575,7 +558,7 @@ def create_page():
             _update_selection_controls()
 
     def _edit_selected_images_as_layers():
-        selected = list(_selection_state['selected'])
+        selected = list(state.selected_images)
         if not selected:
             ui.notify('No images selected.', type='warning')
             return
@@ -583,10 +566,10 @@ def create_page():
         ui.navigate.to(f'/edit?imgs={imgs_param}')
 
     def _tool_context_paths():
-        if _grid_open['value']:
-            return [path for path in _selection_state['selected'] if os.path.exists(path)]
+        if state.grid_open:
+            return [path for path in state.selected_images if os.path.exists(path)]
 
-        current = _view_state.get('current_image')
+        current = state.current_image
         if current and os.path.exists(current):
             return [current]
         return []
@@ -612,11 +595,11 @@ def create_page():
 
             if processed:
                 app.storage.user['visual_last_image'] = processed[-1]
-                _grid_element['ref'] = None
-                if _grid_open['value']:
-                    _page_state['current_page'] = 1
-                    _selection_state['selected'].clear()
-                    _selection_state['active'] = False
+                state.grid_element_ref = None
+                if state.grid_open:
+                    state.current_page = 1
+                    state.selected_images.clear()
+                    state.selection_active = False
                     show_history()
                 else:
                     show_image(f'/{processed[-1]}')
@@ -634,15 +617,15 @@ def create_page():
         return processed
 
     def first_page():
-        if _page_state['current_page'] > 1:
-            _page_state['current_page'] = 1
-            _grid_element['ref'] = None
+        if state.current_page > 1:
+            state.current_page = 1
+            state.grid_element_ref = None
             show_history()
 
     def prev_page():
-        if _page_state['current_page'] > 1:
-            _page_state['current_page'] -= 1
-            _grid_element['ref'] = None
+        if state.current_page > 1:
+            state.current_page -= 1
+            state.grid_element_ref = None
             show_history()
 
     def next_page():
@@ -657,10 +640,10 @@ def create_page():
                 images = all_files
             else:
                 images = [f for f in all_files if f not in hidden_set]
-        total_pages = max(1, (len(images) + _page_state['page_size'] - 1) // _page_state['page_size'])
-        if _page_state['current_page'] < total_pages:
-            _page_state['current_page'] += 1
-            _grid_element['ref'] = None
+        total_pages = max(1, (len(images) + state.page_size - 1) // state.page_size)
+        if state.current_page < total_pages:
+            state.current_page += 1
+            state.grid_element_ref = None
             show_history()
 
     def last_page():
@@ -675,23 +658,23 @@ def create_page():
                 images = all_files
             else:
                 images = [f for f in all_files if f not in hidden_set]
-        total_pages = max(1, (len(images) + _page_state['page_size'] - 1) // _page_state['page_size'])
-        if _page_state['current_page'] < total_pages:
-            _page_state['current_page'] = total_pages
-            _grid_element['ref'] = None
+        total_pages = max(1, (len(images) + state.page_size - 1) // state.page_size)
+        if state.current_page < total_pages:
+            state.current_page = total_pages
+            state.grid_element_ref = None
             show_history()
 
     # ── Helper: open the history grid inside image_container ─────────────────
     def show_history():
-        _grid_open['value'] = True
-        full_view = _gen_state.get('full_view_container')
-        grid_view = _gen_state.get('grid_view_container')
+        state.grid_open = True
+        full_view = state.full_view_container
+        grid_view = state.grid_view_container
         if not full_view or not grid_view: return
         
         full_view.classes(add='hidden')
         grid_view.classes(remove='hidden')
         
-        if _grid_element.get('ref') is not None:
+        if state.grid_element_ref is not None:
             return  # Grid already built
 
         hidden_images = get_hidden_images()
@@ -710,21 +693,21 @@ def create_page():
                 images = [f for f in all_files if f not in hidden_set]
 
         total_images = len(images)
-        page_size = _page_state['page_size']
+        page_size = state.page_size
         total_pages = max(1, (total_images + page_size - 1) // page_size)
 
-        if _page_state['current_page'] > total_pages:
-            _page_state['current_page'] = total_pages
-        if _page_state['current_page'] < 1:
-            _page_state['current_page'] = 1
+        if state.current_page > total_pages:
+            state.current_page = total_pages
+        if state.current_page < 1:
+            state.current_page = 1
 
         grid_view.clear()
-        _selection_state['cells'] = {}
-        _selection_state['toggle_btn'] = None
-        _selection_state['delete_btn'] = None
-        _selection_state['hide_btn'] = None
-        _selection_state['edit_layers_btn'] = None
-        _selection_state['count_label'] = None
+        state.cells = {}
+        state.toggle_btn = None
+        state.delete_btn = None
+        state.hide_btn = None
+        state.edit_layers_btn = None
+        state.count_label = None
         
         with grid_view:
             # Header bar
@@ -734,14 +717,14 @@ def create_page():
                 with ui.row().classes('items-center gap-1'):
                     first_btn = ui.button(icon='first_page', on_click=first_page).props('flat dense round').classes('text-white/60 hover:text-white').tooltip('First Page')
                     prev_btn = ui.button(icon='chevron_left', on_click=prev_page).props('flat dense round').classes('text-white/60 hover:text-white').tooltip('Previous Page')
-                    page_label = ui.label(f"{_page_state['current_page']} / {total_pages}").classes('text-white/80 text-xs font-mono')
+                    page_label = ui.label(f"{state.current_page} / {total_pages}").classes('text-white/80 text-xs font-mono')
                     next_btn = ui.button(icon='chevron_right', on_click=next_page).props('flat dense round').classes('text-white/60 hover:text-white').tooltip('Next Page')
                     last_btn = ui.button(icon='last_page', on_click=last_page).props('flat dense round').classes('text-white/60 hover:text-white').tooltip('Last Page')
                     
-                    if _page_state['current_page'] <= 1:
+                    if state.current_page <= 1:
                         first_btn.disable()
                         prev_btn.disable()
-                    if _page_state['current_page'] >= total_pages:
+                    if state.current_page >= total_pages:
                         next_btn.disable()
                         last_btn.disable()
 
@@ -749,7 +732,7 @@ def create_page():
                     ui.label('Select').classes(
                         'text-white/60 text-sm font-semibold uppercase tracking-widest'
                     )
-                    _selection_state['toggle_btn'] = ui.button(
+                    state.toggle_btn = ui.button(
                         icon='check_box_outline_blank',
                         on_click=_toggle_selection_mode,
                     ).props('flat dense round').style(
@@ -757,25 +740,25 @@ def create_page():
                         'color: rgba(255,255,255,0.55);'
                     ).tooltip('Select images')
                     ui.separator().props('vertical').classes('h-6 bg-white/20')
-                    _selection_state['delete_btn'] = ui.button(
+                    state.delete_btn = ui.button(
                         icon='delete',
                         on_click=_delete_selected_images,
                     ).props('flat dense round color=negative').style(
                         'width: 30px; height: 30px; min-height: unset;'
                     ).tooltip('Delete selected images')
-                    _selection_state['hide_btn'] = ui.button(
+                    state.hide_btn = ui.button(
                         icon='visibility_off',
                         on_click=_toggle_selected_images_hide,
                     ).props('flat dense round color=warning').style(
                         'width: 30px; height: 30px; min-height: unset;'
                     ).tooltip('Hide/Unhide selected images')
-                    _selection_state['edit_layers_btn'] = ui.button(
+                    state.edit_layers_btn = ui.button(
                         icon='layers',
                         on_click=_edit_selected_images_as_layers,
                     ).props('flat dense round color=primary').style(
                         'width: 30px; height: 30px; min-height: unset;'
                     ).tooltip('Send selected images to edit page as layers')
-                    _selection_state['count_label'] = ui.label('').classes('text-white/40 text-xs font-mono')
+                    state.count_label = ui.label('').classes('text-white/40 text-xs font-mono')
                     _update_selection_controls()
                 ui.button(icon='close', on_click=_restore_last).props('flat dense').classes(
                     'text-white/40 hover:text-white/80'
@@ -786,7 +769,7 @@ def create_page():
                 return
 
             # Slice images for the current page
-            start_idx = (_page_state['current_page'] - 1) * page_size
+            start_idx = (state.current_page - 1) * page_size
             end_idx = start_idx + page_size
             visible_images = images[start_idx:end_idx]
 
@@ -801,7 +784,7 @@ def create_page():
                     'grid-template-columns: repeat(4, 1fr);'
                     'gap: 5px;'
                 )
-                _grid_element['ref'] = grid
+                state.grid_element_ref = grid
                 with grid:
                     os.makedirs("data/visual/thumbs", exist_ok=True)
                     for fname in visible_images:
@@ -827,7 +810,7 @@ def create_page():
     def _delete_image(fpath: str, cell_div=None):
         try:
             next_to_show = None
-            if not _grid_open['value']:
+            if not state.grid_open:
                 filename = os.path.basename(fpath)
                 hidden_images = get_hidden_images()
                 hidden_set = set(hidden_images)
@@ -854,33 +837,31 @@ def create_page():
             last = app.storage.user.get('visual_last_image')
             if last and os.path.normpath(last) == os.path.normpath(fpath):
                 app.storage.user['visual_last_image'] = None
-            _selection_state['selected'].discard(fpath)
-            _selection_state['cells'].pop(fpath, None)
+            state.selected_images.discard(fpath)
+            state.cells.pop(fpath, None)
             _update_selection_controls()
                 
             ui.notify('Image deleted.', type='info')
             
-            if _grid_open['value']:
-                _grid_element['ref'] = None
+            if state.grid_open:
+                state.grid_element_ref = None
                 show_history()
-            elif not _grid_open['value']:
+            elif not state.grid_open:
                 if next_to_show:
                     app.storage.user['visual_last_image'] = next_to_show.lstrip('/')
                     show_image(next_to_show)
                 else:
                     show_placeholder()
-                _grid_element['ref'] = None  # Force rebuild next time grid is opened
+                state.grid_element_ref = None  # Force rebuild next time grid is opened
                 
         except Exception as exc:
             ui.notify(f'Could not delete image: {exc}', type='negative')
 
-
-
     def _restore_last():
         """Go back to the last generated image (or placeholder)."""
-        _grid_open['value'] = False
+        state.grid_open = False
         
-        if _gen_state['active']:
+        if state.gen_active:
             show_placeholder()
             return
             
@@ -890,14 +871,14 @@ def create_page():
         else:
             show_placeholder()
 
-    _gen_state['show_history'] = show_history
-    _gen_state['show_image'] = show_image
-    _gen_state['show_placeholder'] = show_placeholder
-    _gen_state['update_progress_labels'] = _update_progress_labels
+    state.show_history = show_history
+    state.show_image = show_image
+    state.show_placeholder = show_placeholder
+    state.update_progress_labels_cb = state.update_progress_labels
 
-    if _grid_open['value']:
+    if state.grid_open:
         show_history()
-    elif _gen_state['active']:
+    elif state.gen_active:
         show_placeholder()
     else:
         last = app.storage.user.get('visual_last_image')
@@ -906,24 +887,24 @@ def create_page():
         else:
             show_placeholder()
         
-    if _gen_state['active']:
+    if state.gen_active:
         generate_btn.props('color=red icon=stop')
         generate_btn.set_text('Stop')
         generate_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
         if progress_sidebar:
             progress_sidebar.classes(remove='hidden')
-            g_idx = _gen_state.get('global_idx', 1)
-            g_tot = _gen_state.get('global_total', 1)
-            pct = _gen_state.get('pct', 0)
+            g_idx = state.global_idx
+            g_tot = state.global_total
+            pct = state.gen_pct
             progress_sidebar_label.set_text(f"Generating {g_idx} of {g_tot}")
             progress_sidebar_bar.set_value(pct / 100)
 
     async def on_generate_click():
-        if _gen_state.get('active'):
-            _gen_state['cancel'] = True
-            _generation_queue.clear()
-            _update_queue_ui()
-            gen_btn = _gen_state.get('generate_btn')
+        if state.gen_active:
+            state.gen_cancel = True
+            state.generation_queue.clear()
+            state.update_queue_ui()
+            gen_btn = state.generate_btn
             if gen_btn:
                 gen_btn.set_text('Stopping...')
                 gen_btn.disable()
@@ -937,7 +918,7 @@ def create_page():
             cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
             turbo_lora_val = float(app.storage.user.get('visual_turbo_lora_strength', 1.0)) if app.storage.user.get('visual_turbo_lora_enabled', False) else 0.0
             
-            success = _enqueue_job(
+            success = state.enqueue_job(
                 raw_prompt_str, 
                 neg_prompt, 
                 steps_val, 
@@ -949,7 +930,7 @@ def create_page():
             if not success:
                 ui.notify('Please enter a positive prompt', type='warning')
                 return
-            await on_generate()
+            await state.on_generate()
 
     async def on_queue_click():
         raw_prompt_str = prompt.value
@@ -961,7 +942,7 @@ def create_page():
         cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
         turbo_lora_val = float(app.storage.user.get('visual_turbo_lora_strength', 1.0)) if app.storage.user.get('visual_turbo_lora_enabled', False) else 0.0
         
-        success = _enqueue_job(
+        success = state.enqueue_job(
             raw_prompt_str, 
             neg_prompt, 
             steps_val, 
@@ -975,8 +956,8 @@ def create_page():
             return
             
         ui.notify('Added to queue.', type='info')
-        if not _gen_state['active']:
-            await on_generate()
+        if not state.gen_active:
+            await state.on_generate()
 
     async def on_itoi_click():
         try:
@@ -1001,7 +982,7 @@ def create_page():
             
             # Enqueue a job for each selected input image
             for path in input_paths:
-                _enqueue_job(
+                state.enqueue_job(
                     raw_prompt_str,
                     neg_prompt,
                     steps_val,
@@ -1014,8 +995,8 @@ def create_page():
                 )
                 
             ui.notify(f'Added {len(input_paths)} image-to-image job(s) to queue.', type='info')
-            if not _gen_state.get('active'):
-                await on_generate()
+            if not state.gen_active:
+                await state.on_generate()
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
@@ -1028,4 +1009,7 @@ def create_page():
         queue_btn.on('click', on_queue_click)
     if itoi_btn:
         itoi_btn.on('click', on_itoi_click)
-    _update_queue_ui()
+    
+    # We update UI for queue if callback is set
+    state.update_queue_ui_cb = lambda: None
+    state.update_queue_ui()
