@@ -12,6 +12,13 @@ from core.generate_image import generate_anima_image, unload_pipeline
 from utils.llm_client import client as llm_client
 from core.modify_image import modify_image as core_modify_image, unload_session as unload_modify_image_session
 
+def parse_resolution(res_str: str, default: tuple = (1024, 1024)) -> tuple[int, int]:
+    try:
+        w, h = map(int, res_str.split('x'))
+        return w, h
+    except (ValueError, AttributeError):
+        return default
+
 def generate_image_task(
     prompt: str,
     negative_prompt: str,
@@ -271,15 +278,13 @@ class VisualPageState:
         input_image_val=None,
         denoising_strength_val: float = 1.0
     ) -> bool:
-        try:
-            w_str, h_str = size_val.split('x')
-            w, h = int(w_str), int(h_str)
-            pixels = w * h
-            if pixels < 512 * 512 or pixels > 1536 * 1536:
-                ui.notify(f"Resolution {w}x{h} ({pixels} pixels) is outside the supported range of 512² to 1536² pixels.", type='warning')
-                return False
-        except Exception as e:
-            ui.notify(f"Invalid image resolution: {e}", type='warning')
+        w, h = parse_resolution(size_val, default=(0, 0))
+        if w == 0 or h == 0:
+            ui.notify(f"Invalid image resolution: {size_val}", type='warning')
+            return False
+        pixels = w * h
+        if pixels < 512 * 512 or pixels > 1536 * 1536:
+            ui.notify(f"Resolution {w}x{h} ({pixels} pixels) is outside the supported range of 512² to 1536² pixels.", type='warning')
             return False
 
         raw_prompts = [p.strip() for p in raw_prompt_str.split('///') if p.strip()]
@@ -491,14 +496,14 @@ class VisualPageState:
                         self.update_progress_labels_cb()
 
                     try:
-                        w_str, h_str = job['image_size'].split('x')
+                        w, h = parse_resolution(job['image_size'])
                         output_path = await run.io_bound(
                             generate_image_task,
                             current_p,
                             job['negative_prompt'],
                             job['steps'],
-                            int(w_str),
-                            int(h_str),
+                            w,
+                            h,
                             on_progress,
                             unload_after=False,
                             cfg_scale=job['cfg_scale'],

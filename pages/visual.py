@@ -12,7 +12,8 @@ from services.visual_service import (
     _update_select_options,
     get_hidden_images,
     set_hidden_images,
-    VisualPageState
+    VisualPageState,
+    parse_resolution
 )
 from utils.config import config_manager
 from pages.components.visual_components import (
@@ -54,17 +55,11 @@ def initialize_user_defaults(user_storage):
         user_storage['visual_image_size'] = '1024x1024'
     if 'visual_image_width' not in user_storage or 'visual_image_height' not in user_storage:
         old_size = user_storage.get('visual_image_size', '1024x1024')
-        try:
-            w_str, h_str = old_size.split('x')
-            if 'visual_image_width' not in user_storage:
-                user_storage['visual_image_width'] = int(w_str)
-            if 'visual_image_height' not in user_storage:
-                user_storage['visual_image_height'] = int(h_str)
-        except Exception:
-            if 'visual_image_width' not in user_storage:
-                user_storage['visual_image_width'] = 1024
-            if 'visual_image_height' not in user_storage:
-                user_storage['visual_image_height'] = 1024
+        w, h = parse_resolution(old_size)
+        if 'visual_image_width' not in user_storage:
+            user_storage['visual_image_width'] = w
+        if 'visual_image_height' not in user_storage:
+            user_storage['visual_image_height'] = h
     if 'visual_inference_steps' not in user_storage:
         user_storage['visual_inference_steps'] = 30
     if 'visual_batch_count' not in user_storage:
