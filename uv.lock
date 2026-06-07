@@ -543,8 +543,8 @@ wheels = [
 
 [[package]]
 name = "diffsynth"
-version = "2.0.11"
-source = { git = "https://github.com/modelscope/DiffSynth-Studio.git#44c52da807c6c97e7f0501cf48f701736c7e9ce1" }
+version = "2.0.12"
+source = { git = "https://github.com/modelscope/DiffSynth-Studio.git#6d103c0830ff51d34cd041783de4216decbb3a1d" }
 dependencies = [
     { name = "accelerate" },
     { name = "datasets" },

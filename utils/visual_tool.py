@@ -36,7 +36,7 @@ async def generate_image(prompt: str, negative_prompt: str = None) -> str:
             steps=steps,
             width=1024,
             height=1024,
-            cfg_scale=4,
+            cfg_scale=1,
             turbo_lora=0.8
         )
         return f"Image generated. In your markdown response, display the image using the exact markdown:\n\n![Generated Image](/{output_path})"
