@@ -23,6 +23,8 @@ from services.visual_service import (
     _regenerate_image,
     _load_metadata,
     _update_select_options,
+    get_hidden_images,
+    set_hidden_images,
     on_generate
 )
 from utils.config import config_manager
@@ -106,8 +108,6 @@ def create_page():
         app.storage.user['visual_show_hidden'] = False
         _initialized_users.add(user_id)
 
-    if 'visual_hidden_images' not in app.storage.user:
-        app.storage.user['visual_hidden_images'] = []
     if 'visual_show_hidden' not in app.storage.user:
         app.storage.user['visual_show_hidden'] = False
 
@@ -405,9 +405,7 @@ def create_page():
 
     # ── Helper: render full image with navigation ────────────────────────────
     def _render_image_with_nav(path: str):
-        hidden_images = app.storage.user.get('visual_hidden_images', [])
-        if not isinstance(hidden_images, list):
-            hidden_images = []
+        hidden_images = get_hidden_images()
         hidden_set = set(hidden_images)
 
         images = []
@@ -587,9 +585,7 @@ def create_page():
         if not selected:
             return
             
-        hidden_images = app.storage.user.get('visual_hidden_images', [])
-        if not isinstance(hidden_images, list):
-            hidden_images = []
+        hidden_images = get_hidden_images()
             
         any_visible = False
         for fpath in selected:
@@ -611,7 +607,7 @@ def create_page():
                     hidden_images.remove(fname)
             ui.notify(f"Unhid {len(selected)} image(s).", type='info')
             
-        app.storage.user['visual_hidden_images'] = hidden_images
+        set_hidden_images(hidden_images)
         _selection_state['selected'].clear()
         _selection_state['active'] = False
         _grid_element['ref'] = None
@@ -709,9 +705,7 @@ def create_page():
             show_history()
 
     def next_page():
-        hidden_images = app.storage.user.get('visual_hidden_images', [])
-        if not isinstance(hidden_images, list):
-            hidden_images = []
+        hidden_images = get_hidden_images()
         hidden_set = set(hidden_images)
 
         images = []
@@ -741,9 +735,7 @@ def create_page():
         if _grid_element.get('ref') is not None:
             return  # Grid already built
 
-        hidden_images = app.storage.user.get('visual_hidden_images', [])
-        if not isinstance(hidden_images, list):
-            hidden_images = []
+        hidden_images = get_hidden_images()
         hidden_set = set(hidden_images)
 
         images = []
@@ -869,9 +861,7 @@ def create_page():
             next_to_show = None
             if not _grid_open['value']:
                 filename = os.path.basename(fpath)
-                hidden_images = app.storage.user.get('visual_hidden_images', [])
-                if not isinstance(hidden_images, list):
-                    hidden_images = []
+                hidden_images = get_hidden_images()
                 hidden_set = set(hidden_images)
                 if os.path.isdir(_VISUAL_DIR):
                     all_files = sorted(
@@ -982,9 +972,7 @@ def create_page():
                 
                 # Check if this image is hidden
                 fname = os.path.basename(fpath)
-                hidden_images = app.storage.user.get('visual_hidden_images', [])
-                if not isinstance(hidden_images, list):
-                    hidden_images = []
+                hidden_images = get_hidden_images()
                 if fname in hidden_images:
                     with ui.element('div').classes('absolute inset-0 bg-black/60 flex items-center justify-center pointer-events-none'):
                         ui.icon('visibility_off', size='24px').classes('text-white/60')

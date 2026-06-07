@@ -281,6 +281,28 @@ async def _regenerate_image(fpath: str):
     except Exception as e:
         ui.notify(f"Could not read metadata: {e}", type='negative')
 
+_HIDDEN_IMAGES_FILE = 'data/visual/hidden_images.json'
+
+def get_hidden_images() -> list:
+    if not os.path.exists(_HIDDEN_IMAGES_FILE):
+        return []
+    try:
+        with open(_HIDDEN_IMAGES_FILE, 'r') as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
+    except Exception:
+        pass
+    return []
+
+def set_hidden_images(hidden_list: list):
+    try:
+        os.makedirs(os.path.dirname(_HIDDEN_IMAGES_FILE), exist_ok=True)
+        with open(_HIDDEN_IMAGES_FILE, 'w') as f:
+            json.dump(hidden_list, f, indent=4)
+    except Exception as e:
+        print(f"Error saving hidden images: {e}")
+
 def _update_select_options(select_el, val):
     if isinstance(select_el.options, list):
         seen = set()
