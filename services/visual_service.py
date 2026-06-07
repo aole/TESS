@@ -410,13 +410,7 @@ async def on_generate():
         gen_btn.set_text('Stop')
         gen_btn.classes(remove='from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600', add='from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600')
     
-    _page_state['current_page'] = 1
-    if _grid_open['value']:
-        _grid_element['ref'] = None
-        if _gen_state.get('show_history'):
-            _gen_state['show_history']()
-    else:
-        _grid_element['ref'] = None
+    _grid_element['ref'] = None
     
     _gen_state['global_idx'] = 0
     _gen_state['global_total'] = sum(len(job['prompts']) for job in _generation_queue)
@@ -462,13 +456,7 @@ async def on_generate():
             raw_prompts = job['prompts']
             total_prompts = len(raw_prompts)
             
-            _page_state['current_page'] = 1
-            if _grid_open['value']:
-                _grid_element['ref'] = None
-                if _gen_state.get('show_history'):
-                    _gen_state['show_history']()
-            else:
-                _grid_element['ref'] = None
+            _grid_element['ref'] = None
             _gen_state['total'] = total_prompts
             _gen_state['pct'] = 0
             
@@ -520,6 +508,7 @@ async def on_generate():
                     
                     if active_client and not active_client._deleted:
                         if _grid_open['value'] and _gen_state.get('show_history'):
+                            _page_state['current_page'] = 1
                             _grid_element['ref'] = None
                             _gen_state['show_history']()
                         elif not _view_state['current_image'] and _gen_state.get('show_image'):

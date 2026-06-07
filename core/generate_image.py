@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import torch
 import gc
 import datetime
@@ -48,8 +49,8 @@ def get_pipeline(vram_limit: float):
                     origin_file_pattern="split_files/vae/qwen_image_vae.safetensors", 
                 ),
             ],
-            tokenizer_config=ModelConfig(model_id="Qwen/Qwen3-0.6B", origin_file_pattern="./"),
-            tokenizer_t5xxl_config=ModelConfig(model_id="aoleb/t5-v1_1-xxl-tokenizer", origin_file_pattern="./"),
+            tokenizer_config=ModelConfig(model_id="circlestone-labs/Anima-Base-v1.0-Diffusers", origin_file_pattern="tokenizer/"),
+            tokenizer_t5xxl_config=ModelConfig(model_id="circlestone-labs/Anima-Base-v1.0-Diffusers", origin_file_pattern="t5_tokenizer/"),
             vram_limit=vram_limit,
         )
     return _cached_pipe
@@ -164,16 +165,14 @@ def generate_anima_image(
             )
     except InterruptedError:
         print("Generation cancelled by user")
-        if unload_after:
-            del pipe
-            unload_pipeline()
         return None
     except Exception as e:
         print(f"Error during inference: {e}")
+        raise e
+    finally:
         if unload_after:
             del pipe
             unload_pipeline()
-        raise e
 
     # Handle output path
     if output_path:
@@ -211,10 +210,6 @@ def generate_anima_image(
     # Save the generated image
     image.save(output_path, pnginfo=metadata)
     print(f"Success: saved as {output_path}")
-
-    if unload_after:
-        del pipe
-        unload_pipeline()
         
     return output_path
 
