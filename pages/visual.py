@@ -18,7 +18,8 @@ from services.visual_service import (
 from utils.config import config_manager
 from pages.components.visual_components import (
     render_image_with_nav,
-    add_grid_cell
+    add_grid_cell,
+    VisualActionCallbacks
 )
 
 def initialize_user_defaults(user_storage):
@@ -368,7 +369,7 @@ def create_page():
                 ui.icon('image', size='64px').classes('text-white/10 mb-4')
                 ui.label('Generated image will appear here').classes('text-white/30 text-lg')
 
-    def _get_image_callbacks():
+    def _get_image_callbacks() -> VisualActionCallbacks:
         return {
             'delete': _delete_image,
             'regenerate': state.regenerate_image,

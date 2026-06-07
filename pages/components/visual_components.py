@@ -1,10 +1,17 @@
 import os
+from typing import TypedDict, Callable, Any
 from nicegui import ui, app
 from services.visual_service import (
     _VISUAL_EXTS,
     _VISUAL_DIR,
     get_hidden_images
 )
+
+class VisualActionCallbacks(TypedDict):
+    delete: Callable[[str, Any], None]
+    regenerate: Callable[[str], Any]
+    info: Callable[[str], Any]
+
 
 def add_delete_button(cell_div, fpath: str, delete_cb):
     with cell_div:
@@ -34,7 +41,7 @@ def add_info_button(cell_div, fpath: str, info_cb):
         ).tooltip('Load Parameters')
         btn.on('click.stop', lambda: info_cb(fpath))
 
-def add_hover_buttons(cell_div, fpath: str, callbacks: dict):
+def add_hover_buttons(cell_div, fpath: str, callbacks: VisualActionCallbacks):
     add_delete_button(cell_div, fpath, callbacks['delete'])
     add_regenerate_button(cell_div, fpath, callbacks['regenerate'])
     add_info_button(cell_div, fpath, callbacks['info'])
@@ -46,7 +53,7 @@ def render_checkerboard_image(path: str):
             'm-auto w-full h-full object-contain rounded-lg shadow-xl transition-all duration-300'
         )
 
-def render_image_with_nav(path: str, show_history_cb, show_image_cb, callbacks: dict):
+def render_image_with_nav(path: str, show_history_cb, show_image_cb, callbacks: VisualActionCallbacks):
     hidden_images = get_hidden_images()
     hidden_set = set(hidden_images)
 
@@ -114,7 +121,7 @@ def render_image_with_nav(path: str, show_history_cb, show_image_cb, callbacks: 
                 'absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white hover:bg-black/80 z-10'
             )
 
-def add_grid_cell(grid, thumb_src: str, full_src: str, fpath: str, is_hidden: bool, click_cb, register_cell_cb, callbacks: dict):
+def add_grid_cell(grid, thumb_src: str, full_src: str, fpath: str, is_hidden: bool, click_cb, register_cell_cb, callbacks: VisualActionCallbacks):
     with grid:
         cell = ui.element('div').classes('group visual-grid-cell checkerboard-bg')
         cell.on('click', lambda: click_cb(full_src, fpath))
