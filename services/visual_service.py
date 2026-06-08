@@ -70,7 +70,7 @@ def generate_image_task(
             thumb.thumbnail((256, 256))
             thumb_name = os.path.splitext(fname)[0] + ".webp"
             thumb_path = os.path.join("data/visual/thumbs", thumb_name)
-            thumb.save(thumb_path, format="WEBP")
+            thumb.save(thumb_path, format="WEBP", quality=80, optimize=True)
     except Exception as e:
         print(f"Failed to generate thumbnail: {e}")
 
@@ -122,7 +122,7 @@ def create_thumbnail(fpath: str):
         thumb_path = os.path.join(thumb_dir, thumb_name).replace('\\', '/')
         with Image.open(fpath) as img:
             img.thumbnail((256, 256))
-            img.save(thumb_path, format="WEBP")
+            img.save(thumb_path, format="WEBP", quality=80, optimize=True)
     except Exception:
         ui.notify('Failed to generate thumbnail', type='error')
 

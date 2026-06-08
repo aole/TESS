@@ -63,55 +63,46 @@ def initialize_user_defaults(user_storage):
         user_storage['visual_show_hidden'] = False
         _initialized_users.add(user_id)
 
-    if 'visual_show_hidden' not in user_storage:
-        user_storage['visual_show_hidden'] = False
-
-    if 'visual_positive_prompt' not in user_storage:
-        user_storage['visual_positive_prompt'] = (
+    defaults = {
+        'visual_show_hidden': False,
+        'visual_positive_prompt': (
             "masterpiece, best quality, score_7, safe, abandoned cathedral, nature reclaiming architecture, "
             "vines and flowers, shafts of sunlight, dust particles, tranquil atmosphere, Studio Ghibli inspired"
-        )
-    if 'visual_negative_prompt' not in user_storage:
-        user_storage['visual_negative_prompt'] = (
-            "worst quality, low quality, score_1, score_2, score_3, artist name, sepia"
-        )
-    if 'visual_image_size' not in user_storage:
-        user_storage['visual_image_size'] = '1024x1024'
+        ),
+        'visual_negative_prompt': "worst quality, low quality, score_1, score_2, score_3, artist name, sepia",
+        'visual_image_size': '1024x1024',
+        'visual_inference_steps': 30,
+        'visual_batch_count': 1,
+        'visual_upscale_auto': False,
+        'visual_upscale_scale': 2.0,
+        'visual_upscale_tile': 0,
+        'visual_remove_background_auto': False,
+        'visual_remove_background_model': 'isnet-anime',
+        'visual_remove_background_models': ['isnet-anime'],
+        'visual_cfg_scale': 4.0,
+        'visual_turbo_lora_enabled': False,
+        'visual_turbo_lora_strength': 1.0,
+        'visual_denoising_strength': 0.6
+    }
+
+    for key, val in defaults.items():
+        if key not in user_storage:
+            user_storage[key] = val
+
     if 'visual_image_width' not in user_storage or 'visual_image_height' not in user_storage:
-        old_size = user_storage.get('visual_image_size', '1024x1024')
-        w, h = parse_resolution(old_size)
+        w, h = parse_resolution(user_storage.get('visual_image_size', '1024x1024'))
         if 'visual_image_width' not in user_storage:
             user_storage['visual_image_width'] = w
         if 'visual_image_height' not in user_storage:
             user_storage['visual_image_height'] = h
-    if 'visual_inference_steps' not in user_storage:
-        user_storage['visual_inference_steps'] = 30
-    if 'visual_batch_count' not in user_storage:
-        user_storage['visual_batch_count'] = 1
-    if 'visual_upscale_auto' not in user_storage:
-        user_storage['visual_upscale_auto'] = False
-    if 'visual_upscale_scale' not in user_storage:
-        user_storage['visual_upscale_scale'] = 2.0
-    if 'visual_upscale_tile' not in user_storage:
-        user_storage['visual_upscale_tile'] = 0
-    if 'visual_remove_background_auto' not in user_storage:
-        user_storage['visual_remove_background_auto'] = False
-    if 'visual_remove_background_model' not in user_storage:
-        user_storage['visual_remove_background_model'] = 'isnet-anime'
-    if 'visual_remove_background_models' not in user_storage:
+
+    models = user_storage.get('visual_remove_background_models')
+    if not isinstance(models, list):
         user_storage['visual_remove_background_models'] = ['isnet-anime']
-    elif not isinstance(user_storage['visual_remove_background_models'], list):
-        user_storage['visual_remove_background_models'] = ['isnet-anime']
-    if user_storage['visual_remove_background_model'] not in user_storage['visual_remove_background_models']:
-        user_storage['visual_remove_background_models'].append(user_storage['visual_remove_background_model'])
-    if 'visual_cfg_scale' not in user_storage:
-        user_storage['visual_cfg_scale'] = 4.0
-    if 'visual_turbo_lora_enabled' not in user_storage:
-        user_storage['visual_turbo_lora_enabled'] = False
-    if 'visual_turbo_lora_strength' not in user_storage:
-        user_storage['visual_turbo_lora_strength'] = 1.0
-    if 'visual_denoising_strength' not in user_storage:
-        user_storage['visual_denoising_strength'] = 0.6
+    
+    current_model = user_storage.get('visual_remove_background_model', 'isnet-anime')
+    if current_model not in user_storage['visual_remove_background_models']:
+        user_storage['visual_remove_background_models'].append(current_model)
 
 def create_page():
     page_client = ui.context.client
