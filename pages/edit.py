@@ -31,8 +31,9 @@ async def upload_edited_image(file: UploadFile = File(...), original_path: str =
         with Image.open(output_path) as img:
             thumb = img.copy()
             thumb.thumbnail((256, 256))
-            thumb_path = f"data/visual/thumbs/{fname}"
-            thumb.save(thumb_path)
+            thumb_name = os.path.splitext(fname)[0] + ".webp"
+            thumb_path = f"data/visual/thumbs/{thumb_name}"
+            thumb.save(thumb_path, format="WEBP")
     except Exception as e:
         print(f"Failed to generate thumbnail for edited image: {e}")
         
@@ -160,8 +161,9 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                         with Image.open(output_path) as img:
                             thumb = img.copy()
                             thumb.thumbnail((256, 256))
-                            thumb_path = f"data/visual/thumbs/{fname}"
-                            thumb.save(thumb_path)
+                            thumb_name = os.path.splitext(fname)[0] + ".webp"
+                            thumb_path = f"data/visual/thumbs/{thumb_name}"
+                            thumb.save(thumb_path, format="WEBP")
                     except Exception as err:
                         print(f"Failed to generate thumbnail: {err}")
                         

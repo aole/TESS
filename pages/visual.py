@@ -925,7 +925,8 @@ def create_page():
                     for fname in visible_images:
                         fpath = f'{_VISUAL_DIR}/{fname}'
                         src = f'/{fpath}'
-                        thumb_path = f'data/visual/thumbs/{fname}'
+                        thumb_name = os.path.splitext(fname)[0] + ".webp"
+                        thumb_path = f'data/visual/thumbs/{thumb_name}'
                         
                         if not os.path.exists(thumb_path):
                             thumb_src = src

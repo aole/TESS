@@ -68,8 +68,9 @@ def generate_image_task(
         with Image.open(res_path) as img:
             thumb = img.copy()
             thumb.thumbnail((256, 256))
-            thumb_path = os.path.join("data/visual/thumbs", fname)
-            thumb.save(thumb_path)
+            thumb_name = os.path.splitext(fname)[0] + ".webp"
+            thumb_path = os.path.join("data/visual/thumbs", thumb_name)
+            thumb.save(thumb_path, format="WEBP")
     except Exception as e:
         print(f"Failed to generate thumbnail: {e}")
 
@@ -115,12 +116,13 @@ def new_visual_output_path(ext: str = '.png') -> str:
 def create_thumbnail(fpath: str):
     try:
         fname = os.path.basename(fpath)
+        thumb_name = os.path.splitext(fname)[0] + ".webp"
         thumb_dir = 'data/visual/thumbs'
         os.makedirs(thumb_dir, exist_ok=True)
-        thumb_path = os.path.join(thumb_dir, fname).replace('\\', '/')
+        thumb_path = os.path.join(thumb_dir, thumb_name).replace('\\', '/')
         with Image.open(fpath) as img:
             img.thumbnail((256, 256))
-            img.save(thumb_path)
+            img.save(thumb_path, format="WEBP")
     except Exception:
         ui.notify('Failed to generate thumbnail', type='error')
 
@@ -128,7 +130,8 @@ def remove_image_files(fpath: str):
     if os.path.exists(fpath):
         os.remove(fpath)
     fname = os.path.basename(fpath)
-    thumb_path = f"data/visual/thumbs/{fname}"
+    thumb_name = os.path.splitext(fname)[0] + ".webp"
+    thumb_path = f"data/visual/thumbs/{thumb_name}"
     if os.path.exists(thumb_path):
         os.remove(thumb_path)
 
