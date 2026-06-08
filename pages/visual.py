@@ -363,27 +363,22 @@ def create_page():
                 except ValueError:
                     ui.notify(f"Invalid height: {stored_h}", type="warning")
 
-            def on_width_change(e):
+            def handle_dimension_change(e, min_val=512, max_val=1536):
                 val = e.value
                 if isinstance(val, str) and val.isdigit():
                     val = int(val)
                 if isinstance(val, (int, float)):
-                    val = max(512, min(int(val), 1536))
+                    val = max(min_val, min(int(val), max_val))
                 if val is not None:
                     _update_select_options(e.sender, val)
                     if e.sender.value != val:
                         e.sender.value = val
 
+            def on_width_change(e):
+                handle_dimension_change(e)
+
             def on_height_change(e):
-                val = e.value
-                if isinstance(val, str) and val.isdigit():
-                    val = int(val)
-                if isinstance(val, (int, float)):
-                    val = max(512, min(int(val), 1536))
-                if val is not None:
-                    _update_select_options(e.sender, val)
-                    if e.sender.value != val:
-                        e.sender.value = val
+                handle_dimension_change(e)
 
             with ui.row().classes('w-full flex-nowrap'):
                 with ui.column().classes('flex-grow gap-1'):
