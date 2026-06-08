@@ -334,6 +334,13 @@ def create_page():
             height_options = [512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536]
 
             stored_w = app.storage.user.get('visual_image_width')
+            if stored_w is not None:
+                try:
+                    stored_w = max(512, min(int(stored_w), 1536))
+                    app.storage.user['visual_image_width'] = stored_w
+                except ValueError:
+                    pass
+
             if stored_w and stored_w not in width_options:
                 try:
                     width_options.append(int(stored_w))
@@ -342,6 +349,13 @@ def create_page():
                     ui.notify(f"Invalid width: {stored_w}", type="warning")
 
             stored_h = app.storage.user.get('visual_image_height')
+            if stored_h is not None:
+                try:
+                    stored_h = max(512, min(int(stored_h), 1536))
+                    app.storage.user['visual_image_height'] = stored_h
+                except ValueError:
+                    pass
+
             if stored_h and stored_h not in height_options:
                 try:
                     height_options.append(int(stored_h))
@@ -353,6 +367,8 @@ def create_page():
                 val = e.value
                 if isinstance(val, str) and val.isdigit():
                     val = int(val)
+                if isinstance(val, (int, float)):
+                    val = max(512, min(int(val), 1536))
                 if val is not None:
                     _update_select_options(e.sender, val)
                     if e.sender.value != val:
@@ -362,6 +378,8 @@ def create_page():
                 val = e.value
                 if isinstance(val, str) and val.isdigit():
                     val = int(val)
+                if isinstance(val, (int, float)):
+                    val = max(512, min(int(val), 1536))
                 if val is not None:
                     _update_select_options(e.sender, val)
                     if e.sender.value != val:
