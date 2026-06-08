@@ -1,8 +1,9 @@
 import os
 import datetime
-from PIL import Image
+from PIL import Image, ImageOps
 from fastapi import UploadFile, File, Form
 from nicegui import ui, app, run
+from services.visual_service import create_thumbnail
 
 # Register the upload API route at import time
 @app.post('/upload-edited-image')
@@ -27,15 +28,7 @@ async def upload_edited_image(file: UploadFile = File(...), original_path: str =
         f.write(contents)
         
     # Generate thumbnail
-    try:
-        with Image.open(output_path) as img:
-            thumb = img.copy()
-            thumb.thumbnail((256, 256))
-            thumb_name = os.path.splitext(fname)[0] + ".webp"
-            thumb_path = f"data/visual/thumbs/{thumb_name}"
-            thumb.save(thumb_path, format="WEBP")
-    except Exception as e:
-        print(f"Failed to generate thumbnail for edited image: {e}")
+    create_thumbnail(output_path)
         
     app.storage.user['visual_last_image'] = output_path
     
@@ -157,15 +150,8 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                     with open(output_path, "wb") as f:
                         f.write(contents)
                         
-                    try:
-                        with Image.open(output_path) as img:
-                            thumb = img.copy()
-                            thumb.thumbnail((256, 256))
-                            thumb_name = os.path.splitext(fname)[0] + ".webp"
-                            thumb_path = f"data/visual/thumbs/{thumb_name}"
-                            thumb.save(thumb_path, format="WEBP")
-                    except Exception as err:
-                        print(f"Failed to generate thumbnail: {err}")
+                    # Generate thumbnail
+                    create_thumbnail(output_path)
                         
                     app.storage.user['visual_last_image'] = output_path
                     web_path = f"/{output_path}"

@@ -6,7 +6,7 @@ import re
 import gc
 import itertools
 import io
-from PIL import Image
+from PIL import Image, ImageOps
 from pathlib import Path
 from nicegui import ui, run, app
 from core.generate_image import generate_anima_image, unload_pipeline
@@ -64,15 +64,7 @@ def generate_image_task(
         return None
 
     # 5. Generate and save thumbnail
-    try:
-        with Image.open(res_path) as img:
-            thumb = img.copy()
-            thumb.thumbnail((256, 256))
-            thumb_name = os.path.splitext(fname)[0] + ".webp"
-            thumb_path = os.path.join("data/visual/thumbs", thumb_name)
-            thumb.save(thumb_path, format="WEBP", quality=80, optimize=True)
-    except Exception as e:
-        print(f"Failed to generate thumbnail: {e}")
+    create_thumbnail(res_path)
 
     return res_path
 
@@ -121,10 +113,10 @@ def create_thumbnail(fpath: str):
         os.makedirs(thumb_dir, exist_ok=True)
         thumb_path = os.path.join(thumb_dir, thumb_name).replace('\\', '/')
         with Image.open(fpath) as img:
-            img.thumbnail((256, 256))
-            img.save(thumb_path, format="WEBP", quality=80, optimize=True)
-    except Exception:
-        ui.notify('Failed to generate thumbnail', type='error')
+            thumb = ImageOps.fit(img, (256, 256), method=Image.Resampling.LANCZOS)
+            thumb.save(thumb_path, format="WEBP", quality=80, optimize=True)
+    except Exception as e:
+        print(f"Failed to generate thumbnail for {fpath}: {e}")
 
 def remove_image_files(fpath: str):
     if os.path.exists(fpath):
