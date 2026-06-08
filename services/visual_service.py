@@ -7,6 +7,7 @@ import gc
 import itertools
 import io
 from PIL import Image
+from pathlib import Path
 from nicegui import ui, run, app
 from core.generate_image import generate_anima_image, unload_pipeline
 from utils.llm_client import client as llm_client
@@ -146,6 +147,62 @@ def remove_background_file(fpath: str, model_name: str) -> str:
     create_thumbnail(output_path)
     return output_path
 
+_cached_upsampler = None
+_cached_upsampler_tile = None
+
+# Retrieve or initialize the cached Real-ESRGAN upsampler instance.
+def get_upsampler(tile: int):
+    global _cached_upsampler, _cached_upsampler_tile
+    if _cached_upsampler is None or _cached_upsampler_tile != tile:
+        # Exception: Import heavy ML dependencies inline to speed up startup load times
+        from core.upscale_realesrgan_anime import create_upsampler, MODEL_NAME, MODEL_URL, download_file
+        weights_dir = Path("models/realesrgan")
+        model_path = weights_dir / f"{MODEL_NAME}.pth"
+        download_file(MODEL_URL, model_path)
+        
+        _cached_upsampler = create_upsampler(
+            model_path=model_path,
+            tile=tile,
+            tile_pad=10,
+            pre_pad=10,
+            fp32=False,
+            gpu_id=None
+        )
+        _cached_upsampler_tile = tile
+    return _cached_upsampler
+
+# Unload the upsampler from memory and clear PyTorch CUDA cache.
+def unload_upsampler():
+    global _cached_upsampler, _cached_upsampler_tile
+    if _cached_upsampler is not None:
+        print("Unloading upsampler...")
+        _cached_upsampler = None
+        _cached_upsampler_tile = None
+        # Exception: Import heavy PyTorch library inline to avoid memory footprint during startup
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    gc.collect()
+
+# Upscale a single image file using the cached upsampler and generate a thumbnail.
+def upscale_image_file(fpath: str, outscale: float, tile: int) -> str:
+    # Exception: Import heavy ML dependency inline to load on-demand when upscaling
+    from core.upscale_realesrgan_anime import upscale_image
+    output_path = new_visual_output_path()
+    upsampler = get_upsampler(tile=tile)
+    success = upscale_image(
+        upsampler=upsampler,
+        input_path=Path(fpath),
+        output_path=Path(output_path),
+        outscale=outscale,
+        alpha_upsampler="realesrgan"
+    )
+    if not success:
+        raise RuntimeError("Upscaling failed.")
+    create_thumbnail(output_path)
+    return output_path
+
+
 _HIDDEN_IMAGES_FILE = 'data/visual/hidden_images.json'
 
 def get_hidden_images() -> list:
@@ -232,6 +289,8 @@ class VisualPageState:
         self.itoi_btn = None
         self.remove_bg_btn = None
         self.remove_bg_status = None
+        self.upscale_btn = None
+        self.upscale_status = None
         
         self.progress_sidebar = None
         self.progress_sidebar_label = None
@@ -307,6 +366,9 @@ class VisualPageState:
             'image_size': size_val,
             'remove_background_auto': app.storage.user.get('visual_remove_background_auto', False),
             'remove_background_model': app.storage.user.get('visual_remove_background_model', 'isnet-anime'),
+            'upscale_auto': app.storage.user.get('visual_upscale_auto', False),
+            'upscale_scale': float(app.storage.user.get('visual_upscale_scale', 2.0)),
+            'upscale_tile': int(app.storage.user.get('visual_upscale_tile', 0)),
             'cfg_scale': cfg_scale_val,
             'turbo_lora': turbo_lora_val,
             'input_image': input_image_val,
@@ -525,6 +587,17 @@ class VisualPageState:
                             finally:
                                 await run.io_bound(unload_remove_background_session)
 
+                        if job.get('upscale_auto'):
+                            safe_notify('Upscaling image...', type='info', pos='bottom-right', timeout=1500)
+                            try:
+                                scale_val = job.get('upscale_scale', 2.0)
+                                tile_val = job.get('upscale_tile', 0)
+                                output_path = await run.io_bound(upscale_image_file, output_path, scale_val, tile_val)
+                            except Exception as tool_exc:
+                                safe_notify(f'Upscaling failed: {tool_exc}', type='negative')
+                            finally:
+                                await run.io_bound(unload_upsampler)
+
                         user_storage['visual_last_image'] = output_path
                         
                         active_client = self.client
@@ -543,6 +616,7 @@ class VisualPageState:
                             safe_notify(f'Generated {idx+1}/{total_prompts}', type='positive', pos='bottom-right', timeout=2000)
 
                     except Exception as e:
+                        # Exception: Import traceback inline in error handler to avoid overhead on startup
                         import traceback
                         traceback.print_exc()
                         safe_notify(f'Failed to generate image {idx+1}: {str(e)}', type='negative')

@@ -1,5 +1,6 @@
 import os
 import asyncio
+from PIL import Image
 from nicegui import ui, run, app
 from services.visual_service import (
     _VISUAL_EXTS,
@@ -8,6 +9,8 @@ from services.visual_service import (
     remove_image_files as _remove_image_files,
     unload_remove_background_session as _unload_remove_background_session,
     remove_background_file as _remove_background_file,
+    upscale_image_file as _upscale_image_file,
+    unload_upsampler as _unload_upsampler,
     _initialized_users,
     _update_select_options,
     get_hidden_images,
@@ -54,6 +57,12 @@ def initialize_user_defaults(user_storage):
         user_storage['visual_inference_steps'] = 30
     if 'visual_batch_count' not in user_storage:
         user_storage['visual_batch_count'] = 1
+    if 'visual_upscale_auto' not in user_storage:
+        user_storage['visual_upscale_auto'] = False
+    if 'visual_upscale_scale' not in user_storage:
+        user_storage['visual_upscale_scale'] = 2.0
+    if 'visual_upscale_tile' not in user_storage:
+        user_storage['visual_upscale_tile'] = 0
     if 'visual_remove_background_auto' not in user_storage:
         user_storage['visual_remove_background_auto'] = False
     if 'visual_remove_background_model' not in user_storage:
@@ -75,14 +84,10 @@ def initialize_user_defaults(user_storage):
 
 def create_page():
     page_client = ui.context.client
+    upscale_scale_slider = None
+    upscale_size_label = None
+    upscale_scale_val_label = None
     state = VisualPageState(page_client)
-
-    def _notify(msg, **kwargs):
-        try:
-            if page_client and not page_client._deleted:
-                page_client.notify(msg, **kwargs)
-        except Exception:
-            pass
 
     def _set_remove_background_busy(active: bool):
         if active:
@@ -97,6 +102,51 @@ def create_page():
             state.remove_bg_btn.props(remove='loading')
             state.remove_bg_status.set_text('')
             state.remove_bg_status.classes(add='hidden')
+
+    # Dynamically calculate and update the projected upscaled image dimensions label.
+    def _update_upscaled_size_label(scale_val=None):
+        if upscale_scale_slider is None or upscale_size_label is None:
+            return
+        if scale_val is None:
+            scale_val = float(upscale_scale_slider.value)
+        dims = getattr(state, '_upscale_source_dims', None)
+        if dims:
+            w, h = dims
+            new_w = int(w * scale_val)
+            new_h = int(h * scale_val)
+            upscale_size_label.set_text(f"Upscaled size: {w}x{h} -> {new_w}x{new_h}")
+        else:
+            upscale_size_label.set_text("Upscaled size: N/A")
+
+    # Resolve selected/active targets, load dimensions, and open the upscale dialog.
+    def _open_upscale_dialog():
+        targets = _tool_context_paths()
+        if not targets:
+            _notify('Select images in grid view or open an image first.', type='warning')
+            return
+            
+        try:
+            with Image.open(targets[0]) as img:
+                w, h = img.size
+            state._upscale_source_dims = (w, h)
+        except Exception:
+            state._upscale_source_dims = None
+
+        current_scale = app.storage.user.get('visual_upscale_scale', 4.0)
+        upscale_scale_slider.value = current_scale
+        upscale_scale_val_label.set_text(f"{current_scale:.2f}x")
+        upscale_tile_input.value = app.storage.user.get('visual_upscale_tile', 0)
+        _update_upscaled_size_label()
+        upscale_dialog.open()
+
+    # Save upscaling configuration inputs and initiate the upscaling execution context.
+    async def _run_upscale_from_dialog():
+        scale_val = float(upscale_scale_slider.value)
+        tile_val = int(upscale_tile_input.value)
+        app.storage.user['visual_upscale_scale'] = scale_val
+        app.storage.user['visual_upscale_tile'] = tile_val
+        upscale_dialog.close()
+        await _run_upscale_from_context(scale_val=scale_val, tile_val=tile_val)
 
     def _open_remove_background_dialog():
         remove_bg_model_input.options = app.storage.user.get('visual_remove_background_models', ['isnet-anime'])
@@ -154,9 +204,56 @@ def create_page():
                     )
                     state.remove_bg_btn = remove_bg_btn
                 remove_bg_status = ui.label('').classes('hidden text-xs text-purple-300 font-mono')
+                
+                with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
+                    ui.checkbox().bind_value(
+                        app.storage.user, 'visual_upscale_auto'
+                    ).tooltip('Run after image generation')
+                    upscale_btn = ui.button(
+                        'Upscale',
+                        icon='zoom_in',
+                        on_click=_open_upscale_dialog,
+                    ).props('outline dense no-caps').classes('flex-1 text-sm').tooltip(
+                        'Upscale selected images or the current image'
+                    )
+                    state.upscale_btn = upscale_btn
+                upscale_status = ui.label('').classes('hidden text-xs text-purple-300 font-mono')
+                state.upscale_status = upscale_status
                 state.remove_bg_status = remove_bg_status
 
-            with ui.dialog() as remove_bg_dialog, ui.card().classes('w-96 max-w-full gap-4'):
+            with ui.dialog() as upscale_dialog, ui.card().classes('w-96 max-w-full p-6 gap-6'):
+                ui.label('Upscale Image').classes('text-lg font-semibold')
+                
+                with ui.column().classes('w-full gap-1'):
+                    with ui.row().classes('w-full justify-between items-center'):
+                        ui.label('Scale').classes('text-sm text-gray-400')
+                        upscale_scale_val_label = ui.label(
+                            f"{app.storage.user.get('visual_upscale_scale', 4.0):.2f}x"
+                        ).classes('text-sm text-gray-300 font-mono')
+                    upscale_scale_slider = ui.slider(
+                        min=1.0, max=4.0, step=0.01,
+                        on_change=lambda e: [
+                            upscale_scale_val_label.set_text(f"{e.value:.2f}x") if upscale_scale_val_label else None,
+                            _update_upscaled_size_label(e.value)
+                        ]
+                    ).classes('w-full').bind_value(app.storage.user, 'visual_upscale_scale')
+                
+                upscale_size_label = ui.label('').classes('text-sm text-purple-300 font-mono')
+
+                upscale_tile_input = ui.select(
+                    {0: 'No Tiling', 256: '256 (Low VRAM)', 512: '512'},
+                    label='Tile Size',
+                    value=app.storage.user['visual_upscale_tile'],
+                ).classes('w-full')
+                with ui.row().classes('w-full justify-end gap-2'):
+                    ui.button('Cancel', on_click=upscale_dialog.close).props('flat no-caps')
+                    ui.button(
+                        'Run',
+                        icon='play_arrow',
+                        on_click=_run_upscale_from_dialog,
+                    ).props('no-caps')
+
+            with ui.dialog() as remove_bg_dialog, ui.card().classes('w-96 max-w-full p-6 gap-6'):
                 ui.label('Remove Background').classes('text-lg font-semibold')
                 remove_bg_model_input = ui.select(
                     app.storage.user['visual_remove_background_models'],
@@ -558,6 +655,59 @@ def create_page():
         if current and os.path.exists(current):
             return [current]
         return []
+
+    # Toggle loading status and disable/enable controls for the upscale tool UI.
+    def _set_upscale_busy(active: bool):
+        if active:
+            state.upscale_btn.disable()
+            state.upscale_btn.set_text('Working...')
+            state.upscale_btn.props('loading')
+            state.upscale_status.set_text('Upscaling is working...')
+            state.upscale_status.classes(remove='hidden')
+        else:
+            state.upscale_btn.enable()
+            state.upscale_btn.set_text('Upscale')
+            state.upscale_btn.props(remove='loading')
+            state.upscale_status.set_text('')
+            state.upscale_status.classes(add='hidden')
+
+    # Iterate over the target images and run the upscaling operation on each.
+    async def _run_upscale_from_context(paths=None, *, scale_val=None, tile_val=None, auto=False):
+        targets = list(paths) if paths else _tool_context_paths()
+        if not targets:
+            _notify('Select images in grid view or open an image first.', type='warning')
+            return []
+
+        scale_val = float(scale_val if scale_val is not None else app.storage.user.get('visual_upscale_scale', 4.0))
+        tile_val = int(tile_val if tile_val is not None else app.storage.user.get('visual_upscale_tile', 0))
+
+        processed = []
+        _set_upscale_busy(True)
+        try:
+            for fpath in targets:
+                output_path = await run.io_bound(_upscale_image_file, fpath, scale_val, tile_val)
+                processed.append(output_path)
+
+            if processed:
+                app.storage.user['visual_last_image'] = processed[-1]
+                state.grid_element_ref = None
+                if state.grid_open:
+                    state.current_page = 1
+                    state.selected_images.clear()
+                    state.selection_active = False
+                    show_history()
+                else:
+                    show_image(f'/{processed[-1]}')
+                if not auto:
+                    _notify(f'Upscaled {len(processed)} image{"s" if len(processed) != 1 else ""}.', type='positive')
+        except Exception as exc:
+            _notify(f'Could not upscale image: {exc}', type='negative')
+        finally:
+            await run.io_bound(_unload_upsampler)
+            _set_upscale_busy(False)
+            _update_selection_controls()
+
+        return processed
 
     async def _run_remove_background_from_context(paths=None, *, model_name=None, auto=False):
         targets = list(paths) if paths else _tool_context_paths()
@@ -983,6 +1133,7 @@ def create_page():
             if not state.gen_active:
                 await state.on_generate()
         except Exception as e:
+            # Exception: Import traceback inline in error handler to avoid startup overhead
             import traceback
             tb = traceback.format_exc()
             print(f"Error in on_itoi_click: {e}\n{tb}")
