@@ -5,11 +5,11 @@ Uses:
     RealESRGAN_x4plus_anime_6B
 
 Examples:
-    python core/upscale_realesrgan_anime.py input.png
-    python core/upscale_realesrgan_anime.py input1.png input2.jpg -o outputs
-    python core/upscale_realesrgan_anime.py images_folder -o outputs --recursive
-    python core/upscale_realesrgan_anime.py images_folder -o outputs --outscale 2
-    python core/upscale_realesrgan_anime.py input.png --tile 256
+    python core/upscale_image.py input.png
+    python core/upscale_image.py input1.png input2.jpg -o outputs
+    python core/upscale_image.py images_folder -o outputs --recursive
+    python core/upscale_image.py images_folder -o outputs --outscale 2
+    python core/upscale_image.py input.png --tile 256
 
 Notes:
     - This model internally upscales by 4x.

@@ -158,7 +158,7 @@ def get_upsampler(tile: int):
     global _cached_upsampler, _cached_upsampler_tile
     if _cached_upsampler is None or _cached_upsampler_tile != tile:
         # Exception: Import heavy ML dependencies inline to speed up startup load times
-        from core.upscale_realesrgan_anime import create_upsampler, MODEL_NAME, MODEL_URL, download_file
+        from core.upscale_image import create_upsampler, MODEL_NAME, MODEL_URL, download_file
         weights_dir = Path("models/realesrgan")
         model_path = weights_dir / f"{MODEL_NAME}.pth"
         download_file(MODEL_URL, model_path)
@@ -190,7 +190,7 @@ def unload_upsampler():
 # Upscale a single image file using the cached upsampler and generate a thumbnail.
 def upscale_image_file(fpath: str, outscale: float, tile: int) -> str:
     # Exception: Import heavy ML dependency inline to load on-demand when upscaling
-    from core.upscale_realesrgan_anime import upscale_image
+    from core.upscale_image import upscale_image
     output_path = new_visual_output_path()
     upsampler = get_upsampler(tile=tile)
     success = upscale_image(
