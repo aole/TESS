@@ -1,7 +1,10 @@
 import os
 import asyncio
+import shutil
+import datetime
 from PIL import Image
 from nicegui import ui, run, app
+from fastapi import UploadFile, File, HTTPException
 from services.visual_service import (
     _VISUAL_EXTS,
     _VISUAL_DIR,
@@ -24,6 +27,34 @@ from pages.components.visual_components import (
     add_grid_cell,
     VisualActionCallbacks
 )
+
+@app.post('/upload_visual_image')
+async def upload_visual_image(file: UploadFile = File(...)):
+    filename = file.filename
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in _VISUAL_EXTS:
+        raise HTTPException(status_code=400, detail="Invalid file extension")
+    
+    os.makedirs(_VISUAL_DIR, exist_ok=True)
+    
+    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    # Clean filename to avoid directory traversal
+    safe_name = "".join(c for c in filename if c.isalnum() or c in "._-")
+    out_fname = f"tess_{timestamp}_{safe_name}"
+    out_path = os.path.join(_VISUAL_DIR, out_fname).replace('\\', '/')
+    
+    # Save the file
+    with open(out_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    # Generate thumbnail
+    try:
+        _create_thumbnail(out_path)
+    except Exception as e:
+        print(f"Failed to generate thumbnail for uploaded image: {e}")
+        
+    return {"status": "success", "filepath": out_path}
+
 
 def initialize_user_defaults(user_storage):
     global _initialized_users
@@ -122,7 +153,7 @@ def create_page():
     def _open_upscale_dialog():
         targets = _tool_context_paths()
         if not targets:
-            _notify('Select images in grid view or open an image first.', type='warning')
+            ui.notify('Select images in grid view or open an image first.', type='warning')
             return
             
         try:
@@ -172,7 +203,7 @@ def create_page():
     async def _run_remove_background_from_dialog():
         model_name = (remove_bg_model_input.value or '').strip()
         if not model_name:
-            _notify('Enter a rembg model name.', type='warning')
+            ui.notify('Enter a rembg model name.', type='warning')
             return
 
         _remember_remove_background_model(model_name)
@@ -272,11 +303,148 @@ def create_page():
         with ui.column().classes(
             'rounded-lg border border-white/10 bg-black/20 '
             'relative'
-        ).style('flex:3; min-width: 300px;') as image_container:
+        ).style('flex:3; min-width: 300px;').props('id=visual-image-container') as image_container:
             state.image_container = image_container
             state.full_view_container = ui.element('div').classes('w-full h-full flex flex-col items-center justify-center hidden')
             state.grid_view_container = ui.element('div').classes('w-full h-full flex flex-col hidden')
             state.grid_element_ref = None
+
+            # Hidden refresh button to reload the visual grid when JS detects new uploads
+            def handle_upload_refresh():
+                state.grid_element_ref = None
+                show_history()
+                ui.notify('Image(s) uploaded successfully!', type='positive')
+
+            ui.button(on_click=handle_upload_refresh).props('id=visual-refresh-btn').classes('hidden')
+
+            # Drag-and-drop HTML/JS controller
+            ui.run_javascript("""
+(function() {
+    // Check if style already injected
+    if (!document.getElementById('visual-drag-style')) {
+        const style = document.createElement('style');
+        style.id = 'visual-drag-style';
+        style.innerHTML = `
+            @keyframes visual-spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+            .visual-spin {
+                animation: visual-spin 1s linear infinite;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    const container = document.getElementById('visual-image-container');
+    if (!container) return;
+
+    // Remove old overlay if it exists
+    const oldOverlay = document.getElementById('visual-drag-overlay');
+    if (oldOverlay) {
+        oldOverlay.remove();
+    }
+
+    // Create a beautiful drag and drop overlay inside the container
+    const overlay = document.createElement('div');
+    overlay.id = 'visual-drag-overlay';
+    overlay.className = 'hidden absolute inset-0 flex flex-col items-center justify-center rounded-lg z-[9999] transition-all duration-300';
+    overlay.style.backgroundColor = 'rgba(15, 23, 42, 0.85)'; 
+    overlay.style.backdropFilter = 'blur(8px)';
+    overlay.style.border = '2px dashed rgba(139, 92, 246, 0.6)'; 
+    overlay.style.margin = '4px';
+
+    const icon = document.createElement('span');
+    icon.className = 'material-icons text-purple-400 mb-2';
+    icon.style.fontSize = '48px';
+    icon.innerText = 'cloud_upload';
+
+    const text = document.createElement('p');
+    text.className = 'text-white text-base font-semibold';
+    text.innerText = 'Drop images to upload to grid';
+
+    overlay.appendChild(icon);
+    overlay.appendChild(text);
+    container.appendChild(overlay);
+
+    let dragCounter = 0;
+
+    container.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        dragCounter++;
+        if (dragCounter === 1) {
+            overlay.classList.remove('hidden');
+        }
+    });
+
+    container.addEventListener('dragover', (e) => {
+        e.preventDefault();
+    });
+
+    container.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dragCounter--;
+        if (dragCounter === 0) {
+            overlay.classList.add('hidden');
+        }
+    });
+
+    container.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        overlay.classList.add('hidden');
+
+        const files = e.dataTransfer.files;
+        if (!files || files.length === 0) return;
+
+        // Filter for images
+        const imageFiles = Array.from(files).filter(file => {
+            const ext = file.name.split('.').pop().toLowerCase();
+            return ['png', 'jpg', 'jpeg', 'webp'].includes(ext);
+        });
+
+        if (imageFiles.length === 0) return;
+
+        // Show uploading state
+        overlay.querySelector('p').innerText = 'Uploading ' + imageFiles.length + ' file(s)...';
+        overlay.querySelector('span').innerText = 'sync';
+        overlay.querySelector('span').classList.add('visual-spin');
+        overlay.classList.remove('hidden');
+
+        let uploadedCount = 0;
+        for (const file of imageFiles) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/upload_visual_image', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (response.ok) {
+                    uploadedCount++;
+                }
+            } catch (err) {
+                console.error('Upload failed:', err);
+            }
+        }
+
+        // Hide overlay, restore text/icon
+        overlay.classList.add('hidden');
+        overlay.querySelector('p').innerText = 'Drop images to upload to grid';
+        overlay.querySelector('span').innerText = 'cloud_upload';
+        overlay.querySelector('span').classList.remove('visual-spin');
+
+        if (uploadedCount > 0) {
+            // Trigger Python side refresh
+            const refreshBtn = document.getElementById('visual-refresh-btn');
+            if (refreshBtn) {
+                refreshBtn.click();
+            }
+        }
+    });
+})();
+""")
 
         # Right column – settings
         with ui.column().classes('gap-3').style('flex: 1;'):
@@ -675,7 +843,7 @@ def create_page():
     async def _run_upscale_from_context(paths=None, *, scale_val=None, tile_val=None, auto=False):
         targets = list(paths) if paths else _tool_context_paths()
         if not targets:
-            _notify('Select images in grid view or open an image first.', type='warning')
+            ui.notify('Select images in grid view or open an image first.', type='warning')
             return []
 
         scale_val = float(scale_val if scale_val is not None else app.storage.user.get('visual_upscale_scale', 4.0))
@@ -699,9 +867,9 @@ def create_page():
                 else:
                     show_image(f'/{processed[-1]}')
                 if not auto:
-                    _notify(f'Upscaled {len(processed)} image{"s" if len(processed) != 1 else ""}.', type='positive')
+                    ui.notify(f'Upscaled {len(processed)} image{"s" if len(processed) != 1 else ""}.', type='positive')
         except Exception as exc:
-            _notify(f'Could not upscale image: {exc}', type='negative')
+            ui.notify(f'Could not upscale image: {exc}', type='negative')
         finally:
             await run.io_bound(_unload_upsampler)
             _set_upscale_busy(False)
@@ -712,12 +880,12 @@ def create_page():
     async def _run_remove_background_from_context(paths=None, *, model_name=None, auto=False):
         targets = list(paths) if paths else _tool_context_paths()
         if not targets:
-            _notify('Select images in grid view or open an image first.', type='warning')
+            ui.notify('Select images in grid view or open an image first.', type='warning')
             return []
 
         model_name = (model_name or app.storage.user.get('visual_remove_background_model', 'isnet-anime')).strip()
         if not model_name:
-            _notify('Enter a rembg model name.', type='warning')
+            ui.notify('Enter a rembg model name.', type='warning')
             return []
 
         _remember_remove_background_model(model_name)
@@ -739,11 +907,11 @@ def create_page():
                 else:
                     show_image(f'/{processed[-1]}')
                 if not auto:
-                    _notify(f'Removed background from {len(processed)} image{"s" if len(processed) != 1 else ""}.', type='positive')
+                    ui.notify(f'Removed background from {len(processed)} image{"s" if len(processed) != 1 else ""}.', type='positive')
         except ImportError:
-            _notify('rembg is not installed. Run the project dependency sync, then try again.', type='negative')
+            ui.notify('rembg is not installed. Run the project dependency sync, then try again.', type='negative')
         except Exception as exc:
-            _notify(f'Could not remove background: {exc}', type='negative')
+            ui.notify(f'Could not remove background: {exc}', type='negative')
         finally:
             await run.io_bound(_unload_remove_background_session)
             _set_remove_background_busy(False)
