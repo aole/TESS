@@ -1,2 +1,2 @@
-0.33.12
-UPDATES: Move visual grid image actions from hover buttons to right-click context menu
+0.33.13
+UPDATES: Move full image view actions to right-click context menu (matching visual grid)
