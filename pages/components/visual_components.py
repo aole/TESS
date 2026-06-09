@@ -47,6 +47,14 @@ def add_hover_buttons(cell_div, fpath: str, callbacks: VisualActionCallbacks):
     add_info_button(cell_div, fpath, callbacks['info'])
     add_edit_button(cell_div, fpath)
 
+def add_grid_context_menu(cell_div, fpath: str, callbacks: VisualActionCallbacks):
+    with cell_div:
+        with ui.context_menu():
+            ui.menu_item('Delete', on_click=lambda: callbacks['delete'](fpath, cell_div))
+            ui.menu_item('Regenerate', on_click=lambda: callbacks['regenerate'](fpath))
+            ui.menu_item('Load Parameters', on_click=lambda: callbacks['info'](fpath))
+            ui.menu_item('Edit in Photopea', on_click=lambda: ui.navigate.to(f'/edit?img={fpath}'))
+
 def render_checkerboard_image(path: str):
     with ui.element('div').classes('checkerboard-bg w-full h-full overflow-auto flex flex-col'):
         return ui.element('img').props(f'src="{path}"').classes(
@@ -132,4 +140,4 @@ def add_grid_cell(grid, thumb_src: str, full_src: str, fpath: str, is_hidden: bo
                 with ui.element('div').classes('absolute inset-0 bg-black/60 flex items-center justify-center pointer-events-none'):
                     ui.icon('visibility_off', size='24px').classes('text-white/60')
         register_cell_cb(cell, fpath)
-        add_hover_buttons(cell, fpath, callbacks)
+        add_grid_context_menu(cell, fpath, callbacks)
