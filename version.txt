@@ -1,2 +1,2 @@
-0.33.18
-UPDATES: In full view, hiding an image now advances to the next unhidden image
+0.33.21
+UPDATES: Cleanup unused visual grid helper functions after context-menu migration

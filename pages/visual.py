@@ -782,14 +782,6 @@ def create_page():
         finally:
             _update_selection_controls()
 
-    def _edit_selected_images_as_layers():
-        selected = list(state.selected_images)
-        if not selected:
-            ui.notify('No images selected.', type='warning')
-            return
-        imgs_param = ",".join(selected)
-        ui.navigate.to(f'/edit?imgs={imgs_param}')
-
     def _tool_context_paths():
         if state.grid_open:
             return [path for path in state.selected_images if os.path.exists(path)]
@@ -1006,7 +998,7 @@ def create_page():
                         next_btn.disable()
                         last_btn.disable()
 
-                with ui.row().classes('items-center justify-center gap-2'):
+                with ui.row().classes('items-center justify-end gap-2'):
                     ui.label('Select').classes(
                         'text-white/60 text-sm font-semibold uppercase tracking-widest'
                     )
@@ -1017,30 +1009,8 @@ def create_page():
                         'width: 30px; height: 30px; min-height: unset;'
                         'color: rgba(255,255,255,0.55);'
                     ).tooltip('Select images')
-                    ui.separator().props('vertical').classes('h-6 bg-white/20')
-                    state.delete_btn = ui.button(
-                        icon='delete',
-                        on_click=_delete_selected_images,
-                    ).props('flat dense round color=negative').style(
-                        'width: 30px; height: 30px; min-height: unset;'
-                    ).tooltip('Delete selected images')
-                    state.hide_btn = ui.button(
-                        icon='visibility_off',
-                        on_click=_toggle_selected_images_hide,
-                    ).props('flat dense round color=warning').style(
-                        'width: 30px; height: 30px; min-height: unset;'
-                    ).tooltip('Hide/Unhide selected images')
-                    state.edit_layers_btn = ui.button(
-                        icon='layers',
-                        on_click=_edit_selected_images_as_layers,
-                    ).props('flat dense round color=primary').style(
-                        'width: 30px; height: 30px; min-height: unset;'
-                    ).tooltip('Send selected images to edit page as layers')
                     state.count_label = ui.label('').classes('text-white/40 text-xs font-mono')
                     _update_selection_controls()
-                ui.button(icon='close', on_click=_restore_last).props('flat dense').classes(
-                    'text-white/40 hover:text-white/80'
-                ).tooltip('Back to current image')
 
             if not images:
                 ui.label('No images found.').classes('text-white/30 m-auto')
@@ -1135,20 +1105,6 @@ def create_page():
                 
         except Exception as exc:
             ui.notify(f'Could not delete image: {exc}', type='negative')
-
-    def _restore_last():
-        """Go back to the last generated image (or placeholder)."""
-        state.grid_open = False
-        
-        if state.gen_active:
-            show_placeholder()
-            return
-            
-        last = app.storage.user.get('visual_last_image')
-        if last and os.path.exists(last):
-            show_image(f'/{last}')
-        else:
-            show_placeholder()
 
     state.show_history = show_history
     state.show_image = show_image
