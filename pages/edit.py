@@ -2,21 +2,23 @@ import os
 import datetime
 import json
 import asyncio
-from PIL import Image, ImageOps
+from PIL import Image
 from fastapi import UploadFile, File, Form
 from nicegui import ui, app, run
 from services.visual_service import create_thumbnail
-from core.generate_image import generate_anima_image, unload_pipeline
+from core.generate_image import generate_anima_image, unload_pipeline as unload_image_pipeline
+from core.generate_inpaint import generate_anima_inpaint_image, unload_pipeline as unload_inpaint_pipeline
 
 # Register the upload API route at import time
 @app.post('/upload-edited-image')
 async def upload_edited_image(file: UploadFile = File(...), original_path: str = Form(""), action: str = Form("save")):
     contents = await file.read()
     
-    if action == "i2i":
+    if action in ("i2i", "mask"):
         os.makedirs("data/visual/temp", exist_ok=True)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        fname = f"i2i_input_{timestamp}.png"
+        prefix = "selection_mask" if action == "mask" else "i2i_input"
+        fname = f"{prefix}_{timestamp}.png"
         output_path = f"data/visual/temp/{fname}"
     else:
         os.makedirs("data/visual/images", exist_ok=True)
@@ -37,7 +39,7 @@ async def upload_edited_image(file: UploadFile = File(...), original_path: str =
     with open(output_path, "wb") as f:
         f.write(contents)
         
-    if action != "i2i":
+    if action not in ("i2i", "mask"):
         # Generate thumbnail
         create_thumbnail(output_path)
         app.storage.user['visual_last_image'] = output_path
@@ -299,7 +301,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                     """)
 
                 # Run i2i button
-                run_i2i_btn = ui.button(icon='brush', on_click=lambda: ui.run_javascript("window.exportPhotopeaImage('i2i');")).classes('glass-btn').props('dense round').tooltip('Run Image-to-Image (i2i) on current image')
+                run_i2i_btn = ui.button(icon='brush', on_click=lambda: ui.run_javascript("window.runPhotopeaI2I();")).classes('glass-btn').props('dense round').tooltip('Run Image-to-Image (i2i) on current image')
 
                 # Edit i2i options button
                 ui.button(icon='tune', on_click=i2i_options_dialog.open).classes('glass-btn').props('dense round').tooltip('Edit i2i Options')
@@ -333,65 +335,126 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
       function getIframe() {
         return document.getElementById(iframeId);
       }
-      
+
       window.loadPhotopeaImage = async function(imageUrl) {
-        console.log("Loading image into Photopea:", imageUrl);
         const iframe = getIframe();
         if (!iframe || !iframe.contentWindow) {
-          console.error("Photopea iframe not found");
           return;
         }
-        
+
         try {
           const response = await fetch(imageUrl);
-          if (!response.ok) throw new Error("Fetch failed: " + response.statusText);
+          if (!response.ok) return;
           const buffer = await response.arrayBuffer();
           iframe.contentWindow.postMessage(buffer, "*");
-          console.log("Sent image buffer to Photopea");
-        } catch (err) {
-          console.error("Failed to load image into Photopea:", err);
+        } catch (_err) {
+          return;
         }
       };
 
       window.loadPhotopeaLayer = async function(imageUrl) {
-        console.log("Loading layer into Photopea:", imageUrl);
         const iframe = getIframe();
         if (!iframe || !iframe.contentWindow) {
-          console.error("Photopea iframe not found");
           return;
         }
-        
+
         try {
           const response = await fetch(imageUrl);
-          if (!response.ok) throw new Error("Fetch failed: " + response.statusText);
+          if (!response.ok) return;
           const blob = await response.blob();
           
           const reader = new FileReader();
           reader.onloadend = function() {
             const dataUrl = reader.result;
             iframe.contentWindow.postMessage(`app.open("${dataUrl}", null, true);`, "*");
-            console.log("Sent layer script to Photopea");
           };
           reader.readAsDataURL(blob);
-        } catch (err) {
-          console.error("Failed to load layer into Photopea:", err);
+        } catch (_err) {
+          return;
         }
       };
 
       window.exportPhotopeaImage = function(action = 'save') {
         window.photopeaAction = action;
+        window.photopeaExportPhase = 'image';
+        if (action !== 'i2i') {
+          window.photopeaSelectionMaskPath = null;
+        }
         const iframe = getIframe();
         if (iframe && iframe.contentWindow) {
-          console.log("Requesting PNG export from Photopea for action:", action);
           iframe.contentWindow.postMessage('app.activeDocument.saveToOE("png");', "*");
         }
+      };
+
+      window.runPhotopeaI2I = function() {
+        const iframe = getIframe();
+        if (!iframe || !iframe.contentWindow) return;
+
+        window.photopeaAction = 'i2i';
+        window.photopeaExportPhase = 'detect-mask';
+        window.photopeaSelectionMaskPath = null;
+
+        iframe.contentWindow.postMessage(`
+          (function() {
+            var doc = app.activeDocument;
+            var previousLayer = doc.activeLayer;
+            try {
+              doc.selection.bounds;
+
+              var maskLayer = doc.artLayers.add();
+              maskLayer.name = "__tess_selection_mask__";
+              doc.activeLayer = maskLayer;
+
+              var black = new SolidColor();
+              black.rgb.red = 0;
+              black.rgb.green = 0;
+              black.rgb.blue = 0;
+              var white = new SolidColor();
+              white.rgb.red = 255;
+              white.rgb.green = 255;
+              white.rgb.blue = 255;
+
+              doc.selection.fill(white);
+              doc.selection.invert();
+              doc.selection.fill(black);
+              doc.selection.deselect();
+              app.activeDocument.saveToOE("png");
+            } catch (err) {
+              try {
+                for (var i = doc.layers.length - 1; i >= 0; i--) {
+                  if (doc.layers[i].name === "__tess_selection_mask__") {
+                    doc.layers[i].remove();
+                  }
+                }
+                doc.activeLayer = previousLayer;
+              } catch (cleanupErr) {}
+              app.echoToOE("tess:no-selection");
+            }
+          })();
+        `, "*");
+      };
+
+      window.cleanupPhotopeaSelectionMaskAndExport = function() {
+        const iframe = getIframe();
+        if (!iframe || !iframe.contentWindow) return;
+        window.photopeaExportPhase = 'image-after-mask';
+        iframe.contentWindow.postMessage(`
+          (function() {
+            var doc = app.activeDocument;
+            for (var i = doc.layers.length - 1; i >= 0; i--) {
+              if (doc.layers[i].name === "__tess_selection_mask__") {
+                doc.layers[i].remove();
+              }
+            }
+            app.activeDocument.saveToOE("png");
+          })();
+        `, "*");
       };
 
       window.addEventListener("message", async (e) => {
         if (e.origin !== "https://www.photopea.com") return;
 
         if (e.data === "done") {
-          console.log("Photopea ready");
           const iframe = getIframe();
           if (iframe) {
             if (iframe.dataset.pendingImg) {
@@ -417,16 +480,24 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
           }
         }
 
+        if (e.data === "tess:no-selection") {
+          window.photopeaExportPhase = 'image';
+          window.photopeaSelectionMaskPath = null;
+          window.exportPhotopeaImage('i2i');
+          return;
+        }
+
         if (e.data instanceof ArrayBuffer) {
-          console.log("Received save ArrayBuffer from Photopea");
           const blob = new Blob([e.data], { type: "image/png" });
           const formData = new FormData();
           
           const iframe = getIframe();
           const originalPath = iframe ? (iframe.dataset.currentPath || "") : "";
+          const phase = window.photopeaExportPhase || 'image';
+          const uploadAction = phase === 'detect-mask' ? 'mask' : (window.photopeaAction || "save");
           formData.append("file", blob, "edited.png");
           formData.append("original_path", originalPath);
-          formData.append("action", window.photopeaAction || "save");
+          formData.append("action", uploadAction);
 
           try {
             const response = await fetch("/upload-edited-image", {
@@ -435,17 +506,23 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             });
             if (response.ok) {
               const result = await response.json();
-              console.log("Upload success:", result);
-              if (window.photopeaAction === 'i2i') {
-                emitEvent('photopea-i2i', { path: result.path, filename: result.filename });
+              if (uploadAction === 'mask') {
+                window.photopeaSelectionMaskPath = result.path;
+                window.cleanupPhotopeaSelectionMaskAndExport();
+              } else if (window.photopeaAction === 'i2i') {
+                const payload = { path: result.path, filename: result.filename };
+                if (window.photopeaSelectionMaskPath) {
+                  payload.mask_path = window.photopeaSelectionMaskPath;
+                }
+                window.photopeaExportPhase = null;
+                window.photopeaSelectionMaskPath = null;
+                emitEvent('photopea-i2i', payload);
               } else {
                 emitEvent('photopea-saved', { path: result.path, filename: result.filename });
               }
-            } else {
-              console.error("Upload error:", response.statusText);
             }
-          } catch (err) {
-            console.error("Upload fetch error:", err);
+          } catch (_err) {
+            return;
           }
         }
       });
@@ -482,13 +559,19 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         args = e.args
         if isinstance(args, dict):
             input_path = args.get('path')
+            mask_path = args.get('mask_path')
         elif isinstance(args, list) and len(args) > 0 and isinstance(args[0], dict):
             input_path = args[0].get('path')
+            mask_path = args[0].get('mask_path')
         else:
             input_path = None
+            mask_path = None
             
         if not input_path or not os.path.exists(input_path):
             ui.notify("Failed to retrieve current image from Photopea", type='negative')
+            return
+        if mask_path and not os.path.exists(mask_path):
+            ui.notify("Failed to retrieve selection mask from Photopea", type='negative')
             return
             
         # Retrieve options
@@ -532,42 +615,61 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             os.makedirs("data/visual/temp", exist_ok=True)
             for idx in range(count_val):
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                temp_output_path = f"data/visual/temp/i2i_output_{timestamp}_{idx}.png"
+                mode_label = "inpaint" if mask_path else "i2i"
+                temp_output_path = f"data/visual/temp/{mode_label}_output_{timestamp}_{idx}.png"
 
-                ui.notify(f"Generating i2i image {idx + 1} of {count_val}...", type='info', pos='bottom-right')
+                ui.notify(f"Generating {mode_label} image {idx + 1} of {count_val}...", type='info', pos='bottom-right')
                 # Run in a background thread to prevent UI blocking
-                output_path = await run.io_bound(
-                    generate_anima_image,
-                    prompt=prompt_val,
-                    output_path=temp_output_path,
-                    negative_prompt=neg_prompt,
-                    steps=steps_val,
-                    width=width_val,
-                    height=height_val,
-                    cfg_scale=cfg_scale_val,
-                    turbo_lora=turbo_strength,
-                    input_image=input_path,
-                    denoising_strength=denoising_val,
-                    unload_after=False
-                )
+                if mask_path:
+                    output_path = await run.io_bound(
+                        generate_anima_inpaint_image,
+                        prompt=prompt_val,
+                        output_path=temp_output_path,
+                        negative_prompt=neg_prompt,
+                        steps=steps_val,
+                        width=width_val,
+                        height=height_val,
+                        cfg_scale=cfg_scale_val,
+                        turbo_lora=turbo_strength,
+                        input_image=input_path,
+                        mask_image=mask_path,
+                        denoising_strength=denoising_val,
+                        unload_after=False
+                    )
+                else:
+                    output_path = await run.io_bound(
+                        generate_anima_image,
+                        prompt=prompt_val,
+                        output_path=temp_output_path,
+                        negative_prompt=neg_prompt,
+                        steps=steps_val,
+                        width=width_val,
+                        height=height_val,
+                        cfg_scale=cfg_scale_val,
+                        turbo_lora=turbo_strength,
+                        input_image=input_path,
+                        denoising_strength=denoising_val,
+                        unload_after=False
+                    )
                 
                 if output_path and os.path.exists(output_path):
-                    ui.notify(f"i2i generation {idx + 1}/{count_val} completed successfully!", type='positive')
+                    ui.notify(f"{mode_label} generation {idx + 1}/{count_val} completed successfully!", type='positive')
                     web_path = f"/{output_path}"
                     # Load the generated image back as a new layer in Photopea
                     ui.run_javascript(f"window.loadPhotopeaLayer('{web_path}');")
                     # Small sleep to allow Photopea to process the layer upload sequentially
                     await asyncio.sleep(0.5)
                 else:
-                    ui.notify(f"i2i generation {idx + 1} failed", type='negative')
+                    ui.notify(f"{mode_label} generation {idx + 1} failed", type='negative')
         except Exception as ex:
             import traceback
             traceback.print_exc()
-            ui.notify(f"Error during i2i generation: {ex}", type='negative')
+            ui.notify(f"Error during generation: {ex}", type='negative')
         finally:
             # Clean up VRAM pipeline
             try:
-                await run.io_bound(unload_pipeline)
+                await run.io_bound(unload_image_pipeline)
+                await run.io_bound(unload_inpaint_pipeline)
             except Exception as ex:
                 print(f"Failed to unload pipeline: {ex}")
             generating['active'] = False
