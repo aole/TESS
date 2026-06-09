@@ -1,7 +1,7 @@
 import json, random
 
 def generate_random_anima_tag_list():
-    with open("D:\downloads\danbooru-tags.json", "r", encoding="utf-8") as file:
+    with open(r"D:\downloads\danbooru-tags.json", "r", encoding="utf-8") as file:
         data = json.load(file)
     
     tags = data["tags"]

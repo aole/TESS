@@ -1,2 +1,2 @@
-0.33.21
-UPDATES: Cleanup unused visual grid helper functions after context-menu migration
+0.33.26
+UPDATES: Fix cheatsheets active-item highlight to update when switching files
