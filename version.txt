@@ -1,2 +1,2 @@
-0.34.1
-UPDATES: Add core/db/settings_repo.py as single app_settings table repository with get/set/get_all/category/delete methods
+0.34.2
+UPDATES: Add core/config/settings_service.py as service wrapper for app_settings repository operations
