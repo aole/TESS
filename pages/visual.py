@@ -21,6 +21,7 @@ from services.visual_service import (
     VisualPageState,
     parse_resolution
 )
+from core.config.settings_service import settings_service
 from utils.config import config_manager
 from pages.components.visual_components import (
     render_image_with_nav,
@@ -63,6 +64,11 @@ def initialize_user_defaults(user_storage):
         user_storage['visual_show_hidden'] = False
         _initialized_users.add(user_id)
 
+    w = settings_service.get('default_width', 1024)
+    h = settings_service.get('default_height', 1024)
+    steps = settings_service.get('default_steps', 20)
+    cfg = settings_service.get('default_cfg', 4.0)
+
     defaults = {
         'visual_show_hidden': False,
         'visual_positive_prompt': (
@@ -70,8 +76,8 @@ def initialize_user_defaults(user_storage):
             "vines and flowers, shafts of sunlight, dust particles, tranquil atmosphere, Studio Ghibli inspired"
         ),
         'visual_negative_prompt': "worst quality, low quality, score_1, score_2, score_3, artist name, sepia",
-        'visual_image_size': '1024x1024',
-        'visual_inference_steps': 30,
+        'visual_image_size': f'{w}x{h}',
+        'visual_inference_steps': steps,
         'visual_batch_count': 1,
         'visual_upscale_auto': False,
         'visual_upscale_scale': 2.0,
@@ -79,7 +85,7 @@ def initialize_user_defaults(user_storage):
         'visual_remove_background_auto': False,
         'visual_remove_background_model': 'isnet-anime',
         'visual_remove_background_models': ['isnet-anime'],
-        'visual_cfg_scale': 4.0,
+        'visual_cfg_scale': cfg,
         'visual_turbo_lora_enabled': False,
         'visual_turbo_lora_strength': 1.0,
         'visual_denoising_strength': 0.6

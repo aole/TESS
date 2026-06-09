@@ -10,6 +10,7 @@ from PIL import Image, ImageOps
 from pathlib import Path
 from nicegui import ui, run, app
 from core.generate_image import generate_anima_image, unload_pipeline
+from core.config.settings_service import settings_service
 from utils.llm_client import client as llm_client
 from core.modify_image import modify_image as core_modify_image, unload_session as unload_modify_image_session
 
@@ -23,12 +24,12 @@ def parse_resolution(res_str: str, default: tuple = (1024, 1024)) -> tuple[int, 
 def generate_image_task(
     prompt: str,
     negative_prompt: str,
-    steps: int = 30,
-    width: int = 1024,
-    height: int = 1024,
+    steps: int = None,
+    width: int = None,
+    height: int = None,
     progress_callback = None,
     unload_after: bool = True,
-    cfg_scale: float = 4.0,
+    cfg_scale: float = None,
     turbo_lora: float = 0.0,
     input_image = None,
     denoising_strength: float = 1.0,
@@ -36,7 +37,17 @@ def generate_image_task(
     """
     NiceGUI-specific wrapper that generates an image using Anima and handles
     intermediate preview files and thumbnail creation.
+    Uses settings_service to provide defaults if not specified.
     """
+    if steps is None:
+        steps = settings_service.get('default_steps', 20)
+    if width is None:
+        width = settings_service.get('default_width', 1024)
+    if height is None:
+        height = settings_service.get('default_height', 1024)
+    if cfg_scale is None:
+        cfg_scale = settings_service.get('default_cfg', 4.0)
+    
     # 1. Setup output paths
     os.makedirs("data/visual/images", exist_ok=True)
     os.makedirs("data/visual/thumbs", exist_ok=True)
@@ -108,13 +119,17 @@ def new_visual_output_path(ext: str = '.png') -> str:
 def create_thumbnail(fpath: str):
     try:
         fname = os.path.basename(fpath)
-        thumb_name = os.path.splitext(fname)[0] + ".webp"
+        thumb_fmt = settings_service.get('thumbnail_format', 'webp')
+        thumb_ext = f".{thumb_fmt}"
+        thumb_name = os.path.splitext(fname)[0] + thumb_ext
         thumb_dir = 'data/visual/thumbs'
         os.makedirs(thumb_dir, exist_ok=True)
         thumb_path = os.path.join(thumb_dir, thumb_name).replace('\\', '/')
+        thumb_size = settings_service.get('thumbnail_size', 256)
         with Image.open(fpath) as img:
-            thumb = ImageOps.fit(img, (256, 256), method=Image.Resampling.LANCZOS)
-            thumb.save(thumb_path, format="WEBP", quality=80, optimize=True)
+            thumb = ImageOps.fit(img, (thumb_size, thumb_size), method=Image.Resampling.LANCZOS)
+            fmt = thumb_fmt.upper() if thumb_fmt != 'jpg' else 'JPEG'
+            thumb.save(thumb_path, format=fmt, quality=80, optimize=True)
     except Exception as e:
         print(f"Failed to generate thumbnail for {fpath}: {e}")
 
