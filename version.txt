@@ -1,2 +1,2 @@
-0.33.16
-UPDATES: Grid context menu actions now apply to all selected images for download/delete/regenerate/edit
+0.33.17
+UPDATES: Add Hide/Unhide Image(s) to right-click menu with selected-image support in grid view

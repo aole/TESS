@@ -551,6 +551,27 @@ def create_page():
             return
         ui.navigate.to(f'/edit?img={fpath}')
 
+    def _context_hide(fpath: str):
+        targets = _context_action_targets(fpath)
+        if len(targets) > 1:
+            state.selected_images = set(targets)
+            _toggle_selected_images_hide()
+            return
+
+        hidden_images = get_hidden_images()
+        fname = os.path.basename(fpath)
+        if fname in hidden_images:
+            hidden_images.remove(fname)
+            ui.notify('Image unhidden.', type='info')
+        else:
+            hidden_images.append(fname)
+            ui.notify('Image hidden.', type='info')
+
+        set_hidden_images(hidden_images)
+        if state.grid_open:
+            state.grid_element_ref = None
+            show_history()
+
     def _get_image_callbacks() -> VisualActionCallbacks:
         return {
             'delete': _context_delete,
@@ -558,6 +579,7 @@ def create_page():
             'info': state.load_metadata,
             'download': _context_download,
             'edit': _context_edit,
+            'hide': _context_hide,
         }
 
     # ── Helper: show a single image full-size inside image_container ─────────

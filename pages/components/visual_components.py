@@ -13,6 +13,7 @@ class VisualActionCallbacks(TypedDict):
     info: Callable[[str], Any]
     download: Callable[[str], Any]
     edit: Callable[[str], Any]
+    hide: Callable[[str], Any]
 
 def add_image_context_menu(container, fpath: str, callbacks: VisualActionCallbacks):
     with container:
@@ -20,6 +21,7 @@ def add_image_context_menu(container, fpath: str, callbacks: VisualActionCallbac
             ui.menu_item('Download Image', on_click=lambda: callbacks['download'](fpath))
             ui.menu_item('Delete', on_click=lambda: callbacks['delete'](fpath, container))
             ui.menu_item('Regenerate', on_click=lambda: callbacks['regenerate'](fpath))
+            ui.menu_item('Hide/Unhide Image(s)', on_click=lambda: callbacks['hide'](fpath))
             ui.menu_item('Load Parameters', on_click=lambda: callbacks['info'](fpath))
             ui.menu_item('Edit in Photopea', on_click=lambda: callbacks['edit'](fpath))
 
