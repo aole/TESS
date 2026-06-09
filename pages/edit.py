@@ -1,6 +1,7 @@
 import os
 import datetime
 import json
+import asyncio
 from PIL import Image, ImageOps
 from fastapi import UploadFile, File, Form
 from nicegui import ui, app, run
@@ -134,6 +135,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         init_storage_val('edit_i2i_denoising', user_storage.get('visual_denoising_strength', 0.6))
         init_storage_val('edit_i2i_turbo_enabled', user_storage.get('visual_turbo_lora_enabled', False))
         init_storage_val('edit_i2i_turbo_strength', user_storage.get('visual_turbo_lora_strength', 1.0))
+    init_storage_val('edit_i2i_count', 1)
 
 
 
@@ -202,6 +204,21 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             ui.label('Negative Prompt').classes('text-xs font-semibold text-gray-400 uppercase tracking-wider')
             neg_prompt_textarea = ui.textarea(placeholder='Negative prompt...').classes('w-full text-sm bg-black/20 border border-white/10 rounded p-2 text-white').props('outlined rows="2"').bind_value(app.storage.user, 'edit_i2i_neg_prompt')
 
+            # Steps and Count
+            with ui.row().classes('w-full items-center gap-4 no-wrap'):
+                with ui.column().classes('flex-grow gap-1'):
+                    with ui.row().classes('w-full justify-between items-center'):
+                        ui.label('Steps').classes('text-xs text-gray-400')
+                        steps_label = ui.label(str(int(user_storage.get('edit_i2i_steps', 30)))).classes('text-xs text-indigo-400 font-mono')
+                    steps_slider = ui.slider(
+                        min=1, max=50, step=1,
+                        on_change=lambda e: steps_label.set_text(str(int(e.value)))
+                    ).classes('w-full').bind_value(app.storage.user, 'edit_i2i_steps')
+                
+                count_input = ui.number(
+                    label='Count', value=int(user_storage.get('edit_i2i_count', 1)), min=1, max=10, format='%d'
+                ).classes('w-20 text-sm').props('dense outlined dark color=indigo-400').bind_value(app.storage.user, 'edit_i2i_count')
+
             # Denoising Strength
             with ui.column().classes('w-full gap-1'):
                 with ui.row().classes('w-full justify-between items-center'):
@@ -211,16 +228,6 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                     min=0.01, max=1.0, step=0.01,
                     on_change=lambda e: denoising_label.set_text(f"{e.value:.2f}")
                 ).classes('w-full').bind_value(app.storage.user, 'edit_i2i_denoising')
-
-            # Steps
-            with ui.column().classes('w-full gap-1'):
-                with ui.row().classes('w-full justify-between items-center'):
-                    ui.label('Steps').classes('text-xs text-gray-400')
-                    steps_label = ui.label(str(int(user_storage.get('edit_i2i_steps', 30)))).classes('text-xs text-indigo-400 font-mono')
-                steps_slider = ui.slider(
-                    min=1, max=50, step=1,
-                    on_change=lambda e: steps_label.set_text(str(int(e.value)))
-                ).classes('w-full').bind_value(app.storage.user, 'edit_i2i_steps')
 
             # CFG Scale
             with ui.column().classes('w-full gap-1'):
@@ -250,6 +257,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             cfg_slider.update()
             turbo_check.update()
             turbo_strength_slider.update()
+            count_input.update()
 
     i2i_options_dialog.on_value_change(handle_dialog_close)
 
@@ -518,36 +526,40 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         except Exception as ex:
             print(f"Failed to unload LLMs: {ex}")
             
-        ui.notify("Generating i2i image...", type='info', pos='bottom-right')
+        count_val = int(user_storage.get('edit_i2i_count', 1))
         
         try:
             os.makedirs("data/visual/temp", exist_ok=True)
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            temp_output_path = f"data/visual/temp/i2i_output_{timestamp}.png"
+            for idx in range(count_val):
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                temp_output_path = f"data/visual/temp/i2i_output_{timestamp}_{idx}.png"
 
-            # Run in a background thread to prevent UI blocking
-            output_path = await run.io_bound(
-                generate_anima_image,
-                prompt=prompt_val,
-                output_path=temp_output_path,
-                negative_prompt=neg_prompt,
-                steps=steps_val,
-                width=width_val,
-                height=height_val,
-                cfg_scale=cfg_scale_val,
-                turbo_lora=turbo_strength,
-                input_image=input_path,
-                denoising_strength=denoising_val,
-                unload_after=False
-            )
-            
-            if output_path and os.path.exists(output_path):
-                ui.notify("i2i generation completed successfully!", type='positive')
-                web_path = f"/{output_path}"
-                # Load the generated image back as a new layer in Photopea
-                ui.run_javascript(f"window.loadPhotopeaLayer('{web_path}');")
-            else:
-                ui.notify("i2i generation failed", type='negative')
+                ui.notify(f"Generating i2i image {idx + 1} of {count_val}...", type='info', pos='bottom-right')
+                # Run in a background thread to prevent UI blocking
+                output_path = await run.io_bound(
+                    generate_anima_image,
+                    prompt=prompt_val,
+                    output_path=temp_output_path,
+                    negative_prompt=neg_prompt,
+                    steps=steps_val,
+                    width=width_val,
+                    height=height_val,
+                    cfg_scale=cfg_scale_val,
+                    turbo_lora=turbo_strength,
+                    input_image=input_path,
+                    denoising_strength=denoising_val,
+                    unload_after=False
+                )
+                
+                if output_path and os.path.exists(output_path):
+                    ui.notify(f"i2i generation {idx + 1}/{count_val} completed successfully!", type='positive')
+                    web_path = f"/{output_path}"
+                    # Load the generated image back as a new layer in Photopea
+                    ui.run_javascript(f"window.loadPhotopeaLayer('{web_path}');")
+                    # Small sleep to allow Photopea to process the layer upload sequentially
+                    await asyncio.sleep(0.5)
+                else:
+                    ui.notify(f"i2i generation {idx + 1} failed", type='negative')
         except Exception as ex:
             import traceback
             traceback.print_exc()
