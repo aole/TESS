@@ -290,14 +290,17 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                         window.loadPhotopeaImage('{web_path}');
                     """)
 
-                # Save / Export button
-                ui.button('Save to Tess', icon='save', on_click=lambda: ui.run_javascript("window.exportPhotopeaImage('save');")).classes('save-btn').props('dense no-caps')
-
                 # Run i2i button
                 run_i2i_btn = ui.button(icon='brush', on_click=lambda: ui.run_javascript("window.exportPhotopeaImage('i2i');")).classes('glass-btn').props('dense round').tooltip('Run Image-to-Image (i2i) on current image')
 
                 # Edit i2i options button
                 ui.button(icon='tune', on_click=i2i_options_dialog.open).classes('glass-btn').props('dense round').tooltip('Edit i2i Options')
+
+                # Vertical Separator
+                ui.element('div').classes('h-6 w-px bg-white/20 mx-1')
+
+                # Save / Export button
+                ui.button(icon='save', on_click=lambda: ui.run_javascript("window.exportPhotopeaImage('save');")).classes('save-btn').props('dense round').tooltip('Save to Tess')
 
         # Iframe Wrapper
         with ui.element('div').classes('photopea-wrapper'):
@@ -560,3 +563,9 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             run_i2i_btn.enable()
 
     ui.on('photopea-i2i', handle_photopea_i2i)
+
+    # Clean up temp directory when user navigates away or disconnects
+    def cleanup_temp_dir():
+        import shutil
+        shutil.rmtree("data/visual/temp", ignore_errors=True)
+    ui.context.client.on_disconnect(cleanup_temp_dir)
