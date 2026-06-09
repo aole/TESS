@@ -1,2 +1,2 @@
-0.33.13
-UPDATES: Move full image view actions to right-click context menu (matching visual grid)
+0.33.15
+UPDATES: Add Download Image to grid right-click menu using full image file

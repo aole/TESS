@@ -15,6 +15,7 @@ class VisualActionCallbacks(TypedDict):
 def add_image_context_menu(container, fpath: str, callbacks: VisualActionCallbacks):
     with container:
         with ui.context_menu():
+            ui.menu_item('Download Image', on_click=lambda: ui.download(f'/{fpath}'))
             ui.menu_item('Delete', on_click=lambda: callbacks['delete'](fpath, container))
             ui.menu_item('Regenerate', on_click=lambda: callbacks['regenerate'](fpath))
             ui.menu_item('Load Parameters', on_click=lambda: callbacks['info'](fpath))
