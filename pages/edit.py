@@ -417,7 +417,8 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
               doc.selection.fill(white);
               doc.selection.invert();
               doc.selection.fill(black);
-              doc.selection.deselect();
+              doc.selection.invert();
+              doc.activeLayer = previousLayer;
               app.activeDocument.saveToOE("png");
             } catch (err) {
               try {
