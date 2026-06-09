@@ -1,5 +1,5 @@
 from nicegui import ui, app, run
-from pages import models, chat, batch, tools, create, settings, audio, visual, edit, apps, python_page, personas
+from pages import models, chat, batch, tools, settings, audio, visual, edit, apps, python_page, personas
 from services import system_service
 from utils.llm_client import client
 
@@ -166,7 +166,6 @@ def layout(page_path: str = ''):
             
             nav_link('Models', '/')
             nav_link('Personas', '/personas')
-            nav_link('Create', '/create')
             nav_link('Python', '/python')
             nav_link('Audio', '/audio')
             nav_link('Visual', '/visual')
@@ -196,11 +195,6 @@ async def batch_page():
 def tools_page():
     layout('/tools')
     tools.create_page()
-
-@ui.page('/create')
-def create_new_page(base_model: str = None):
-    layout('/create')
-    create.create_page(base_model)
 
 
 @ui.page('/python')

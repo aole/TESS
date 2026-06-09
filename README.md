@@ -21,7 +21,7 @@
     *   **Integrated Debugger**: Test and validate tools in a split-screen workspace before deployment.
 *   **Web Search**: Equip your local models with real-time web access via integrated DuckDuckGo search and URL extraction.
 *   **Apps Ecosystem**: A modular space for custom applications, including a dedicated **Notes** app with Google Drive synchronization and **Routineer** (a routine/habit tracker with calendar stats and interactive badges).
-*   **Model Management**: Easily pull, delete, and manage your local Ollama models, and create new model variants (Modelfiles) directly within the UI.
+*   **Model Management**: Easily pull, delete, and manage your local Ollama models directly within the UI.
 *   **GPU & VRAM Monitoring**: Real-time VRAM usage and GPU activity monitoring in the header with one-click unload of all loaded models.
 
 ## Getting Started

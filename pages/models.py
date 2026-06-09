@@ -527,7 +527,6 @@ def create_page():
         table.add_slot('body-cell-actions', r'''
             <q-td key="actions" :props="props" class="flex gap-2 justify-end">
                 <q-btn flat round color="white" icon="info" size="sm" @click="$parent.$emit('details', props.row)" />
-                <q-btn flat round color="secondary" icon="content_copy" size="sm" @click="$parent.$emit('create', props.row)" />
                 <q-btn flat round color="warning" icon="edit" size="sm" @click="$parent.$emit('rename', props.row)" />
                 <q-btn flat round color="negative" icon="delete" size="sm" @click="$parent.$emit('delete', props.row)" />
             </q-td>
@@ -538,7 +537,6 @@ def create_page():
         # Event binding for slot buttons
         table.on('details', lambda e: show_details(e.args['model']))
         table.on('chat', lambda e: configure_model_dialog(e.args['model'], e.args.get('family_str', 'N/A')))
-        table.on('create', lambda e: ui.navigate.to(f'/create?base_model={e.args["model"]}'))
         table.on('rename', lambda e: rename_model_dialog(e.args['model']))
         table.on('delete', lambda e: delete_model(e.args['model']))
 
