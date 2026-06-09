@@ -1,2 +1,2 @@
-0.34.0
-UPDATES: Add core SQLite connection helper for data/tess.db at core/db/connection.py
+0.34.1
+UPDATES: Add core/db/settings_repo.py as single app_settings table repository with get/set/get_all/category/delete methods
