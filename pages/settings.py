@@ -1,6 +1,8 @@
 from nicegui import ui, app, run
 from utils.config import config_manager
 from utils.ui_components import ui_card, ui_info_card
+from core.config.settings_service import settings_service as _ss
+from core.config.defaults import DEFAULT_SETTINGS as _DEFAULTS
 from services.note_service import note_service
 from services.tts_service import VOICES, tts_service
 from services.persona_service import persona_service
@@ -125,6 +127,106 @@ def create_page():
                 'text-3xl font-bold bg-clip-text text-transparent '
                 'bg-gradient-to-r from-indigo-400 to-purple-400'
             )
+
+            # ── DB-backed App Settings helpers ────────────────────────────────
+            def _db_default(key):
+                return _DEFAULTS.get(key, {}).get("value")
+
+            def _save(key, value):
+                _ss.set(key, value)
+                ui.notify('Saved', type='positive', position='top-right', timeout=1200)
+
+            def _reset_btn(key, on_reset):
+                dv = _db_default(key)
+                def _do_reset(k=key, d=dv, cb=on_reset):
+                    _ss.set(k, d)
+                    cb(d)
+                    ui.notify(f'Reset to default: {d}', type='info', position='top-right', timeout=1500)
+                ui.button(icon='restart_alt', on_click=_do_reset).props(
+                    'flat round dense color=grey-7'
+                ).tooltip(f'Reset to default: {dv}')
+
+            # ── UI ────────────────────────────────────────────────────────────
+            with ui_card(heading="UI", heading_icon="palette", heading_color="indigo"):
+                with ui.row().classes('items-center gap-3 w-full'):
+                    ui.label('Theme').classes('text-sm text-gray-300 w-32 shrink-0')
+                    theme_select = ui.select(
+                        ['dark', 'light'],
+                        value=_ss.get('theme', 'dark'),
+                    ).classes('flex-1').props('outlined dense dark')
+                    def _on_theme_change(e):
+                        _save('theme', e.value)
+                        ui.notify(
+                            'Restart required for theme change to take effect.',
+                            type='warning', position='top-right', timeout=3000,
+                        )
+                    theme_select.on('update:model-value', _on_theme_change)
+                    _reset_btn('theme', lambda v: theme_select.set_value(v))
+
+            # ── Generation Defaults ───────────────────────────────────────────
+            with ui_card(heading="Generation Defaults", heading_icon="tune", heading_color="purple"):
+                with ui.column().classes('gap-3 w-full'):
+                    for _key, _label, _min, _max, _step in [
+                        ('default_width',  'Width',  64, 4096, 64),
+                        ('default_height', 'Height', 64, 4096, 64),
+                        ('default_steps',  'Steps',   1,  200,  1),
+                    ]:
+                        with ui.row().classes('items-center gap-3 w-full'):
+                            ui.label(_label).classes('text-sm text-gray-300 w-32 shrink-0')
+                            _num = ui.number(
+                                value=_ss.get(_key, _db_default(_key)),
+                                min=_min, max=_max, step=_step,
+                                on_change=lambda e, k=_key: _save(k, int(e.value)) if e.value is not None else None,
+                            ).classes('flex-1').props('outlined dense dark')
+                            _reset_btn(_key, lambda v, n=_num: n.set_value(v))
+
+                    with ui.row().classes('items-center gap-3 w-full'):
+                        ui.label('CFG Scale').classes('text-sm text-gray-300 w-32 shrink-0')
+                        cfg_num = ui.number(
+                            value=_ss.get('default_cfg', _db_default('default_cfg')),
+                            min=1.0, max=30.0, step=0.5,
+                            on_change=lambda e: _save('default_cfg', float(e.value)) if e.value is not None else None,
+                        ).classes('flex-1').props('outlined dense dark')
+                        _reset_btn('default_cfg', lambda v: cfg_num.set_value(v))
+
+                    with ui.row().classes('items-center gap-3 w-full'):
+                        ui.label('Seed Mode').classes('text-sm text-gray-300 w-32 shrink-0')
+                        seed_sel = ui.select(
+                            ['random', 'fixed'],
+                            value=_ss.get('default_seed_mode', 'random'),
+                            on_change=lambda e: _save('default_seed_mode', e.value),
+                        ).classes('flex-1').props('outlined dense dark')
+                        _reset_btn('default_seed_mode', lambda v: seed_sel.set_value(v))
+
+                    with ui.row().classes('items-center gap-3 w-full'):
+                        ui.label('Image Format').classes('text-sm text-gray-300 w-32 shrink-0')
+                        ofmt_sel = ui.select(
+                            ['png', 'jpg', 'webp'],
+                            value=_ss.get('default_output_format', 'png'),
+                            on_change=lambda e: _save('default_output_format', e.value),
+                        ).classes('flex-1').props('outlined dense dark')
+                        _reset_btn('default_output_format', lambda v: ofmt_sel.set_value(v))
+
+            # ── Storage ───────────────────────────────────────────────────────
+            with ui_card(heading="Storage", heading_icon="folder_open", heading_color="emerald"):
+                with ui.column().classes('gap-3 w-full'):
+                    with ui.row().classes('items-center gap-3 w-full'):
+                        ui.label('Thumbnail Size').classes('text-sm text-gray-300 w-32 shrink-0')
+                        thumb_num = ui.number(
+                            value=_ss.get('thumbnail_size', 256),
+                            min=64, max=1024, step=32,
+                            on_change=lambda e: _save('thumbnail_size', int(e.value)) if e.value is not None else None,
+                        ).classes('flex-1').props('outlined dense dark')
+                        _reset_btn('thumbnail_size', lambda v: thumb_num.set_value(v))
+
+                    with ui.row().classes('items-center gap-3 w-full'):
+                        ui.label('Thumbnail Format').classes('text-sm text-gray-300 w-32 shrink-0')
+                        tfmt_sel = ui.select(
+                            ['webp', 'png', 'jpg'],
+                            value=_ss.get('thumbnail_format', 'webp'),
+                            on_change=lambda e: _save('thumbnail_format', e.value),
+                        ).classes('flex-1').props('outlined dense dark')
+                        _reset_btn('thumbnail_format', lambda v: tfmt_sel.set_value(v))
 
             # ── Logging ───────────────────────────────────────────────────────
             def _logging_footer():

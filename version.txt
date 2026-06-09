@@ -1,2 +1,2 @@
-0.34.6
-UPDATES: Add thumbnail_format default setting as webp for startup seeding
+0.35.0
+UPDATES: Remove auto-save images and auto-unload model settings; CFG default confirmed at 4.0

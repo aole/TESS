@@ -8,12 +8,6 @@ DEFAULT_SETTINGS = {
         "category": "ui",
         "description": "Default UI theme",
     },
-    "media_root": {
-        "value": "output",
-        "type": "str",
-        "category": "storage",
-        "description": "Root folder for generated media",
-    },
     "default_width": {
         "value": 1024,
         "type": "int",
@@ -48,13 +42,7 @@ DEFAULT_SETTINGS = {
         "value": "png",
         "type": "str",
         "category": "generation",
-        "description": "Default output image format",
-    },
-    "auto_save_images": {
-        "value": True,
-        "type": "bool",
-        "category": "storage",
-        "description": "Automatically save generated images",
+        "description": "Default image format",
     },
     "thumbnail_size": {
         "value": 256,
