@@ -8,7 +8,7 @@ def render():
 
     def discover_cheatsheets():
         return sorted(
-            [path for path in base_dir.glob('*.md') if path.name.lower() != 'tutorial.md'],
+            [path for path in base_dir.glob('*.md')],
             key=lambda path: path.stem.lower(),
         )
 
