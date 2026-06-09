@@ -1,2 +1,2 @@
-0.33.17
-UPDATES: Add Hide/Unhide Image(s) to right-click menu with selected-image support in grid view
+0.33.18
+UPDATES: In full view, hiding an image now advances to the next unhidden image

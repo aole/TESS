@@ -560,17 +560,51 @@ def create_page():
 
         hidden_images = get_hidden_images()
         fname = os.path.basename(fpath)
+        hidden_now = False
         if fname in hidden_images:
             hidden_images.remove(fname)
             ui.notify('Image unhidden.', type='info')
         else:
             hidden_images.append(fname)
+            hidden_now = True
             ui.notify('Image hidden.', type='info')
 
         set_hidden_images(hidden_images)
         if state.grid_open:
             state.grid_element_ref = None
             show_history()
+            return
+
+        if hidden_now:
+            next_to_show = None
+            hidden_set = set(hidden_images)
+            if os.path.isdir(_VISUAL_DIR):
+                all_files = sorted(
+                    [f for f in os.listdir(_VISUAL_DIR)
+                     if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
+                    reverse=True,
+                )
+                try:
+                    idx = all_files.index(fname)
+                    for i in range(idx + 1, len(all_files)):
+                        if all_files[i] not in hidden_set:
+                            next_to_show = f"/{_VISUAL_DIR}/{all_files[i]}"
+                            break
+                    if not next_to_show:
+                        for i in range(idx - 1, -1, -1):
+                            if all_files[i] not in hidden_set:
+                                next_to_show = f"/{_VISUAL_DIR}/{all_files[i]}"
+                                break
+                except ValueError:
+                    pass
+
+            state.grid_element_ref = None
+            if next_to_show:
+                app.storage.user['visual_last_image'] = next_to_show.lstrip('/')
+                show_image(next_to_show)
+            else:
+                app.storage.user['visual_last_image'] = None
+                show_placeholder()
 
     def _get_image_callbacks() -> VisualActionCallbacks:
         return {
