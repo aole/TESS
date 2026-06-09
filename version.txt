@@ -1,2 +1,2 @@
-0.33.15
-UPDATES: Add Download Image to grid right-click menu using full image file
+0.33.16
+UPDATES: Grid context menu actions now apply to all selected images for download/delete/regenerate/edit

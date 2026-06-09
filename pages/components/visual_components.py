@@ -11,15 +11,17 @@ class VisualActionCallbacks(TypedDict):
     delete: Callable[[str, Any], None]
     regenerate: Callable[[str], Any]
     info: Callable[[str], Any]
+    download: Callable[[str], Any]
+    edit: Callable[[str], Any]
 
 def add_image_context_menu(container, fpath: str, callbacks: VisualActionCallbacks):
     with container:
         with ui.context_menu():
-            ui.menu_item('Download Image', on_click=lambda: ui.download(f'/{fpath}'))
+            ui.menu_item('Download Image', on_click=lambda: callbacks['download'](fpath))
             ui.menu_item('Delete', on_click=lambda: callbacks['delete'](fpath, container))
             ui.menu_item('Regenerate', on_click=lambda: callbacks['regenerate'](fpath))
             ui.menu_item('Load Parameters', on_click=lambda: callbacks['info'](fpath))
-            ui.menu_item('Edit in Photopea', on_click=lambda: ui.navigate.to(f'/edit?img={fpath}'))
+            ui.menu_item('Edit in Photopea', on_click=lambda: callbacks['edit'](fpath))
 
 def render_checkerboard_image(path: str):
     with ui.element('div').classes('checkerboard-bg w-full h-full overflow-auto flex flex-col'):

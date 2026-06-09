@@ -517,11 +517,47 @@ def create_page():
                 ui.icon('image', size='64px').classes('text-white/10 mb-4')
                 ui.label('Generated image will appear here').classes('text-white/30 text-lg')
 
+    def _context_action_targets(fpath: str):
+        # In grid view, run context-menu actions over the whole selection when multiple images are selected.
+        if state.grid_open and len(state.selected_images) > 1:
+            return sorted(state.selected_images)
+        return [fpath]
+
+    def _context_download(fpath: str):
+        targets = _context_action_targets(fpath)
+        for path in targets:
+            ui.download(f'/{path}')
+        if len(targets) > 1:
+            ui.notify(f'Started download for {len(targets)} images.', type='info')
+
+    def _context_delete(fpath: str, cell_div=None):
+        targets = _context_action_targets(fpath)
+        if len(targets) > 1:
+            state.selected_images = set(targets)
+            _delete_selected_images()
+            return
+        _delete_image(fpath, cell_div)
+
+    async def _context_regenerate(fpath: str):
+        targets = _context_action_targets(fpath)
+        for path in targets:
+            await state.regenerate_image(path)
+
+    def _context_edit(fpath: str):
+        targets = _context_action_targets(fpath)
+        if len(targets) > 1:
+            imgs_param = ",".join(targets)
+            ui.navigate.to(f'/edit?imgs={imgs_param}')
+            return
+        ui.navigate.to(f'/edit?img={fpath}')
+
     def _get_image_callbacks() -> VisualActionCallbacks:
         return {
-            'delete': _delete_image,
-            'regenerate': state.regenerate_image,
-            'info': state.load_metadata
+            'delete': _context_delete,
+            'regenerate': _context_regenerate,
+            'info': state.load_metadata,
+            'download': _context_download,
+            'edit': _context_edit,
         }
 
     # ── Helper: show a single image full-size inside image_container ─────────
