@@ -7,7 +7,6 @@ CONFIG_PATH = os.path.join(os.getcwd(), 'config.json')
 DEFAULT_CONFIG = {
     "logging": {
         "chat": True,
-        "arena": True,
         "batch": True
     },
     "audio": {

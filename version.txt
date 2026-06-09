@@ -1,2 +1,2 @@
-0.33.26
-UPDATES: Fix cheatsheets active-item highlight to update when switching files
+0.33.27
+UPDATES: Remove Arena page and clean up Arena-only routing, service, and logging config

@@ -10,7 +10,6 @@
 
 *   **Chat**: A robust chat interface with history, model selection, parameter tuning, and dynamic context injection.
 *   **Long-Term Memory**: Persistent, tool-based memory system that allows models to remember user preferences, facts, and context across different conversations.
-*   **Arena**: Compare models side-by-side to evaluate performance and reasoning.
 *   **Batch**: Run prompts across multiple models simultaneously to compare outputs.
 *   **Personas & System Variables**: Manage custom system prompts (personas) and define custom system variables (e.g., loaded dynamically from local text files via `@file(path)`) for prompt templating.
 *   **Python Workspace**: An interactive local Python IDE to write, execute, and stop code, run shell commands, and export scripts directly into custom AI tools.

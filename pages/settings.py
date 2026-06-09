@@ -283,10 +283,6 @@ def create_page():
                                 value=config_manager.is_logging_enabled('chat'),
                                 on_change=lambda e: config_manager.set_logging('chat', e.value)).classes('text-gray-300')
 
-                    ui.checkbox('Enable Arena Logging',
-                                value=config_manager.is_logging_enabled('arena'),
-                                on_change=lambda e: config_manager.set_logging('arena', e.value)).classes('text-gray-300')
-
                     ui.checkbox('Enable Batch Logging',
                                 value=config_manager.is_logging_enabled('batch'),
                                 on_change=lambda e: config_manager.set_logging('batch', e.value)).classes('text-gray-300')
