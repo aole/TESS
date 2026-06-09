@@ -20,7 +20,6 @@
     *   **AI Tool Generator**: Build custom tools using natural language; the system generates the schema and logic for you.
     *   **Integrated Debugger**: Test and validate tools in a split-screen workspace before deployment.
 *   **Web Search**: Equip your local models with real-time web access via integrated DuckDuckGo search and URL extraction.
-*   **Google Integration**: Connect your Google Workspace to analyze and synthesize documents.
 *   **Apps Ecosystem**: A modular space for custom applications, including a dedicated **Notes** app with Google Drive synchronization and **Routineer** (a routine/habit tracker with calendar stats and interactive badges).
 *   **Model Management**: Easily pull, delete, and manage your local Ollama models, and create new model variants (Modelfiles) directly within the UI.
 *   **GPU & VRAM Monitoring**: Real-time VRAM usage and GPU activity monitoring in the header with one-click unload of all loaded models.
@@ -63,11 +62,11 @@
         ```
 3.  Open your browser to `http://localhost:8080`.
 
-### Google Workspace Integration (Optional)
+### Google Drive Notes Sync (Optional)
 
-To enable Google integration features (Gmail, YouTube, Drive indexing, and Google Drive Notes synchronization):
+To enable Google Drive synchronization for the Notes app:
 1.  Go to the [Google Cloud Console](https://console.cloud.google.com/).
-2.  Create a project and enable the **Gmail API**, **YouTube Data API v3**, and **Google Drive API**.
+2.  Create a project and enable the **Google Drive API**.
 3.  Configure the OAuth Consent Screen and create credentials for an **OAuth 2.0 Client ID** (select *Desktop app* as the application type).
 4.  Download the JSON client secret, rename it to `client_secret.json`, and place it in the root of the `TESS` folder (see `client_secret.json.example` for reference).
 

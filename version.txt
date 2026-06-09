@@ -1,2 +1,2 @@
-0.33.27
-UPDATES: Remove Arena page and clean up Arena-only routing, service, and logging config
+0.33.28
+UPDATES: Remove Google page route/nav and UI while keeping Notes Google Drive sync
