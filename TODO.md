@@ -1,0 +1,2 @@
+- [x] create sqlite database and store general settings.
+- [ ] store generation history for image generation in the database.
