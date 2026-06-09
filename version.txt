@@ -1,2 +1,2 @@
-0.34.2
-UPDATES: Add core/config/settings_service.py as service wrapper for app_settings repository operations
+0.34.3
+UPDATES: Add default settings map and startup seeding that inserts only missing app settings keys

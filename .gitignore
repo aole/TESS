@@ -41,3 +41,4 @@ token_*.json
 data/google_tokens/
 data/google_accounts.json
 credentials/
+data/tess.db
