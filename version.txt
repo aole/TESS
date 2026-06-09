@@ -1,2 +1,2 @@
-0.34.3
-UPDATES: Add default settings map and startup seeding that inserts only missing app settings keys
+0.34.4
+UPDATES: Add initialize_database startup flow: ensure data dir, open SQLite, run migrations, seed missing defaults, and preload settings

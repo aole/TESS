@@ -1,3 +1,6 @@
+from core.config.settings_service import settings_service
+
+
 DEFAULT_SETTINGS = {
     "theme": {
         "value": "dark",
@@ -30,3 +33,18 @@ DEFAULT_SETTINGS = {
         "description": "Thumbnail size in pixels",
     },
 }
+
+
+def seed_default_settings() -> None:
+    for key, meta in DEFAULT_SETTINGS.items():
+        existing_value = settings_service.get(key, default=None)
+        if existing_value is not None:
+            continue
+
+        settings_service.set(
+            key=key,
+            value=meta["value"],
+            value_type=meta["type"],
+            category=meta.get("category"),
+            description=meta.get("description"),
+        )

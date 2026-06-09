@@ -1,7 +1,23 @@
+from pathlib import Path
+
 from nicegui import ui, app, run
+from core.config.defaults import seed_default_settings
+from core.config.settings_service import settings_service
+from core.db.connection import get_connection
 from pages import models, chat, batch, tools, settings, audio, visual, edit, apps, python_page, personas
 from services import system_service
 from utils.llm_client import client
+
+
+def initialize_database() -> None:
+    data_dir = Path(__file__).resolve().parent / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    with get_connection() as conn:
+        conn.execute("SELECT 1")
+
+    seed_default_settings()
+    settings_service.get_all()
 
 # Page styling and configuration
 def layout(page_path: str = ''):
@@ -234,6 +250,7 @@ def personas_page():
     personas.create_page()
 
 if __name__ in {"__main__", "__mp_main__"}:
+    initialize_database()
     app.add_static_files('/data', 'data')
     app.add_static_files('/output', '.')
     ui.run(
