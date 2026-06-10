@@ -102,6 +102,37 @@ def _load_and_resize_rgb(image_or_path: Union[str, Image.Image], width: int, hei
     return image
 
 
+def _load_and_resize_inpaint_input(image_or_path: Union[str, Image.Image], width: int, height: int) -> tuple[Image.Image, Image.Image, bool]:
+    if isinstance(image_or_path, str):
+        print(f"Loading input image: {image_or_path}")
+        image = Image.open(image_or_path)
+    elif isinstance(image_or_path, Image.Image):
+        image = image_or_path
+    else:
+        raise TypeError("input image must be a file path or PIL.Image.Image")
+
+    has_alpha = image.mode in ("RGBA", "LA") or ("transparency" in image.info)
+    rgba_image = image.convert("RGBA") if has_alpha else image.convert("RGB")
+    if rgba_image.size != (width, height):
+        rgba_image = rgba_image.resize((width, height), Image.Resampling.LANCZOS)
+
+    if not has_alpha:
+        rgb_image = rgba_image.convert("RGB")
+        return rgb_image, rgb_image, False
+
+    alpha = rgba_image.getchannel("A")
+    original_rgb = rgba_image.convert("RGB")
+    transparent_mask = ImageOps.invert(alpha)
+
+    noise_channels = [
+        Image.effect_noise((width, height), 64).convert("L")
+        for _ in range(3)
+    ]
+    noise_rgb = Image.merge("RGB", noise_channels)
+    generation_rgb = Image.composite(noise_rgb, original_rgb, transparent_mask)
+    return original_rgb, generation_rgb, bool(transparent_mask.getbbox())
+
+
 def _make_odd_kernel_size(radius_px: int) -> int:
     """PIL MinFilter/MaxFilter require an odd kernel size >= 3."""
     if radius_px <= 0:
@@ -323,7 +354,11 @@ def generate_anima_inpaint_image(
     orig_input_image_path = input_image if isinstance(input_image, str) else None
     orig_mask_image_path = mask_image if isinstance(mask_image, str) else None
 
-    original_image = _load_and_resize_rgb(input_image, width, height, "input image")
+    original_image, generation_input_image, filled_transparency = _load_and_resize_inpaint_input(
+        input_image,
+        width,
+        height,
+    )
     mask = prepare_inpaint_mask(
         mask_image,
         width=width,
@@ -350,6 +385,8 @@ def generate_anima_inpaint_image(
 
     print(f"Inpainting image: {prompt[:80]}...")
     print("Mask convention: white = generated/editable, black = preserved")
+    if filled_transparency:
+        print("Transparent input pixels were filled with noise for the masked generation pass")
     if cohesion_pass:
         print(
             f"Cohesion pass enabled: steps={cohesion_steps}, "
@@ -363,7 +400,7 @@ def generate_anima_inpaint_image(
             pipe=pipe,
             prompt=prompt,
             negative_prompt=negative_prompt,
-            input_image=original_image,
+            input_image=generation_input_image,
             denoising_strength=denoising_strength,
             steps=steps,
             width=width,
