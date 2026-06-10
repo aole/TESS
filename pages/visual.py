@@ -299,11 +299,11 @@ def create_page():
         # Center column – image area
         with ui.column().classes(
             'rounded-lg border border-white/10 bg-black/20 '
-            'relative'
-        ).style('flex:3; min-width: 300px;').props('id=visual-image-container') as image_container:
+            'relative min-h-0 overflow-hidden'
+        ).style('flex:3; min-width: 300px; height: calc(100vh - 4rem); max-height: calc(100vh - 4rem);').props('id=visual-image-container') as image_container:
             state.image_container = image_container
-            state.full_view_container = ui.element('div').classes('w-full h-full flex flex-col items-center justify-center hidden')
-            state.grid_view_container = ui.element('div').classes('w-full h-full flex flex-col hidden')
+            state.full_view_container = ui.element('div').classes('w-full h-full min-h-0 flex flex-col items-center justify-center hidden')
+            state.grid_view_container = ui.element('div').classes('w-full h-full min-h-0 flex flex-col hidden')
             state.grid_element_ref = None
 
             # Hidden refresh button to reload the visual grid when JS detects new uploads

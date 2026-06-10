@@ -26,10 +26,14 @@ def add_image_context_menu(container, fpath: str, callbacks: VisualActionCallbac
             ui.menu_item('Edit in Photopea', on_click=lambda: callbacks['edit'](fpath))
 
 def render_checkerboard_image(path: str):
-    with ui.element('div').classes('checkerboard-bg w-full h-full overflow-auto flex flex-col'):
-        return ui.element('img').props(f'src="{path}"').classes(
-            'm-auto w-full h-full object-contain rounded-lg shadow-xl transition-all duration-300'
+    viewport = ui.element('div').classes(
+        'checkerboard-bg w-full h-full min-h-0 overflow-hidden flex items-center justify-center'
+    )
+    with viewport:
+        image = ui.element('img').props(f'src="{path}"').classes(
+            'max-w-full max-h-full w-auto h-auto object-contain rounded-lg shadow-xl transition-all duration-300'
         )
+    return viewport, image
 
 def render_image_with_nav(path: str, show_history_cb, show_image_cb, callbacks: VisualActionCallbacks):
     hidden_images = get_hidden_images()
@@ -60,8 +64,8 @@ def render_image_with_nav(path: str, show_history_cb, show_image_cb, callbacks: 
     except ValueError:
         pass
 
-    with ui.element('div').classes('w-full h-full relative group') as img_div:
-        img = render_checkerboard_image(path)
+    with ui.element('div').classes('w-full h-full min-h-0 relative group') as img_div:
+        viewport, img = render_checkerboard_image(path)
         
         fpath = path.lstrip('/')
         add_image_context_menu(img_div, fpath, callbacks)
@@ -74,11 +78,13 @@ def render_image_with_nav(path: str, show_history_cb, show_image_cb, callbacks: 
         ):
             def toggle_zoom():
                 if zoom_state['fit']:
-                    img.classes(remove='h-full object-contain', add='h-auto')
+                    viewport.classes(remove='overflow-hidden items-center justify-center', add='overflow-auto items-start justify-start')
+                    img.classes(remove='max-w-full max-h-full', add='max-w-none max-h-none')
                     zoom_btn.props('icon=zoom_out')
                     zoom_state['fit'] = False
                 else:
-                    img.classes(remove='h-auto', add='h-full object-contain')
+                    viewport.classes(remove='overflow-auto items-start justify-start', add='overflow-hidden items-center justify-center')
+                    img.classes(remove='max-w-none max-h-none', add='max-w-full max-h-full')
                     zoom_btn.props('icon=zoom_in')
                     zoom_state['fit'] = True
                     

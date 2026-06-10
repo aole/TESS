@@ -1,2 +1,1 @@
-0.35.3
-UPDATES: Fix chat image attachments so the same image can be inserted again
+0.35.4
