@@ -1,5 +1,6 @@
 import os
 from typing import TypedDict, Callable, Any
+from PIL import Image
 from nicegui import ui, app
 from services.visual_service import (
     _VISUAL_EXTS,
@@ -35,6 +36,14 @@ def render_checkerboard_image(path: str):
         )
     return viewport, image
 
+def get_image_dimensions(path: str) -> str:
+    try:
+        with Image.open(path.lstrip('/')) as image:
+            width, height = image.size
+        return f'{width}x{height}'
+    except Exception:
+        return ''
+
 def render_image_with_nav(path: str, show_history_cb, show_image_cb, callbacks: VisualActionCallbacks):
     hidden_images = get_hidden_images()
     hidden_set = set(hidden_images)
@@ -52,6 +61,7 @@ def render_image_with_nav(path: str, show_history_cb, show_image_cb, callbacks: 
             images = [f for f in all_files if f not in hidden_set]
         
     filename = path.split('/')[-1]
+    dimensions = get_image_dimensions(path)
     prev_img = None
     next_img = None
     
@@ -103,6 +113,16 @@ def render_image_with_nav(path: str, show_history_cb, show_image_cb, callbacks: 
         if next_img:
             ui.button(icon='chevron_right', on_click=lambda n=next_img: show_image_cb(n)).props('round flat size=lg').classes(
                 'absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white hover:bg-black/80 z-10'
+            )
+
+        ui.label(filename).classes(
+            'absolute bottom-2 left-2 max-w-[60%] truncate rounded bg-black/70 px-2 py-1 '
+            'text-xs text-white/80 opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none'
+        )
+        if dimensions:
+            ui.label(dimensions).classes(
+                'absolute bottom-2 right-2 rounded bg-black/70 px-2 py-1 '
+                'text-xs font-mono text-white/80 opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none'
             )
 
 def add_grid_cell(grid, thumb_src: str, full_src: str, fpath: str, is_hidden: bool, click_cb, register_cell_cb, callbacks: VisualActionCallbacks):
