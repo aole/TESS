@@ -1,2 +1,2 @@
-0.35.2
-UPDATES: Update visual.py UI defaults to use settings_service for width, height, steps, cfg
+0.35.3
+UPDATES: Fix chat image attachments so the same image can be inserted again

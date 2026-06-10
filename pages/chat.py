@@ -702,6 +702,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     except Exception as ex:
                         filename = getattr(getattr(e, 'file', None), 'name', 'Unknown file')
                         ui.notify(f'Error reading {filename}: {ex}', type='negative')
+                    finally:
+                        text_uploader.reset()
 
                 async def handle_image_upload(e):
                     try:
@@ -721,6 +723,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     except Exception as ex:
                         filename = getattr(getattr(e, 'file', None), 'name', 'Unknown image')
                         ui.notify(f'Error reading {filename}: {ex}', type='negative')
+                    finally:
+                        image_uploader.reset()
 
                 def remove_attachment(kind, index):
                     if kind == 'file' and 0 <= index < len(attached_files):
@@ -746,6 +750,14 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 attachment_container = ui.row().classes('w-full gap-2 px-2 pb-1')
                 text_uploader = ui.upload(on_upload=handle_text_upload, multiple=True, auto_upload=True).props('accept=".txt,.md,.csv,.py,.js,.json,.html,.css,.sql,.yaml,.yml"').classes('hidden')
                 image_uploader = ui.upload(on_upload=handle_image_upload, multiple=True, auto_upload=True).props('accept="image/*"').classes('hidden')
+
+                def pick_text_files():
+                    text_uploader.reset()
+                    text_uploader.run_method('pickFiles')
+
+                def pick_images():
+                    image_uploader.reset()
+                    image_uploader.run_method('pickFiles')
 
                 def update_button_state():
                     if not send_btn: return
@@ -959,8 +971,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 with ui.row().classes('w-full gap-1 items-center'):
                     with ui.button(icon='add').props('flat round color=primary').tooltip('Insert attachments'):
                         with ui.menu().props('auto-close'):
-                            ui.menu_item('Insert text file', on_click=lambda: text_uploader.run_method('pickFiles'))
-                            ui.menu_item('Insert images', on_click=lambda: image_uploader.run_method('pickFiles'))
+                            ui.menu_item('Insert text file', on_click=pick_text_files)
+                            ui.menu_item('Insert images', on_click=pick_images)
 
                     tts_btn = ui.button(icon='volume_off').props('flat round color=grey').tooltip('Toggle Automatic Text-to-Speech')
                     def toggle_tts():
