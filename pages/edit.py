@@ -2,12 +2,44 @@ import os
 import datetime
 import json
 import asyncio
+import re
 from PIL import Image
 from fastapi import UploadFile, File, Form
 from nicegui import ui, app, run
 from services.visual_service import create_thumbnail
 from core.generate_image import generate_anima_image, unload_pipeline as unload_image_pipeline
 from core.generate_inpaint import generate_anima_inpaint_image, unload_pipeline as unload_inpaint_pipeline
+
+
+_EDIT_MARKER_RE = re.compile(r'_(?:edited|edit)_\d{8}_\d{6}(?:_\d+)?')
+_TRAILING_EDIT_RE = re.compile(r'_(?:edited|edit)$')
+_TRAILING_TIMESTAMP_RE = re.compile(r'(?:_\d{8}_\d{6})+$')
+_TIMESTAMP_STEM_RE = re.compile(r'\d{8}_\d{6}(?:_\d+)?')
+
+
+def _safe_filename_stem(value: str, fallback: str = "image", max_length: int = 80) -> str:
+    stem = "".join(c if c.isalnum() or c in "._-" else "_" for c in value)
+    stem = re.sub(r'_+', '_', stem).strip("._-")
+    if not stem:
+        stem = fallback
+    return stem[:max_length].rstrip("._-") or fallback
+
+
+def _edited_image_filename(original_path: str, timestamp: str) -> str:
+    if original_path:
+        stem = os.path.splitext(os.path.basename(original_path))[0]
+        if stem.startswith("tess_"):
+            stem = stem[5:]
+        had_edit_marker = bool(_EDIT_MARKER_RE.search(stem) or _TRAILING_EDIT_RE.search(stem))
+        stem = _EDIT_MARKER_RE.sub("", stem)
+        stem = _TRAILING_EDIT_RE.sub("", stem)
+        if had_edit_marker and not _TIMESTAMP_STEM_RE.fullmatch(stem):
+            stem = _TRAILING_TIMESTAMP_RE.sub("", stem)
+        stem = _safe_filename_stem(stem)
+    else:
+        stem = "image"
+    return f"tess_{stem}_edit_{timestamp}.png"
+
 
 # Register the upload API route at import time
 @app.post('/upload-edited-image')
@@ -25,14 +57,7 @@ async def upload_edited_image(file: UploadFile = File(...), original_path: str =
         os.makedirs("data/visual/thumbs", exist_ok=True)
         
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        if original_path:
-            base = os.path.basename(original_path)
-            name, ext = os.path.splitext(base)
-            name = name.replace("_edited", "")
-            name = name.replace("tess_", "")
-            fname = f"tess_{name}_edited_{timestamp}.png"
-        else:
-            fname = f"tess_edited_{timestamp}.png"
+        fname = _edited_image_filename(original_path, timestamp)
             
         output_path = f"data/visual/images/{fname}"
         
