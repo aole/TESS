@@ -34,6 +34,9 @@ data/visual/
 models/
 data/tmp/
 scratch/
+data/tess.db
+data/tess.db-shm
+data/tess.db-wal
 
 # Google Auth
 client_secret.json
@@ -41,4 +44,3 @@ token_*.json
 data/google_tokens/
 data/google_accounts.json
 credentials/
-data/tess.db

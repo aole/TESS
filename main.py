@@ -4,6 +4,7 @@ from nicegui import ui, app, run
 from core.config.defaults import seed_default_settings
 from core.config.settings_service import settings_service
 from core.db.connection import get_connection
+from core.db.migrations import run_migrations
 from pages import models, chat, batch, tools, settings, audio, visual, edit, apps, python_page, personas
 from services import system_service
 from utils.llm_client import client
@@ -16,6 +17,7 @@ def initialize_database() -> None:
     with get_connection() as conn:
         conn.execute("SELECT 1")
 
+    run_migrations()
     seed_default_settings()
     settings_service.get_all()
 
