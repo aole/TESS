@@ -192,14 +192,14 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
     """)
 
     # i2i Options Dialog
-    with ui.dialog() as i2i_options_dialog, ui.card().classes('w-[550px] max-w-full p-6 gap-4 bg-[#1e1f20] border border-white/10 text-white rounded-xl shadow-2xl'):
+    with ui.dialog().props('position=right') as i2i_options_dialog, ui.card().classes('w-[550px] max-w-full h-screen max-h-screen p-6 gap-4 bg-[#1e1f20] border-l border-white/10 text-white rounded-none shadow-2xl'):
         with ui.row().classes('w-full items-center justify-between border-b border-white/10 pb-2'):
             with ui.row().classes('items-center gap-2'):
                 ui.icon('tune', size='24px').classes('text-indigo-400')
                 ui.label('Image-to-Image Settings').classes('text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-indigo-400')
             ui.button(icon='close', on_click=i2i_options_dialog.close).props('flat dense round').classes('text-gray-400 hover:text-white')
 
-        with ui.column().classes('w-full gap-3 overflow-y-auto max-h-[70vh] pr-1'):
+        with ui.column().classes('w-full flex-grow gap-3 overflow-y-auto pr-1'):
             ui.label('Positive Prompt').classes('text-xs font-semibold text-gray-400 uppercase tracking-wider')
             pos_prompt_textarea = ui.textarea(placeholder='Positive prompt...').classes('w-full text-sm bg-black/20 border border-white/10 rounded p-2 text-white').props('outlined rows="5"').bind_value(app.storage.user, 'edit_i2i_prompt')
 
@@ -249,6 +249,13 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                 ).classes('flex-grow').bind_value(
                     app.storage.user, 'edit_i2i_turbo_strength'
                 ).bind_enabled_from(turbo_check, 'value')
+
+        with ui.row().classes('w-full justify-end border-t border-white/10 pt-4'):
+            generate_i2i_btn = ui.button(
+                'Generate',
+                icon='brush',
+                on_click=lambda: ui.run_javascript("window.runPhotopeaI2I();")
+            ).classes('save-btn px-4').props('dense')
 
     def handle_dialog_close(e):
         if not e.value:
@@ -300,11 +307,8 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                         window.loadPhotopeaImage('{web_path}');
                     """)
 
-                # Run i2i button
-                run_i2i_btn = ui.button(icon='brush', on_click=lambda: ui.run_javascript("window.runPhotopeaI2I();")).classes('glass-btn').props('dense round').tooltip('Run Image-to-Image (i2i) on current image')
-
-                # Edit i2i options button
-                ui.button(icon='tune', on_click=i2i_options_dialog.open).classes('glass-btn').props('dense round').tooltip('Edit i2i Options')
+                # Image-to-image options and generation
+                i2i_btn = ui.button(icon='brush', on_click=i2i_options_dialog.open).classes('glass-btn').props('dense round').tooltip('Image-to-Image')
 
                 # Vertical Separator
                 ui.element('div').classes('h-6 w-px bg-white/20 mx-1')
@@ -600,8 +604,9 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         turbo_strength = float(user_storage.get('edit_i2i_turbo_strength', 1.0)) if turbo_enabled else 0.0
 
         generating['active'] = True
-        run_i2i_btn.props('loading')
-        run_i2i_btn.disable()
+        generate_i2i_btn.props('loading')
+        generate_i2i_btn.disable()
+        i2i_btn.disable()
         
         # Free up VRAM by unloading LLMs
         try:
@@ -674,8 +679,9 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             except Exception as ex:
                 print(f"Failed to unload pipeline: {ex}")
             generating['active'] = False
-            run_i2i_btn.props(remove='loading')
-            run_i2i_btn.enable()
+            generate_i2i_btn.props(remove='loading')
+            generate_i2i_btn.enable()
+            i2i_btn.enable()
 
     ui.on('photopea-i2i', handle_photopea_i2i)
 
