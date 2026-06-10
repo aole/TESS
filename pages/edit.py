@@ -139,6 +139,8 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         init_storage_val('edit_i2i_turbo_strength', user_storage.get('visual_turbo_lora_strength', 1.0))
     init_storage_val('edit_i2i_count', 1)
 
+    generating = {'active': False, 'pending': False, 'cancel': False}
+
 
 
     # Custom UI Header Styling
@@ -187,6 +189,15 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             .save-btn:hover {
                 filter: brightness(1.1);
                 transform: translateY(-1px);
+            }
+            .stop-btn {
+                background: rgba(239, 68, 68, 0.9);
+                border: 1px solid rgba(248, 113, 113, 0.95);
+                color: white;
+            }
+            .stop-btn:hover {
+                background: rgba(220, 38, 38, 0.95);
+                border-color: rgba(252, 165, 165, 1);
             }
         </style>
     """)
@@ -254,7 +265,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             generate_i2i_btn = ui.button(
                 'Generate',
                 icon='brush',
-                on_click=lambda: ui.run_javascript("window.runPhotopeaI2I();")
+                on_click=lambda: start_i2i_generation_export()
             ).classes('save-btn px-4').props('dense')
 
     def handle_dialog_close(e):
@@ -269,6 +280,38 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             count_input.update()
 
     i2i_options_dialog.on_value_change(handle_dialog_close)
+
+    def set_i2i_button_generating(active: bool):
+        if active:
+            i2i_btn.props('icon=stop color=red')
+            i2i_btn.classes(remove='glass-btn', add='stop-btn')
+        else:
+            i2i_btn.props('icon=brush', remove='color')
+            i2i_btn.classes(remove='stop-btn', add='glass-btn')
+
+    def reset_i2i_generation_state():
+        generating['active'] = False
+        generating['pending'] = False
+        generating['cancel'] = False
+        set_i2i_button_generating(False)
+
+    def start_i2i_generation_export():
+        if generating['active']:
+            ui.notify("Generation already in progress", type='warning')
+            return
+        i2i_options_dialog.close()
+        generating['active'] = True
+        generating['pending'] = True
+        generating['cancel'] = False
+        set_i2i_button_generating(True)
+        ui.run_javascript("window.runPhotopeaI2I();")
+
+    def handle_i2i_toolbar_click():
+        if generating['active']:
+            generating['cancel'] = True
+            ui.notify("Stopping generation...", type='warning', pos='bottom-right')
+            return
+        i2i_options_dialog.open()
 
     # Main layout container
     with ui.column().classes('edit-container'):
@@ -308,7 +351,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                     """)
 
                 # Image-to-image options and generation
-                i2i_btn = ui.button(icon='brush', on_click=i2i_options_dialog.open).classes('glass-btn').props('dense round').tooltip('Image-to-Image')
+                i2i_btn = ui.button(icon='brush', on_click=handle_i2i_toolbar_click).classes('glass-btn').props('dense round').tooltip('Image-to-Image')
 
                 # Vertical Separator
                 ui.element('div').classes('h-6 w-px bg-white/20 mx-1')
@@ -554,12 +597,11 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
 
     ui.on('photopea-saved', handle_photopea_saved)
 
-    generating = {'active': False}
-
     async def handle_photopea_i2i(e):
-        if generating['active']:
+        if generating['active'] and not generating.get('pending'):
             ui.notify("Generation already in progress", type='warning')
             return
+        generating['pending'] = False
             
         args = e.args
         if isinstance(args, dict):
@@ -574,15 +616,22 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             
         if not input_path or not os.path.exists(input_path):
             ui.notify("Failed to retrieve current image from Photopea", type='negative')
+            reset_i2i_generation_state()
             return
         if mask_path and not os.path.exists(mask_path):
             ui.notify("Failed to retrieve selection mask from Photopea", type='negative')
+            reset_i2i_generation_state()
+            return
+        if generating['cancel']:
+            ui.notify("Generation stopped", type='warning', pos='bottom-right')
+            reset_i2i_generation_state()
             return
             
         # Retrieve options
         prompt_val = user_storage.get('edit_i2i_prompt', '')
         if not prompt_val.strip():
             ui.notify("Please enter a prompt in Image-to-Image Options", type='warning')
+            reset_i2i_generation_state()
             i2i_options_dialog.open()
             return
             
@@ -604,9 +653,10 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         turbo_strength = float(user_storage.get('edit_i2i_turbo_strength', 1.0)) if turbo_enabled else 0.0
 
         generating['active'] = True
+        generating['pending'] = False
         generate_i2i_btn.props('loading')
         generate_i2i_btn.disable()
-        i2i_btn.disable()
+        set_i2i_button_generating(True)
         
         # Free up VRAM by unloading LLMs
         try:
@@ -620,11 +670,21 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         try:
             os.makedirs("data/visual/temp", exist_ok=True)
             for idx in range(count_val):
+                if generating['cancel']:
+                    ui.notify("Generation stopped", type='warning', pos='bottom-right')
+                    break
+
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 mode_label = "inpaint" if mask_path else "i2i"
                 temp_output_path = f"data/visual/temp/{mode_label}_output_{timestamp}_{idx}.png"
 
                 ui.notify(f"Generating {mode_label} image {idx + 1} of {count_val}...", type='info', pos='bottom-right')
+
+                def generation_progress_callback(_current, _total):
+                    if generating['cancel']:
+                        return "CANCEL"
+                    return None
+
                 # Run in a background thread to prevent UI blocking
                 if mask_path:
                     output_path = await run.io_bound(
@@ -640,6 +700,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                         input_image=input_path,
                         mask_image=mask_path,
                         denoising_strength=denoising_val,
+                        progress_callback=generation_progress_callback,
                         unload_after=False
                     )
                 else:
@@ -655,6 +716,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                         turbo_lora=turbo_strength,
                         input_image=input_path,
                         denoising_strength=denoising_val,
+                        progress_callback=generation_progress_callback,
                         unload_after=False
                     )
                 
@@ -665,6 +727,9 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                     ui.run_javascript(f"window.loadPhotopeaLayer('{web_path}');")
                     # Small sleep to allow Photopea to process the layer upload sequentially
                     await asyncio.sleep(0.5)
+                elif generating['cancel']:
+                    ui.notify("Generation stopped", type='warning', pos='bottom-right')
+                    break
                 else:
                     ui.notify(f"{mode_label} generation {idx + 1} failed", type='negative')
         except Exception as ex:
@@ -678,10 +743,9 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                 await run.io_bound(unload_inpaint_pipeline)
             except Exception as ex:
                 print(f"Failed to unload pipeline: {ex}")
-            generating['active'] = False
             generate_i2i_btn.props(remove='loading')
             generate_i2i_btn.enable()
-            i2i_btn.enable()
+            reset_i2i_generation_state()
 
     ui.on('photopea-i2i', handle_photopea_i2i)
 
