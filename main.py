@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from nicegui import ui, app, run
 from core.config.defaults import seed_default_settings
@@ -172,11 +173,24 @@ def layout(page_path: str = ''):
             ui.element('div').classes('h-4 w-px bg-white/20 mx-2')
 
             # Navigation Links
+            def navigate_from_edit(target):
+                target_json = json.dumps(target)
+                ui.run_javascript(f"""
+                    if (window.savePhotopeaPsdThenNavigate) {{
+                        window.savePhotopeaPsdThenNavigate({target_json});
+                    }} else {{
+                        window.location.href = {target_json};
+                    }}
+                """)
+
             def nav_link(text, target):
                 classes = 'nav-item'
                 if target == page_path:
                     classes += ' active'
-                ui.link(text, target).classes(classes).style('font-weight: 500')
+                if page_path == '/edit' and target != page_path:
+                    ui.button(text, on_click=lambda t=target: navigate_from_edit(t)).props('flat dense no-caps').classes(classes).style('font-weight: 500')
+                else:
+                    ui.link(text, target).classes(classes).style('font-weight: 500')
             
             nav_link('Chat', '/chat')
             # Visual separator using a small vertical line or just margin
