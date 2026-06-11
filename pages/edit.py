@@ -486,6 +486,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             <iframe
               id="photopea"
               src="https://www.photopea.com"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-popups allow-pointer-lock"
               style="width: 100%; height: 100%; border: 0; border-radius: 8px; box-shadow: inset 0 0 10px rgba(0,0,0,0.5);"
               {"data-pending-img=" + web_url if web_url else ""}
               {"data-pending-layers=" + remaining_web_urls if remaining_web_urls else ""}
