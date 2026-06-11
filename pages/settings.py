@@ -245,9 +245,14 @@ def create_page():
             # ── Default Models ────────────────────────────────────────────────
             with ui_card(heading="Default Models", heading_icon="psychology", heading_color="indigo"):
                 with ui.column().classes('gap-3 w-full'):
-                    current_story_model = config_manager.get_default_model('story_processing')
+                    current_story_model = _ss.get(
+                        'default_story_processing_model',
+                        _db_default('default_story_processing_model'),
+                    )
                     current_vision_model = _ss.get('default_vision_model', _db_default('default_vision_model'))
-                    initial_story_options = [current_story_model] if current_story_model else []
+                    initial_story_options = {None: 'None'}
+                    if current_story_model is not None:
+                        initial_story_options[current_story_model] = current_story_model
                     initial_vision_options = {None: 'None'}
                     if current_vision_model is not None:
                         initial_vision_options[current_vision_model] = current_vision_model
@@ -258,25 +263,24 @@ def create_page():
                             models_list = await client.list_models()
                             model_options = [m['model'] for m in models_list]
 
-                            current_story = config_manager.get_default_model('story_processing')
-                            if current_story and current_story not in model_options:
-                                model_options.insert(0, current_story)
-
                             select_options = {None: 'None'}
                             for model in model_options:
                                 select_options[model] = model
 
-                            if current_story in model_options:
-                                story_model_select.value = current_story
-                            elif model_options:
-                                story_model_select.value = model_options[0]
+                            current_story = _ss.get(
+                                'default_story_processing_model',
+                                _db_default('default_story_processing_model'),
+                            )
+                            if current_story is not None and current_story not in select_options:
+                                select_options[current_story] = current_story
+                            story_model_select.value = current_story if current_story in select_options else None
 
                             current_vision = _ss.get('default_vision_model', _db_default('default_vision_model'))
                             if current_vision is not None and current_vision not in select_options:
                                 select_options[current_vision] = current_vision
                             vision_model_select.value = current_vision if current_vision in select_options else None
 
-                            story_model_select.options = model_options
+                            story_model_select.options = select_options
                             vision_model_select.options = select_options
                             story_model_select.update()
                             vision_model_select.update()
@@ -288,8 +292,9 @@ def create_page():
                         story_model_select = ui.select(
                             options=initial_story_options,
                             value=current_story_model,
-                            on_change=lambda e: config_manager.set_default_model('story_processing', e.value),
-                        ).classes('flex-1').props('outlined dense dark')
+                            on_change=lambda e: _save('default_story_processing_model', e.value),
+                        ).classes('flex-1').props('outlined dense dark clearable')
+                        _reset_btn('default_story_processing_model', lambda v: story_model_select.set_value(v))
 
                     with ui.row().classes('items-center gap-3 w-full'):
                         ui.label('Vision Model').classes('text-sm text-gray-300 w-32 shrink-0')

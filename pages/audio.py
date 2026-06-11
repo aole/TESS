@@ -2,6 +2,7 @@ from nicegui import ui, app
 from utils.ui_components import ui_list, ui_list_item
 from services.tts_service import tts_service
 from utils.llm_client import client
+from core.config.settings_service import settings_service
 import os
 import re
 import struct
@@ -542,10 +543,10 @@ So, shall we get started?"""
         progress_bar.set_value(0)
         
         try:
-            # Load config to get story model
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-            model = config.get('default_models', {}).get('story_processing', 'gemma4:e4b')
+            model = settings_service.get('default_story_processing_model')
+            if not model:
+                ui.notify('Select a Story Processing model in Settings first.', type='warning')
+                return
             
             # --- Pass 1: Speaker Identification & Metadata ---
             status_label.set_text('Pass 1: Identifying characters...')

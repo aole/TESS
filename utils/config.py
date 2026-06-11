@@ -117,15 +117,6 @@ class ConfigManager:
         self.config["last_notes_sync"] = iso_timestamp
         self._save_config(self.config)
 
-    def get_default_model(self, key: str) -> str:
-        return self.config.get("default_models", {}).get(key, "")
-
-    def set_default_model(self, key: str, model_name: str):
-        if "default_models" not in self.config:
-            self.config["default_models"] = {}
-        self.config["default_models"][key] = model_name
-        self._save_config(self.config)
-
     def get_tts_voice(self) -> str:
         return self.config.get("audio", {}).get("voice", "af_heart")
 

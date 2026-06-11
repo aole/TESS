@@ -56,6 +56,12 @@ DEFAULT_SETTINGS = {
         "category": "storage",
         "description": "Thumbnail output format",
     },
+    "default_story_processing_model": {
+        "value": None,
+        "type": "json",
+        "category": "default_models",
+        "description": "Default model used for story processing",
+    },
     "default_vision_model": {
         "value": None,
         "type": "json",
