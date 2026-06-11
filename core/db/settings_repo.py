@@ -24,6 +24,8 @@ class SettingsRepo:
         return raw_value
 
     def _infer_value_type(self, value: Any) -> str:
+        if value is None:
+            return "json"
         if isinstance(value, bool):
             return "bool"
         if isinstance(value, int):
@@ -46,6 +48,15 @@ class SettingsRepo:
 
         value, value_type = row
         return self._deserialize_value(value, value_type)
+
+    def exists(self, key: str) -> bool:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM app_settings WHERE key = ?",
+                (key,),
+            ).fetchone()
+
+        return row is not None
 
     def set(
         self,

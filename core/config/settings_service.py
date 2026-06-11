@@ -7,6 +7,9 @@ class SettingsService:
     def get(self, key: str, default: Any = None) -> Any:
         return settings_repo.get(key, default=default)
 
+    def exists(self, key: str) -> bool:
+        return settings_repo.exists(key)
+
     def set(
         self,
         key: str,

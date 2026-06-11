@@ -56,13 +56,18 @@ DEFAULT_SETTINGS = {
         "category": "storage",
         "description": "Thumbnail output format",
     },
+    "default_vision_model": {
+        "value": None,
+        "type": "json",
+        "category": "default_models",
+        "description": "Default model used for vision tasks",
+    },
 }
 
 
 def seed_default_settings() -> None:
     for key, meta in DEFAULT_SETTINGS.items():
-        existing_value = settings_service.get(key, default=None)
-        if existing_value is not None:
+        if settings_service.exists(key):
             continue
 
         settings_service.set(

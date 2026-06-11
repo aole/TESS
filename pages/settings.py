@@ -133,13 +133,27 @@ def create_page():
                 return _DEFAULTS.get(key, {}).get("value")
 
             def _save(key, value):
-                _ss.set(key, value)
+                meta = _DEFAULTS.get(key, {})
+                _ss.set(
+                    key,
+                    value,
+                    value_type=meta.get("type", "str"),
+                    category=meta.get("category"),
+                    description=meta.get("description"),
+                )
                 ui.notify('Saved', type='positive', position='top-right', timeout=1200)
 
             def _reset_btn(key, on_reset):
                 dv = _db_default(key)
                 def _do_reset(k=key, d=dv, cb=on_reset):
-                    _ss.set(k, d)
+                    meta = _DEFAULTS.get(k, {})
+                    _ss.set(
+                        k,
+                        d,
+                        value_type=meta.get("type", "str"),
+                        category=meta.get("category"),
+                        description=meta.get("description"),
+                    )
                     cb(d)
                     ui.notify(f'Reset to default: {d}', type='info', position='top-right', timeout=1500)
                 ui.button(icon='restart_alt', on_click=_do_reset).props(
@@ -227,6 +241,66 @@ def create_page():
                             on_change=lambda e: _save('thumbnail_format', e.value),
                         ).classes('flex-1').props('outlined dense dark')
                         _reset_btn('thumbnail_format', lambda v: tfmt_sel.set_value(v))
+
+            # ── Default Models ────────────────────────────────────────────────
+            with ui_card(heading="Default Models", heading_icon="psychology", heading_color="indigo"):
+                with ui.column().classes('gap-3 w-full'):
+                    current_story_model = config_manager.get_default_model('story_processing')
+                    current_vision_model = _ss.get('default_vision_model', _db_default('default_vision_model'))
+                    initial_story_options = [current_story_model] if current_story_model else []
+                    initial_vision_options = {None: 'None'}
+                    if current_vision_model is not None:
+                        initial_vision_options[current_vision_model] = current_vision_model
+
+                    async def load_models_for_setting():
+                        from utils.llm_client import client
+                        try:
+                            models_list = await client.list_models()
+                            model_options = [m['model'] for m in models_list]
+
+                            current_story = config_manager.get_default_model('story_processing')
+                            if current_story and current_story not in model_options:
+                                model_options.insert(0, current_story)
+
+                            select_options = {None: 'None'}
+                            for model in model_options:
+                                select_options[model] = model
+
+                            if current_story in model_options:
+                                story_model_select.value = current_story
+                            elif model_options:
+                                story_model_select.value = model_options[0]
+
+                            current_vision = _ss.get('default_vision_model', _db_default('default_vision_model'))
+                            if current_vision is not None and current_vision not in select_options:
+                                select_options[current_vision] = current_vision
+                            vision_model_select.value = current_vision if current_vision in select_options else None
+
+                            story_model_select.options = model_options
+                            vision_model_select.options = select_options
+                            story_model_select.update()
+                            vision_model_select.update()
+                        except Exception as ex:
+                            ui.notify(f'Error loading models: {ex}', type='negative')
+
+                    with ui.row().classes('items-center gap-3 w-full'):
+                        ui.label('Story Processing').classes('text-sm text-gray-300 w-32 shrink-0')
+                        story_model_select = ui.select(
+                            options=initial_story_options,
+                            value=current_story_model,
+                            on_change=lambda e: config_manager.set_default_model('story_processing', e.value),
+                        ).classes('flex-1').props('outlined dense dark')
+
+                    with ui.row().classes('items-center gap-3 w-full'):
+                        ui.label('Vision Model').classes('text-sm text-gray-300 w-32 shrink-0')
+                        vision_model_select = ui.select(
+                            options=initial_vision_options,
+                            value=current_vision_model,
+                            on_change=lambda e: _save('default_vision_model', e.value),
+                        ).classes('flex-1').props('outlined dense dark clearable')
+                        _reset_btn('default_vision_model', lambda v: vision_model_select.set_value(v))
+
+                    ui.timer(0.1, load_models_for_setting, once=True)
 
             # ── Logging ───────────────────────────────────────────────────────
             def _logging_footer():
@@ -529,31 +603,6 @@ def create_page():
 
                 # Refresh options lazily so newly-created personas appear
                 ui.timer(2.0, _refresh_persona_opts)
-
-            # ── Default Models ────────────────────────────────────────────────
-            with ui_card(heading="Default Models", heading_icon="psychology", heading_color="indigo"):
-                async def load_models_for_setting():
-                    from utils.llm_client import client
-                    try:
-                        models_list = await client.list_models()
-                        options = [m['model'] for m in models_list]
-                        story_model_select.options = options
-                        
-                        # Load from config
-                        current = config_manager.get_default_model('story_processing')
-                        if current in options:
-                            story_model_select.value = current
-                        elif options:
-                            story_model_select.value = options[0]
-                    except Exception:
-                        pass
-
-                story_model_select = ui.select(
-                    options=[], 
-                    label='Story Processing Model',
-                    on_change=lambda e: config_manager.set_default_model('story_processing', e.value)
-                ).classes('w-full')
-                ui.timer(0.1, load_models_for_setting, once=True)
 
             # ── Audio ─────────────────────────────────────────────────────────
             with ui_card(heading="Audio Settings", heading_icon="volume_up", heading_color="pink"):
