@@ -2,6 +2,8 @@ import os
 import asyncio
 import shutil
 import datetime
+import base64
+import json
 from PIL import Image
 from nicegui import ui, run, app
 from fastapi import UploadFile, File, HTTPException
@@ -23,11 +25,15 @@ from services.visual_service import (
 )
 from core.config.settings_service import settings_service
 from utils.config import config_manager
+from utils.llm_client import client
+from services.persona_service import persona_service
 from pages.components.visual_components import (
     render_image_with_nav,
     add_grid_cell,
     VisualActionCallbacks
 )
+
+ANIMA_IMAGE_INTERPRETER_PERSONA = 'Anima Image Interpreter'
 
 @app.post('/upload_visual_image')
 async def upload_visual_image(file: UploadFile = File(...)):
@@ -523,6 +529,177 @@ def create_page():
                 ui.icon('image', size='64px').classes('text-white/10 mb-4')
                 ui.label('Generated image will appear here').classes('text-white/30 text-lg')
 
+    def _anima_interpreter_system_prompt() -> str:
+        for persona in persona_service.get_personas():
+            if persona.get('name') == ANIMA_IMAGE_INTERPRETER_PERSONA:
+                return persona.get('system_prompt', '')
+        ui.notify(f'Persona "{ANIMA_IMAGE_INTERPRETER_PERSONA}" not found. Using default system prompt.', type='warning')
+        return (
+            'Describe the provided image in detail and return valid JSON only '
+            'with exactly these fields: positive_prompt and negative_prompt.'
+        )
+
+    def _extract_prompt_json(content: str) -> dict:
+        text = (content or '').strip()
+        if text.startswith('```'):
+            lines = text.splitlines()
+            if lines and lines[0].startswith('```'):
+                lines = lines[1:]
+            if lines and lines[-1].strip().startswith('```'):
+                lines = lines[:-1]
+            text = '\n'.join(lines).strip()
+
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            start = text.find('{')
+            end = text.rfind('}')
+            if start == -1 or end == -1 or end <= start:
+                raise
+            data = json.loads(text[start:end + 1])
+
+        if not isinstance(data, dict):
+            raise ValueError('Model response was not a JSON object.')
+
+        positive = data.get('positive_prompt')
+        negative = data.get('negative_prompt')
+        if not isinstance(positive, str) or not positive.strip():
+            raise ValueError('Model response did not include positive_prompt.')
+        return {
+            'positive_prompt': positive.strip(),
+            'negative_prompt': negative.strip() if isinstance(negative, str) else '',
+        }
+
+    async def _choose_default_vision_model():
+        try:
+            models_raw = await client.list_models()
+        except Exception as exc:
+            ui.notify(f'Error loading models: {exc}', type='negative')
+            return None
+
+        model_options = [m.get('model') for m in models_raw if m.get('model')]
+        if not model_options:
+            ui.notify('No Ollama models found. Add a vision model first.', type='warning')
+            return None
+
+        with state.image_container:
+            with ui.dialog() as dialog, ui.card().classes('w-96 max-w-full p-6 gap-4'):
+                ui.label('Select Vision Model').classes('text-lg font-semibold')
+                ui.label('Choose a model to use for image prompt generation. It will be saved as the default vision model.').classes(
+                    'text-sm text-gray-400'
+                )
+                model_select = ui.select(
+                    options=model_options,
+                    value=model_options[0],
+                    label='Vision Model',
+                ).classes('w-full').props('outlined dense')
+                with ui.row().classes('w-full justify-end gap-2'):
+                    ui.button('Cancel', on_click=lambda: dialog.submit(None)).props('flat no-caps')
+                    ui.button('Use Model', icon='check', on_click=lambda: dialog.submit(model_select.value)).props('no-caps')
+
+        selected_model = await dialog
+        if not selected_model:
+            return None
+
+        settings_service.set(
+            key='default_vision_model',
+            value=selected_model,
+            value_type='json',
+            category='default_models',
+            description='Default model used for vision tasks',
+        )
+        ui.notify('Default vision model saved.', type='positive')
+        return selected_model
+
+    async def _get_default_vision_model():
+        model = settings_service.get('default_vision_model')
+        if model:
+            return model
+        return await _choose_default_vision_model()
+
+    def _single_prompt_target(fpath: str):
+        target = fpath or state.current_image
+        if target and os.path.exists(target):
+            return target
+        ui.notify('Could not find the image for prompt generation.', type='warning')
+        return None
+
+    def _set_generation_size_from_image(path: str):
+        image_width = state.settings_ui.get('image_width')
+        image_height = state.settings_ui.get('image_height')
+        if not image_width or not image_height:
+            return
+
+        with Image.open(path) as image:
+            width, height = image.size
+
+        _update_select_options(image_width, width)
+        _update_select_options(image_height, height)
+        image_width.set_value(width)
+        image_height.set_value(height)
+        app.storage.user['visual_image_width'] = width
+        app.storage.user['visual_image_height'] = height
+
+    async def _context_generate_prompt(fpath: str):
+        target = _single_prompt_target(fpath)
+        if not target:
+            return
+
+        model = await _get_default_vision_model()
+        if not model:
+            return
+
+        prompt_input = state.settings_ui.get('prompt')
+        negative_input = state.settings_ui.get('negative_prompt')
+        if not prompt_input or not negative_input:
+            ui.notify('Prompt fields are not ready yet.', type='negative')
+            return
+
+        previous_prompt = prompt_input.value
+        working_prompt = 'Generating prompt, please wait ...'
+        prompt_input.set_value(working_prompt)
+        app.storage.user['visual_positive_prompt'] = working_prompt
+        try:
+            _set_generation_size_from_image(target)
+        except Exception as exc:
+            ui.notify(f'Could not update image size controls: {exc}', type='warning')
+        ui.notify('Generating prompt from image...', type='info', timeout=1200)
+        try:
+            with open(target, 'rb') as image_file:
+                image_b64 = base64.b64encode(image_file.read()).decode('ascii')
+
+            response = await client.chat(
+                model=model,
+                messages=[
+                    {'role': 'system', 'content': _anima_interpreter_system_prompt()},
+                    {
+                        'role': 'user',
+                        'content': 'Analyze this image for Anima image generation. Return valid JSON only.',
+                        'images': [image_b64],
+                    },
+                ],
+                stream=False,
+                format='json',
+                log_requests=True,
+            )
+            content = response.get('message', {}).get('content', '')
+            prompts = _extract_prompt_json(content)
+
+            negative_value = prompts['negative_prompt'] or negative_input.value or app.storage.user.get(
+                'visual_negative_prompt',
+                'worst quality, low quality, score_1, score_2, score_3, artist name, sepia',
+            )
+
+            prompt_input.set_value(prompts['positive_prompt'])
+            negative_input.set_value(negative_value)
+            app.storage.user['visual_positive_prompt'] = prompts['positive_prompt']
+            app.storage.user['visual_negative_prompt'] = negative_value
+            ui.notify('Prompt generated from selected image.', type='positive')
+        except Exception as exc:
+            prompt_input.set_value(previous_prompt)
+            app.storage.user['visual_positive_prompt'] = previous_prompt
+            ui.notify(f'Could not generate prompt: {exc}', type='negative')
+
     def _context_action_targets(fpath: str):
         # In grid view, run context-menu actions over the whole selection when multiple images are selected.
         if state.grid_open and len(state.selected_images) > 1:
@@ -620,6 +797,7 @@ def create_page():
             'download': _context_download,
             'edit': _context_edit,
             'hide': _context_hide,
+            'generate_prompt': _context_generate_prompt,
         }
 
     # ── Helper: show a single image full-size inside image_container ─────────

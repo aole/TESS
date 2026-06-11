@@ -1,4 +1,5 @@
 import os
+import inspect
 from typing import TypedDict, Callable, Any
 from PIL import Image
 from nicegui import ui, app
@@ -15,16 +16,25 @@ class VisualActionCallbacks(TypedDict):
     download: Callable[[str], Any]
     edit: Callable[[str], Any]
     hide: Callable[[str], Any]
+    generate_prompt: Callable[[str], Any]
+
+def _menu_action(callback: Callable, *args):
+    async def handler(*_):
+        result = callback(*args)
+        if inspect.isawaitable(result):
+            await result
+    return handler
 
 def add_image_context_menu(container, fpath: str, callbacks: VisualActionCallbacks):
     with container:
         with ui.context_menu():
-            ui.menu_item('Download Image', on_click=lambda: callbacks['download'](fpath))
-            ui.menu_item('Delete', on_click=lambda: callbacks['delete'](fpath, container))
-            ui.menu_item('Regenerate', on_click=lambda: callbacks['regenerate'](fpath))
-            ui.menu_item('Hide/Unhide Image(s)', on_click=lambda: callbacks['hide'](fpath))
-            ui.menu_item('Load Parameters', on_click=lambda: callbacks['info'](fpath))
-            ui.menu_item('Edit in Photopea', on_click=lambda: callbacks['edit'](fpath))
+            ui.menu_item('Download Image', on_click=_menu_action(callbacks['download'], fpath))
+            ui.menu_item('Delete', on_click=_menu_action(callbacks['delete'], fpath, container))
+            ui.menu_item('Regenerate', on_click=_menu_action(callbacks['regenerate'], fpath))
+            ui.menu_item('Hide/Unhide Image(s)', on_click=_menu_action(callbacks['hide'], fpath))
+            ui.menu_item('Load Parameters', on_click=_menu_action(callbacks['info'], fpath))
+            ui.menu_item('Generate Prompt with AI', on_click=_menu_action(callbacks['generate_prompt'], fpath))
+            ui.menu_item('Edit in Photopea', on_click=_menu_action(callbacks['edit'], fpath))
 
 def render_checkerboard_image(path: str):
     viewport = ui.element('div').classes(
