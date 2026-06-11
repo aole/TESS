@@ -3,6 +3,7 @@ import datetime
 import json
 import asyncio
 import re
+import struct
 from PIL import Image
 from fastapi import UploadFile, File, Form
 from nicegui import ui, app, run
@@ -15,6 +16,7 @@ _EDIT_MARKER_RE = re.compile(r'_(?:edited|edit)_\d{8}_\d{6}(?:_\d+)?')
 _TRAILING_EDIT_RE = re.compile(r'_(?:edited|edit)$')
 _TRAILING_TIMESTAMP_RE = re.compile(r'(?:_\d{8}_\d{6})+$')
 _TIMESTAMP_STEM_RE = re.compile(r'\d{8}_\d{6}(?:_\d+)?')
+_EDIT_SESSION_PSD_PATH = "data/visual/temp/edit_session.psd"
 
 
 def _safe_filename_stem(value: str, fallback: str = "image", max_length: int = 80) -> str:
@@ -41,12 +43,59 @@ def _edited_image_filename(original_path: str, timestamp: str) -> str:
     return f"tess_{stem}_edit_{timestamp}.png"
 
 
+def _create_flat_psd_from_image(source_path: str, output_path: str = _EDIT_SESSION_PSD_PATH) -> bool:
+    if not source_path or not os.path.exists(source_path):
+        return False
+    try:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        with Image.open(source_path) as img:
+            has_alpha = img.mode in ("RGBA", "LA") or ("transparency" in img.info)
+            image = img.convert("RGBA" if has_alpha else "RGB")
+            width, height = image.size
+            channels = image.split()
+            with open(output_path, "wb") as f:
+                f.write(struct.pack(">4sH6sHIIHH", b"8BPS", 1, b"\0" * 6, len(channels), height, width, 8, 3))
+                f.write(struct.pack(">I", 0))  # color mode data
+                f.write(struct.pack(">I", 0))  # image resources
+                f.write(struct.pack(">I", 0))  # layer and mask info
+                f.write(struct.pack(">H", 0))  # raw image data
+                for channel in channels:
+                    f.write(channel.tobytes())
+        return True
+    except Exception as ex:
+        print(f"Failed to create temp PSD from {source_path}: {ex}")
+        return False
+
+
+def _web_url(path: str) -> str:
+    if not path:
+        return ""
+    url = f"/{path}"
+    try:
+        version = int(os.path.getmtime(path) * 1000)
+        return f"{url}?v={version}"
+    except OSError:
+        return url
+
+
 # Register the upload API route at import time
 @app.post('/upload-edited-image')
-async def upload_edited_image(file: UploadFile = File(...), original_path: str = Form(""), action: str = Form("save")):
+async def upload_edited_image(
+    file: UploadFile = File(...),
+    original_path: str = Form(""),
+    action: str = Form("save"),
+    psd_path: str = Form(""),
+):
     contents = await file.read()
     
-    if action in ("i2i", "mask"):
+    if action == "psd":
+        safe_psd_path = psd_path.replace('\\', '/')
+        if safe_psd_path != _EDIT_SESSION_PSD_PATH:
+            safe_psd_path = _EDIT_SESSION_PSD_PATH
+        os.makedirs(os.path.dirname(safe_psd_path), exist_ok=True)
+        output_path = safe_psd_path
+        fname = os.path.basename(output_path)
+    elif action in ("i2i", "mask"):
         os.makedirs("data/visual/temp", exist_ok=True)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         prefix = "selection_mask" if action == "mask" else "i2i_input"
@@ -64,10 +113,12 @@ async def upload_edited_image(file: UploadFile = File(...), original_path: str =
     with open(output_path, "wb") as f:
         f.write(contents)
         
-    if action not in ("i2i", "mask"):
+    if action not in ("i2i", "mask", "psd"):
         # Generate thumbnail
         create_thumbnail(output_path)
         app.storage.user['visual_last_image'] = output_path
+    elif action == "psd":
+        app.storage.user['edit_session_psd_path'] = output_path
     
     return {"status": "success", "path": output_path, "filename": fname}
 
@@ -106,14 +157,23 @@ def extract_metadata(fpath: str):
 def create_page(initial_img: str = None, initial_imgs: str = None):
     # Resolve initial image:
     remaining_web_urls = ""
+    explicit_edit_source = bool(initial_img or initial_imgs)
+    session_psd_path = _EDIT_SESSION_PSD_PATH
+    requested_source_path = None
     if initial_imgs:
         imgs_list = [img.strip().replace('\\', '/') for img in initial_imgs.split(',') if img.strip()]
         if imgs_list:
             initial_img = imgs_list[0]
+            requested_source_path = initial_img
             remaining_imgs = imgs_list[1:]
             remaining_web_urls = ",".join([f"/{path}" for path in remaining_imgs])
+    elif initial_img:
+        requested_source_path = initial_img
     elif not initial_img:
-        initial_img = app.storage.user.get('visual_last_image')
+        if os.path.exists(session_psd_path):
+            initial_img = session_psd_path
+        else:
+            initial_img = app.storage.user.get('visual_last_image')
         
     if initial_img:
         initial_img = initial_img.replace('\\', '/')
@@ -121,8 +181,28 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             files = get_image_files()
             initial_img = files[0] if files else None
 
+    if explicit_edit_source and requested_source_path:
+        edit_psd_path = _EDIT_SESSION_PSD_PATH
+        if _create_flat_psd_from_image(requested_source_path, edit_psd_path):
+            initial_img = edit_psd_path
+        app.storage.user['edit_session_psd_path'] = edit_psd_path
+        app.storage.user['edit_session_source_path'] = requested_source_path
+    elif initial_img and initial_img.lower().endswith(".psd"):
+        edit_psd_path = initial_img
+    elif os.path.exists(session_psd_path):
+        edit_psd_path = session_psd_path
+    else:
+        edit_psd_path = _EDIT_SESSION_PSD_PATH
+        app.storage.user['edit_session_psd_path'] = edit_psd_path
+
+    if edit_psd_path and not os.path.exists(edit_psd_path):
+        app.storage.user['edit_session_psd_path'] = edit_psd_path
+
     # Load initial image web-accessible path
-    web_url = f"/{initial_img}" if initial_img else ""
+    web_url = _web_url(initial_img) if initial_img else ""
+    initial_is_psd = bool(initial_img and initial_img.lower().endswith(".psd"))
+    current_doc_source_path = app.storage.user.get('edit_session_source_path') if initial_is_psd else initial_img
+    current_doc_source_path = current_doc_source_path or initial_img or ""
 
     params = extract_metadata(initial_img) if initial_img else None
     
@@ -338,12 +418,21 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             return
         i2i_options_dialog.open()
 
+    def navigate_after_psd_save(target: str):
+        ui.run_javascript(f"""
+            if (window.savePhotopeaPsdThenNavigate) {{
+                window.savePhotopeaPsdThenNavigate('{target}');
+            }} else {{
+                window.location.href = '{target}';
+            }}
+        """)
+
     # Main layout container
     with ui.column().classes('edit-container'):
         # Toolbar
         with ui.row().classes('edit-toolbar w-full justify-between flex-nowrap'):
             with ui.row().classes('items-center gap-3'):
-                ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/visual')).props('flat dense round').classes('text-gray-300 hover:text-white').tooltip('Back to Visual')
+                ui.button(icon='arrow_back', on_click=lambda: navigate_after_psd_save('/visual')).props('flat dense round').classes('text-gray-300 hover:text-white').tooltip('Back to Visual')
                 ui.label('Photopea Image Editor').classes('text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-400')
                 
             with ui.row().classes('items-center gap-3'):
@@ -369,10 +458,17 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                     app.storage.user['visual_last_image'] = output_path
                     web_path = f"/{output_path}"
                     ui.notify(f"Uploaded: {filename}", type='info')
+                    new_psd_path = _EDIT_SESSION_PSD_PATH
+                    _create_flat_psd_from_image(output_path, new_psd_path)
+                    app.storage.user['edit_session_psd_path'] = new_psd_path
+                    app.storage.user['edit_session_source_path'] = output_path
+                    psd_web_path = _web_url(new_psd_path)
                     ui.run_javascript(f"""
                         const iframe = document.getElementById('photopea');
                         iframe.dataset.currentPath = '{output_path}';
-                        window.loadPhotopeaImage('{web_path}');
+                        iframe.dataset.sessionPsdPath = '{new_psd_path}';
+                        iframe.dataset.initialIsPsd = '1';
+                        window.loadPhotopeaImage('{psd_web_path}', false);
                     """)
 
                 # Image-to-image options and generation
@@ -393,7 +489,9 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
               style="width: 100%; height: 100%; border: 0; border-radius: 8px; box-shadow: inset 0 0 10px rgba(0,0,0,0.5);"
               {"data-pending-img=" + web_url if web_url else ""}
               {"data-pending-layers=" + remaining_web_urls if remaining_web_urls else ""}
-              {"data-current-path=" + initial_img if initial_img else ""}
+              {"data-current-path=" + current_doc_source_path if current_doc_source_path else ""}
+              data-session-psd-path="{edit_psd_path}"
+              data-initial-is-psd="{"1" if initial_is_psd else "0"}"
             ></iframe>
             """
             ui.html(iframe_html, sanitize=False).classes('w-full h-full')
@@ -408,7 +506,40 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         return document.getElementById(iframeId);
       }
 
-      window.loadPhotopeaImage = async function(imageUrl) {
+      function getSessionPsdPath() {
+        const iframe = getIframe();
+        return iframe ? (iframe.dataset.sessionPsdPath || 'data/visual/temp/edit_session.psd') : 'data/visual/temp/edit_session.psd';
+      }
+
+      function requestPhotopeaPsdSave() {
+        if (window.photopeaPsdSaveInFlight) {
+          window.photopeaPsdSaveQueued = true;
+          return true;
+        }
+
+        const iframe = getIframe();
+        if (!iframe || !iframe.contentWindow) {
+          return false;
+        }
+
+        window.photopeaPsdSaveInFlight = true;
+        window.photopeaExportPhase = 'psd';
+        iframe.contentWindow.postMessage('app.activeDocument.saveToOE("psd");', "*");
+        return true;
+      }
+
+      function requestPhotopeaPsdSaveAfterDone() {
+        window.photopeaSavePsdAfterDone = true;
+      }
+
+      window.savePhotopeaPsdThenNavigate = function(targetUrl) {
+        window.photopeaNavigateAfterPsdSave = targetUrl;
+        if (!requestPhotopeaPsdSave()) {
+          window.location.href = targetUrl;
+        }
+      };
+
+      window.loadPhotopeaImage = async function(imageUrl, autosavePsd = false) {
         const iframe = getIframe();
         if (!iframe || !iframe.contentWindow) {
           return;
@@ -418,6 +549,9 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
           const response = await fetch(imageUrl);
           if (!response.ok) return;
           const buffer = await response.arrayBuffer();
+          if (autosavePsd) {
+            requestPhotopeaPsdSaveAfterDone();
+          }
           iframe.contentWindow.postMessage(buffer, "*");
         } catch (_err) {
           return;
@@ -438,6 +572,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
           const reader = new FileReader();
           reader.onloadend = function() {
             const dataUrl = reader.result;
+            requestPhotopeaPsdSaveAfterDone();
             iframe.contentWindow.postMessage(`app.open("${dataUrl}", null, true);`, "*");
           };
           reader.readAsDataURL(blob);
@@ -530,13 +665,17 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         if (e.data === "done") {
           const iframe = getIframe();
           if (iframe) {
+            let queuedPhotopeaWork = false;
             if (iframe.dataset.pendingImg) {
+              queuedPhotopeaWork = true;
               const imgUrl = iframe.dataset.pendingImg;
               iframe.removeAttribute('data-pending-img');
+              const autosavePsd = iframe.dataset.initialIsPsd !== '1';
               setTimeout(() => {
-                window.loadPhotopeaImage(imgUrl);
+                window.loadPhotopeaImage(imgUrl, autosavePsd);
               }, 200);
             } else if (iframe.dataset.pendingLayers) {
+              queuedPhotopeaWork = true;
               const layers = iframe.dataset.pendingLayers.split(',');
               const nextLayer = layers.shift();
               if (layers.length > 0) {
@@ -549,6 +688,11 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                   window.loadPhotopeaLayer(nextLayer);
                 }, 200);
               }
+            }
+
+            if (!queuedPhotopeaWork && !iframe.dataset.pendingImg && !iframe.dataset.pendingLayers && window.photopeaSavePsdAfterDone) {
+              window.photopeaSavePsdAfterDone = false;
+              setTimeout(requestPhotopeaPsdSave, 250);
             }
           }
         }
@@ -567,10 +711,15 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
           const iframe = getIframe();
           const originalPath = iframe ? (iframe.dataset.currentPath || "") : "";
           const phase = window.photopeaExportPhase || 'image';
-          const uploadAction = phase === 'detect-mask' ? 'mask' : (window.photopeaAction || "save");
-          formData.append("file", blob, "edited.png");
+          const uploadAction = phase === 'psd' ? 'psd' : (phase === 'detect-mask' ? 'mask' : (window.photopeaAction || "save"));
+          const blobType = uploadAction === 'psd' ? "application/octet-stream" : "image/png";
+          const uploadBlob = blob.type === blobType ? blob : new Blob([e.data], { type: blobType });
+          formData.append("file", uploadBlob, uploadAction === 'psd' ? "edit_session.psd" : "edited.png");
           formData.append("original_path", originalPath);
           formData.append("action", uploadAction);
+          if (uploadAction === 'psd') {
+            formData.append("psd_path", getSessionPsdPath());
+          }
 
           try {
             const response = await fetch("/upload-edited-image", {
@@ -579,7 +728,20 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             });
             if (response.ok) {
               const result = await response.json();
-              if (uploadAction === 'mask') {
+              if (uploadAction === 'psd') {
+                window.photopeaPsdSaveInFlight = false;
+                window.photopeaExportPhase = null;
+                emitEvent('photopea-psd-saved', { path: result.path, filename: result.filename });
+                if (window.photopeaPsdSaveQueued) {
+                  window.photopeaPsdSaveQueued = false;
+                  setTimeout(requestPhotopeaPsdSave, 250);
+                } else if (window.photopeaNavigateAfterPsdSave) {
+                  const targetUrl = window.photopeaNavigateAfterPsdSave;
+                  window.photopeaNavigateAfterPsdSave = null;
+                  window.photopeaNavigatingAfterSavedPsd = true;
+                  window.location.href = targetUrl;
+                }
+              } else if (uploadAction === 'mask') {
                 window.photopeaSelectionMaskPath = result.path;
                 window.cleanupPhotopeaSelectionMaskAndExport();
               } else if (window.photopeaAction === 'i2i') {
@@ -595,10 +757,32 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
               }
             }
           } catch (_err) {
+            if (uploadAction === 'psd') {
+              window.photopeaPsdSaveInFlight = false;
+              window.photopeaExportPhase = null;
+            }
             return;
           }
         }
       });
+
+      window.addEventListener('pagehide', () => {
+        if (window.photopeaNavigatingAfterSavedPsd) return;
+        requestPhotopeaPsdSave();
+      });
+
+      document.addEventListener('click', (event) => {
+        const link = event.target.closest('a[href]');
+        if (!link || link.target || link.hasAttribute('download')) return;
+
+        const url = new URL(link.href, window.location.href);
+        if (url.origin !== window.location.origin || url.pathname === window.location.pathname) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        window.savePhotopeaPsdThenNavigate(url.pathname + url.search + url.hash);
+      }, true);
     })();
     </script>
     """)
@@ -618,9 +802,24 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             
         if saved_path:
             ui.notify(f"Image saved successfully as: {filename}", type='positive')
+            app.storage.user['edit_session_source_path'] = saved_path
             ui.run_javascript(f"document.getElementById('photopea').dataset.currentPath = '{saved_path}';")
 
     ui.on('photopea-saved', handle_photopea_saved)
+
+    def handle_photopea_psd_saved(e):
+        args = e.args
+        if isinstance(args, dict):
+            psd_path = args.get('path')
+        elif isinstance(args, list) and len(args) > 0 and isinstance(args[0], dict):
+            psd_path = args[0].get('path')
+        else:
+            psd_path = None
+
+        if psd_path:
+            app.storage.user['edit_session_psd_path'] = psd_path
+
+    ui.on('photopea-psd-saved', handle_photopea_psd_saved)
 
     async def handle_photopea_i2i(e):
         if generating['active'] and not generating.get('pending'):
@@ -776,6 +975,21 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
 
     # Clean up temp directory when user navigates away or disconnects
     def cleanup_temp_dir():
-        import shutil
-        shutil.rmtree("data/visual/temp", ignore_errors=True)
+        temp_dir = "data/visual/temp"
+        if not os.path.isdir(temp_dir):
+            return
+        for fname in os.listdir(temp_dir):
+            if fname.startswith("edit_") and fname.lower().endswith(".psd"):
+                continue
+            if not (
+                fname.startswith("selection_mask_")
+                or fname.startswith("i2i_input_")
+                or fname.startswith("i2i_output_")
+                or fname.startswith("inpaint_output_")
+            ):
+                continue
+            try:
+                os.remove(os.path.join(temp_dir, fname))
+            except OSError:
+                pass
     ui.context.client.on_disconnect(cleanup_temp_dir)
