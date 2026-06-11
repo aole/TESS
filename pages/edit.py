@@ -204,7 +204,8 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
     current_doc_source_path = app.storage.user.get('edit_session_source_path') if initial_is_psd else initial_img
     current_doc_source_path = current_doc_source_path or initial_img or ""
 
-    params = extract_metadata(initial_img) if initial_img else None
+    metadata_source_path = current_doc_source_path or initial_img
+    params = extract_metadata(metadata_source_path) if metadata_source_path else None
     
     # Initialize edit page i2i options
     user_storage = app.storage.user
@@ -214,9 +215,10 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             user_storage[key] = default_val
 
     # Only initialize/overwrite if the image has changed
+    init_key = metadata_source_path or initial_img
     last_init_img = user_storage.get('edit_last_initialized_img')
-    if initial_img and initial_img != last_init_img:
-        user_storage['edit_last_initialized_img'] = initial_img
+    if init_key and init_key != last_init_img:
+        user_storage['edit_last_initialized_img'] = init_key
         if params:
             user_storage['edit_i2i_prompt'] = params.get('prompt', '')
             user_storage['edit_i2i_neg_prompt'] = params.get('negative_prompt', '')
@@ -365,6 +367,10 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                 ).classes('flex-grow').bind_value(
                     app.storage.user, 'edit_i2i_turbo_strength'
                 ).bind_enabled_from(turbo_check, 'value')
+                turbo_strength_label = ui.label().classes('text-xs text-indigo-400 font-mono w-10 text-right')
+                turbo_strength_label.bind_text_from(
+                    turbo_strength_slider, 'value', backward=lambda v: f"{v:.2f}"
+                )
 
         with ui.row().classes('w-full justify-end border-t border-white/10 pt-4'):
             generate_i2i_btn = ui.button(
@@ -382,6 +388,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             cfg_slider.update()
             turbo_check.update()
             turbo_strength_slider.update()
+            turbo_strength_label.update()
             count_input.update()
 
     i2i_options_dialog.on_value_change(handle_dialog_close)
