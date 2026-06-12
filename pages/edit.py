@@ -5,6 +5,7 @@ import asyncio
 import re
 import struct
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 from fastapi import UploadFile, File, Form
 from nicegui import ui, app, run
 from core.session_state import SERVER_SESSION_ID
@@ -103,6 +104,59 @@ def _web_url(path: str) -> str:
         return url
 
 
+def _current_edit_parameters(original_path: str, image_path: str) -> dict:
+    user_storage = app.storage.user
+
+    def _as_int(value, default):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _as_float(value, default):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    turbo_enabled = user_storage.get('edit_i2i_turbo_enabled', False)
+    turbo_lora = _as_float(user_storage.get('edit_i2i_turbo_strength', 1.0), 1.0) if turbo_enabled else 0.0
+
+    try:
+        with Image.open(image_path) as img:
+            width, height = img.size
+    except Exception:
+        width = user_storage.get('visual_image_width', 1024)
+        height = user_storage.get('visual_image_height', 1024)
+
+    params = {
+        "prompt": user_storage.get('edit_i2i_prompt', ''),
+        "negative_prompt": user_storage.get('edit_i2i_neg_prompt', ''),
+        "steps": _as_int(user_storage.get('edit_i2i_steps', 30), 30),
+        "width": _as_int(width, 1024),
+        "height": _as_int(height, 1024),
+        "seed": None,
+        "cfg_scale": _as_float(user_storage.get('edit_i2i_cfg', 4.0), 4.0),
+        "model": "Anima Base v1.0",
+        "mode": user_storage.get('edit_last_generation_mode', 'photopea_edit'),
+        "denoising_strength": _as_float(user_storage.get('edit_i2i_denoising', 0.6), 0.6),
+        "turbo_lora": turbo_lora,
+    }
+    if original_path:
+        params["input_image_path"] = original_path
+    return params
+
+
+def _embed_current_edit_metadata(image_path: str, original_path: str):
+    try:
+        metadata = PngInfo()
+        metadata.add_text("parameters", json.dumps(_current_edit_parameters(original_path, image_path), indent=2))
+        with Image.open(image_path) as img:
+            img.save(image_path, pnginfo=metadata)
+    except Exception as ex:
+        print(f"Failed to embed edit metadata in {image_path}: {ex}")
+
+
 # Register the upload API route at import time
 @app.post('/upload-edited-image')
 async def upload_edited_image(
@@ -139,6 +193,7 @@ async def upload_edited_image(
         f.write(contents)
         
     if action not in ("i2i", "mask", "psd"):
+        _embed_current_edit_metadata(output_path, original_path)
         # Generate thumbnail
         create_thumbnail(output_path)
         app.storage.user['visual_last_image'] = output_path
@@ -962,6 +1017,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         denoising_val = float(user_storage.get('edit_i2i_denoising', 0.6))
         turbo_enabled = user_storage.get('edit_i2i_turbo_enabled', False)
         turbo_strength = float(user_storage.get('edit_i2i_turbo_strength', 1.0)) if turbo_enabled else 0.0
+        user_storage['edit_last_generation_mode'] = "photopea_inpaint" if mask_path else "photopea_i2i"
 
         generating['active'] = True
         generating['pending'] = False
