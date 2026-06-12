@@ -24,6 +24,7 @@ from services.visual_service import (
     parse_resolution
 )
 from core.config.settings_service import settings_service
+from core.session_state import SERVER_SESSION_ID
 from utils.config import config_manager
 from utils.llm_client import client
 from services.persona_service import persona_service
@@ -34,6 +35,12 @@ from pages.components.visual_components import (
 )
 
 ANIMA_IMAGE_INTERPRETER_PERSONA = 'Anima Image Interpreter'
+VISUAL_PROMPT_SESSION_KEY = 'visual_prompt_server_session_id'
+VISUAL_DEFAULT_POSITIVE_PROMPT = (
+    "masterpiece, best quality, score_7, safe, abandoned cathedral, nature reclaiming architecture, "
+    "vines and flowers, shafts of sunlight, dust particles, tranquil atmosphere, Studio Ghibli inspired"
+)
+VISUAL_DEFAULT_NEGATIVE_PROMPT = "worst quality, low quality, score_1, score_2, score_3, artist name, sepia"
 
 @app.post('/upload_visual_image')
 async def upload_visual_image(file: UploadFile = File(...)):
@@ -77,11 +84,6 @@ def initialize_user_defaults(user_storage):
 
     defaults = {
         'visual_show_hidden': False,
-        'visual_positive_prompt': (
-            "masterpiece, best quality, score_7, safe, abandoned cathedral, nature reclaiming architecture, "
-            "vines and flowers, shafts of sunlight, dust particles, tranquil atmosphere, Studio Ghibli inspired"
-        ),
-        'visual_negative_prompt': "worst quality, low quality, score_1, score_2, score_3, artist name, sepia",
         'visual_image_size': f'{w}x{h}',
         'visual_inference_steps': steps,
         'visual_batch_count': 1,
@@ -96,6 +98,15 @@ def initialize_user_defaults(user_storage):
         'visual_turbo_lora_strength': 1.0,
         'visual_denoising_strength': 0.6
     }
+
+    # Prompt text is server-session state: preserve it during this run, reset it after restart.
+    if user_storage.get(VISUAL_PROMPT_SESSION_KEY) != SERVER_SESSION_ID:
+        user_storage.pop('visual_positive_prompt', None)
+        user_storage.pop('visual_negative_prompt', None)
+        user_storage[VISUAL_PROMPT_SESSION_KEY] = SERVER_SESSION_ID
+
+    user_storage.setdefault('visual_positive_prompt', VISUAL_DEFAULT_POSITIVE_PROMPT)
+    user_storage.setdefault('visual_negative_prompt', VISUAL_DEFAULT_NEGATIVE_PROMPT)
 
     for key, val in defaults.items():
         if key not in user_storage:
@@ -687,7 +698,7 @@ def create_page():
 
             negative_value = prompts['negative_prompt'] or negative_input.value or app.storage.user.get(
                 'visual_negative_prompt',
-                'worst quality, low quality, score_1, score_2, score_3, artist name, sepia',
+                VISUAL_DEFAULT_NEGATIVE_PROMPT,
             )
 
             prompt_input.set_value(prompts['positive_prompt'])

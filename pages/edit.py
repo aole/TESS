@@ -7,6 +7,7 @@ import struct
 from PIL import Image
 from fastapi import UploadFile, File, Form
 from nicegui import ui, app, run
+from core.session_state import SERVER_SESSION_ID
 from services.visual_service import create_thumbnail
 from core.generate_image import generate_anima_image, unload_pipeline as unload_image_pipeline
 from core.generate_inpaint import generate_anima_inpaint_image, unload_pipeline as unload_inpaint_pipeline
@@ -17,6 +18,8 @@ _TRAILING_EDIT_RE = re.compile(r'_(?:edited|edit)$')
 _TRAILING_TIMESTAMP_RE = re.compile(r'(?:_\d{8}_\d{6})+$')
 _TIMESTAMP_STEM_RE = re.compile(r'\d{8}_\d{6}(?:_\d+)?')
 _EDIT_SESSION_PSD_PATH = "data/visual/temp/edit_session.psd"
+_EDIT_SESSION_KEY = "edit_server_session_id"
+_VISUAL_PROMPT_SESSION_KEY = "visual_prompt_server_session_id"
 
 
 def _safe_filename_stem(value: str, fallback: str = "image", max_length: int = 80) -> str:
@@ -64,6 +67,28 @@ def _create_flat_psd_from_image(source_path: str, output_path: str = _EDIT_SESSI
         return True
     except Exception as ex:
         print(f"Failed to create temp PSD from {source_path}: {ex}")
+        return False
+
+
+def _create_blank_psd(width: int, height: int, output_path: str = _EDIT_SESSION_PSD_PATH) -> bool:
+    # First-time edit sessions start as a real PSD sized from the visual controls.
+    try:
+        width = max(1, int(width))
+        height = max(1, int(height))
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        image = Image.new("RGB", (width, height), "white")
+        channels = image.split()
+        with open(output_path, "wb") as f:
+            f.write(struct.pack(">4sH6sHIIHH", b"8BPS", 1, b"\0" * 6, len(channels), height, width, 8, 3))
+            f.write(struct.pack(">I", 0))  # color mode data
+            f.write(struct.pack(">I", 0))  # image resources
+            f.write(struct.pack(">I", 0))  # layer and mask info
+            f.write(struct.pack(">H", 0))  # raw image data
+            for channel in channels:
+                f.write(channel.tobytes())
+        return True
+    except Exception as ex:
+        print(f"Failed to create blank edit PSD: {ex}")
         return False
 
 
@@ -155,6 +180,31 @@ def extract_metadata(fpath: str):
 
 
 def create_page(initial_img: str = None, initial_imgs: str = None):
+    user_storage = app.storage.user
+
+    # Edit prompt text and the working PSD are server-session state.
+    if user_storage.get(_EDIT_SESSION_KEY) != SERVER_SESSION_ID:
+        for key in (
+            'edit_i2i_prompt',
+            'edit_i2i_neg_prompt',
+            'edit_last_initialized_img',
+            'edit_session_psd_path',
+            'edit_session_source_path',
+        ):
+            user_storage.pop(key, None)
+        try:
+            os.remove(_EDIT_SESSION_PSD_PATH)
+        except FileNotFoundError:
+            pass
+        except OSError as ex:
+            print(f"Failed to remove stale edit session PSD: {ex}")
+        user_storage[_EDIT_SESSION_KEY] = SERVER_SESSION_ID
+
+    # Avoid using stale visual prompt fallbacks when edit is opened first after restart.
+    if user_storage.get(_VISUAL_PROMPT_SESSION_KEY) != SERVER_SESSION_ID:
+        user_storage.pop('visual_positive_prompt', None)
+        user_storage.pop('visual_negative_prompt', None)
+
     # Resolve initial image:
     remaining_web_urls = ""
     explicit_edit_source = bool(initial_img or initial_imgs)
@@ -172,8 +222,6 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
     elif not initial_img:
         if os.path.exists(session_psd_path):
             initial_img = session_psd_path
-        else:
-            initial_img = app.storage.user.get('visual_last_image')
         
     if initial_img:
         initial_img = initial_img.replace('\\', '/')
@@ -193,6 +241,10 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         edit_psd_path = session_psd_path
     else:
         edit_psd_path = _EDIT_SESSION_PSD_PATH
+        width = user_storage.get('visual_image_width', 1024)
+        height = user_storage.get('visual_image_height', 1024)
+        if _create_blank_psd(width, height, edit_psd_path):
+            initial_img = edit_psd_path
         app.storage.user['edit_session_psd_path'] = edit_psd_path
 
     if edit_psd_path and not os.path.exists(edit_psd_path):
@@ -207,9 +259,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
     metadata_source_path = current_doc_source_path or initial_img
     params = extract_metadata(metadata_source_path) if metadata_source_path else None
     
-    # Initialize edit page i2i options
-    user_storage = app.storage.user
-    
+    # Initialize edit page i2i options.
     def init_storage_val(key, default_val):
         if key not in user_storage:
             user_storage[key] = default_val
@@ -540,10 +590,38 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         window.photopeaSavePsdAfterDone = true;
       }
 
+      function clearPhotopeaPsdNavigationFallback() {
+        if (window.photopeaPsdNavigationTimer) {
+          clearTimeout(window.photopeaPsdNavigationTimer);
+          window.photopeaPsdNavigationTimer = null;
+        }
+      }
+
+      function finishPhotopeaPsdNavigation(targetUrl) {
+        clearPhotopeaPsdNavigationFallback();
+        window.photopeaNavigateAfterPsdSave = null;
+        window.photopeaNavigatingAfterSavedPsd = true;
+        window.location.href = targetUrl;
+      }
+
+      function schedulePhotopeaPsdNavigationFallback(targetUrl) {
+        clearPhotopeaPsdNavigationFallback();
+        window.photopeaPsdNavigationTimer = setTimeout(() => {
+          if (window.photopeaNavigateAfterPsdSave !== targetUrl) return;
+          window.photopeaPsdSaveInFlight = false;
+          window.photopeaPsdSaveQueued = false;
+          window.photopeaExportPhase = null;
+          finishPhotopeaPsdNavigation(targetUrl);
+        }, 3000);
+      }
+
       window.savePhotopeaPsdThenNavigate = function(targetUrl) {
         window.photopeaNavigateAfterPsdSave = targetUrl;
         if (!requestPhotopeaPsdSave()) {
           window.location.href = targetUrl;
+        } else {
+          // Photopea can fail to answer when not ready; never trap navigation on edit.
+          schedulePhotopeaPsdNavigationFallback(targetUrl);
         }
       };
 
@@ -745,9 +823,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                   setTimeout(requestPhotopeaPsdSave, 250);
                 } else if (window.photopeaNavigateAfterPsdSave) {
                   const targetUrl = window.photopeaNavigateAfterPsdSave;
-                  window.photopeaNavigateAfterPsdSave = null;
-                  window.photopeaNavigatingAfterSavedPsd = true;
-                  window.location.href = targetUrl;
+                  finishPhotopeaPsdNavigation(targetUrl);
                 }
               } else if (uploadAction === 'mask') {
                 window.photopeaSelectionMaskPath = result.path;
@@ -768,6 +844,9 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             if (uploadAction === 'psd') {
               window.photopeaPsdSaveInFlight = false;
               window.photopeaExportPhase = null;
+              if (window.photopeaNavigateAfterPsdSave) {
+                finishPhotopeaPsdNavigation(window.photopeaNavigateAfterPsdSave);
+              }
             }
             return;
           }
