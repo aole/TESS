@@ -17,6 +17,7 @@ class VisualActionCallbacks(TypedDict):
     edit: Callable[[str], Any]
     hide: Callable[[str], Any]
     generate_prompt: Callable[[str], Any]
+    send_to_chat: Callable[[str], Any]
 
 def _menu_action(callback: Callable, *args):
     async def handler(*_):
@@ -34,6 +35,7 @@ def add_image_context_menu(container, fpath: str, callbacks: VisualActionCallbac
             ui.menu_item('Hide/Unhide Image(s)', on_click=_menu_action(callbacks['hide'], fpath))
             ui.menu_item('Load Parameters', on_click=_menu_action(callbacks['info'], fpath))
             ui.menu_item('Generate Prompt with AI', on_click=_menu_action(callbacks['generate_prompt'], fpath))
+            ui.menu_item('Send to Chat', on_click=_menu_action(callbacks['send_to_chat'], fpath))
             ui.menu_item('Edit in Photopea', on_click=_menu_action(callbacks['edit'], fpath))
 
 def render_checkerboard_image(path: str):

@@ -14,6 +14,7 @@ from services.persona_service import persona_service, NO_PERSONA_ID
 import asyncio
 import base64
 import mimetypes
+import os
 import uuid
 import secrets
 
@@ -750,6 +751,41 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                 attachment_container = ui.row().classes('w-full gap-2 px-2 pb-1')
                 text_uploader = ui.upload(on_upload=handle_text_upload, multiple=True, auto_upload=True).props('accept=".txt,.md,.csv,.py,.js,.json,.html,.css,.sql,.yaml,.yml"').classes('hidden')
                 image_uploader = ui.upload(on_upload=handle_image_upload, multiple=True, auto_upload=True).props('accept="image/*"').classes('hidden')
+
+                def load_pending_chat_draft():
+                    # Hydrate visual-page handoffs into the editable draft without submitting.
+                    draft = app.storage.user.get('pending_chat_draft')
+                    if not isinstance(draft, dict):
+                        return
+
+                    prompt = draft.get('prompt')
+                    if isinstance(prompt, str):
+                        user_input.set_value(prompt)
+
+                    loaded = 0
+                    for path in draft.get('images') or []:
+                        if not isinstance(path, str) or not os.path.exists(path):
+                            continue
+                        mime_type = mimetypes.guess_type(path)[0] or 'image/*'
+                        if not mime_type.startswith('image/'):
+                            continue
+                        try:
+                            with open(path, 'rb') as image_file:
+                                attached_images.append({
+                                    'name': os.path.basename(path),
+                                    'mime_type': mime_type,
+                                    'data': base64.b64encode(image_file.read()).decode('ascii'),
+                                })
+                            loaded += 1
+                        except Exception as exc:
+                            ui.notify(f'Could not attach {os.path.basename(path)}: {exc}', type='warning')
+
+                    app.storage.user.pop('pending_chat_draft', None)
+                    refresh_attachments_ui()
+                    if loaded:
+                        ui.notify(f'Attached {loaded} image(s) to a new chat draft.', type='positive')
+
+                load_pending_chat_draft()
 
                 def pick_text_files():
                     text_uploader.reset()

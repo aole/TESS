@@ -734,6 +734,32 @@ def create_page():
             return
         ui.navigate.to(f'/edit?img={fpath}')
 
+    def _context_send_to_chat(fpath: str):
+        # Stage a lightweight draft for chat to hydrate into its editable input area.
+        targets = [path for path in _context_action_targets(fpath) if path and os.path.exists(path)]
+        if not targets:
+            ui.notify('Could not find image(s) to send to chat.', type='warning')
+            return
+
+        prompt_val = ''
+        try:
+            with Image.open(targets[0]) as img:
+                params_str = (img.text if hasattr(img, 'text') else img.info).get('parameters')
+            if params_str:
+                params = json.loads(params_str)
+                prompt_val = params.get('prompt', '') if isinstance(params, dict) else ''
+        except Exception:
+            prompt_val = ''
+
+        app.storage.user['pending_chat_draft'] = {
+            'prompt': prompt_val,
+            'images': targets,
+            'source': 'visual',
+        }
+        if not prompt_val:
+            ui.notify('No prompt metadata found; image(s) will be attached with a blank draft.', type='warning')
+        ui.navigate.to('/chat?new_chat=true')
+
     def _context_hide(fpath: str):
         targets = _context_action_targets(fpath)
         if len(targets) > 1:
@@ -798,6 +824,7 @@ def create_page():
             'edit': _context_edit,
             'hide': _context_hide,
             'generate_prompt': _context_generate_prompt,
+            'send_to_chat': _context_send_to_chat,
         }
 
     # ── Helper: show a single image full-size inside image_container ─────────
