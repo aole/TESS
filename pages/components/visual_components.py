@@ -26,17 +26,24 @@ def _menu_action(callback: Callable, *args):
             await result
     return handler
 
+def _context_menu_item(label: str, icon: str, on_click: Callable, icon_class: str = 'text-indigo-4'):
+    with ui.menu_item(on_click=on_click):
+        with ui.item_section().props('avatar'):
+            ui.icon(icon).classes(icon_class)
+        with ui.item_section():
+            ui.label(label)
+
 def add_image_context_menu(container, fpath: str, callbacks: VisualActionCallbacks):
     with container:
         with ui.context_menu():
-            ui.menu_item('Download Image', on_click=_menu_action(callbacks['download'], fpath))
-            ui.menu_item('Delete', on_click=_menu_action(callbacks['delete'], fpath, container))
-            ui.menu_item('Regenerate', on_click=_menu_action(callbacks['regenerate'], fpath))
-            ui.menu_item('Hide/Unhide Image(s)', on_click=_menu_action(callbacks['hide'], fpath))
-            ui.menu_item('Load Parameters', on_click=_menu_action(callbacks['info'], fpath))
-            ui.menu_item('Generate Prompt with AI', on_click=_menu_action(callbacks['generate_prompt'], fpath))
-            ui.menu_item('Send to Chat', on_click=_menu_action(callbacks['send_to_chat'], fpath))
-            ui.menu_item('Edit in Photopea', on_click=_menu_action(callbacks['edit'], fpath))
+            _context_menu_item('Download Image', 'download', _menu_action(callbacks['download'], fpath), 'text-blue-4')
+            _context_menu_item('Delete', 'delete', _menu_action(callbacks['delete'], fpath, container), 'text-red-4')
+            _context_menu_item('Regenerate', 'refresh', _menu_action(callbacks['regenerate'], fpath), 'text-purple-4')
+            _context_menu_item('Hide/Unhide Image(s)', 'visibility_off', _menu_action(callbacks['hide'], fpath), 'text-amber-4')
+            _context_menu_item('Load Parameters', 'tune', _menu_action(callbacks['info'], fpath), 'text-cyan-4')
+            _context_menu_item('Generate Prompt with AI', 'auto_awesome', _menu_action(callbacks['generate_prompt'], fpath), 'text-indigo-4')
+            _context_menu_item('Send to Chat', 'chat', _menu_action(callbacks['send_to_chat'], fpath), 'text-green-4')
+            _context_menu_item('Edit in Photopea', 'edit', _menu_action(callbacks['edit'], fpath), 'text-pink-4')
 
 def render_checkerboard_image(path: str):
     viewport = ui.element('div').classes(
