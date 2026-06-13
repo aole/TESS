@@ -714,7 +714,14 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
           reader.onloadend = function() {
             const dataUrl = reader.result;
             requestPhotopeaPsdSaveAfterDone();
-            iframe.contentWindow.postMessage(`app.open("${dataUrl}", null, true);`, "*");
+            iframe.contentWindow.postMessage(`
+              app.open("${dataUrl}", null, true);
+              var doc = app.activeDocument;
+              var layer = doc.activeLayer;
+              if (doc.layers.length > 1 && doc.layers[0] !== layer) {
+                layer.move(doc.layers[0], ElementPlacement.PLACEBEFORE);
+              }
+            `, "*");
           };
           reader.readAsDataURL(blob);
         } catch (_err) {
@@ -749,8 +756,17 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             try {
               doc.selection.bounds;
 
+              for (var i = doc.layers.length - 1; i >= 0; i--) {
+                if (doc.layers[i].name === "__tess_selection_mask__") {
+                  doc.layers[i].remove();
+                }
+              }
+
               var maskLayer = doc.artLayers.add();
               maskLayer.name = "__tess_selection_mask__";
+              if (doc.layers.length > 1 && doc.layers[0].name !== "__tess_selection_mask__") {
+                maskLayer.move(doc.layers[0], ElementPlacement.PLACEBEFORE);
+              }
               doc.activeLayer = maskLayer;
 
               var black = new SolidColor();
