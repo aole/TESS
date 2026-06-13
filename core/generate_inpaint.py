@@ -4,6 +4,7 @@ import torch
 import gc
 import datetime
 import json
+import urllib.request
 from typing import Optional, Callable, Union
 
 from PIL import Image, ImageFilter, ImageOps
@@ -12,10 +13,18 @@ from PIL.PngImagePlugin import PngInfo
 # 1. ENVIRONMENT SETUP
 # Set model path relative to this script's directory (up one level to root, then /models)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 os.environ["DIFFSYNTH_DOWNLOAD_SOURCE"] = "huggingface"
-os.environ["DIFFSYNTH_MODEL_BASE_PATH"] = os.path.abspath(os.path.join(SCRIPT_DIR, "../models"))
+os.environ["DIFFSYNTH_MODEL_BASE_PATH"] = os.path.join(PROJECT_ROOT, "models")
 
 from diffsynth.pipelines.anima_image import AnimaImagePipeline, ModelConfig
+from core.anima.lllite import apply_lllite_inpaint
+
+
+DEFAULT_LLLITE_URL = "https://huggingface.co/kohya-ss/Anima-LLLite/resolve/main/anima-lllite-inpainting-v2.safetensors"
+DEFAULT_LLLITE_NAME = "anima-lllite-inpainting-v2.safetensors"
 
 
 def flush():
@@ -86,6 +95,19 @@ def _resolve_output_path(output_path: Optional[str], prefix: str = "anima_inpain
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{prefix}_{timestamp}.png"
+
+
+def _resolve_lllite_path() -> str:
+    models_base = os.environ.get(
+        "DIFFSYNTH_MODEL_BASE_PATH",
+        os.path.abspath(os.path.join(SCRIPT_DIR, "../models")),
+    )
+    lllite_path = os.path.join(models_base, "loras", DEFAULT_LLLITE_NAME)
+    if not os.path.exists(lllite_path):
+        os.makedirs(os.path.dirname(lllite_path), exist_ok=True)
+        print("Downloading Anima LLLite inpainting weights...")
+        urllib.request.urlretrieve(DEFAULT_LLLITE_URL, lllite_path)
+    return lllite_path
 
 
 def _load_and_resize_rgb(image_or_path: Union[str, Image.Image], width: int, height: int, label: str) -> Image.Image:
@@ -317,30 +339,16 @@ def generate_anima_inpaint_image(
     mask_blur: int = 16,
     mask_expand: int = 8,
     invert_mask: bool = False,
-    save_generated_preview: bool = False,
-    cohesion_pass: bool = False,
-    cohesion_denoising_strength: float = 0.18,
-    cohesion_steps: Optional[int] = None,
-    save_pre_cohesion_preview: bool = False,
+    lllite_strength: float = 1.0,
+    lllite_start_percent: float = 0.0,
+    lllite_end_percent: float = 1.0,
 ) -> Optional[str]:
     """
-    Inpainting-style Anima generation using DiffSynth img2img + mask compositing.
-
-    Important:
-        This does NOT modify Anima into a native mask-conditioned inpaint model.
-        It uses DiffSynth's existing Anima img2img path to generate a full candidate image,
-        then composites only the masked/white region over the original input image.
-
-        Optional cohesion pass:
-        If cohesion_pass=True, the composited image is sent through a second low-denoise
-        img2img pass across the whole image to blend style, lighting, texture, and edges.
+    Native Anima LLLite inpainting for DiffSynth Anima.
 
     Mask convention:
         white = editable/generated area
         black = preserved/original area
-
-    For stronger changes inside the mask, increase denoising_strength.
-    For better edge blending, increase mask_blur and/or mask_expand.
     """
     if input_image is None:
         raise ValueError("input_image is required for inpainting")
@@ -348,13 +356,11 @@ def generate_anima_inpaint_image(
         raise ValueError("mask_image is required for inpainting")
     if not 0.0 <= denoising_strength <= 1.0:
         raise ValueError("denoising_strength must be between 0.0 and 1.0")
-    if not 0.0 <= cohesion_denoising_strength <= 1.0:
-        raise ValueError("cohesion_denoising_strength must be between 0.0 and 1.0")
 
     orig_input_image_path = input_image if isinstance(input_image, str) else None
     orig_mask_image_path = mask_image if isinstance(mask_image, str) else None
 
-    original_image, generation_input_image, filled_transparency = _load_and_resize_inpaint_input(
+    control_image, generation_input_image, filled_transparency = _load_and_resize_inpaint_input(
         input_image,
         width,
         height,
@@ -367,6 +373,7 @@ def generate_anima_inpaint_image(
         mask_expand=mask_expand,
         invert_mask=invert_mask,
     )
+    lllite_path = _resolve_lllite_path()
 
     if vram_limit is None:
         if torch.cuda.is_available():
@@ -374,9 +381,6 @@ def generate_anima_inpaint_image(
             vram_limit = vram_info[1] / (1024**3) - 0.5
         else:
             vram_limit = 6.0
-
-    if cohesion_steps is None:
-        cohesion_steps = max(10, min(20, steps // 2 if steps > 1 else 10))
 
     pipe = get_pipeline(vram_limit)
     apply_turbo_lora(pipe, turbo_lora)
@@ -386,17 +390,21 @@ def generate_anima_inpaint_image(
     print(f"Inpainting image: {prompt[:80]}...")
     print("Mask convention: white = generated/editable, black = preserved")
     if filled_transparency:
-        print("Transparent input pixels were filled with noise for the masked generation pass")
-    if cohesion_pass:
-        print(
-            f"Cohesion pass enabled: steps={cohesion_steps}, "
-            f"denoise={cohesion_denoising_strength:.3f}"
-        )
+        print("Transparent input pixels were filled with noise for LLLite conditioning")
 
-    generated_image = None
     final_image = None
+    unpatch_lllite = None
     try:
-        generated_image = _run_img2img_pass(
+        unpatch_lllite = apply_lllite_inpaint(
+            pipe,
+            lllite_path=lllite_path,
+            control_image=control_image,
+            mask_image=mask,
+            strength=lllite_strength,
+            start_percent=lllite_start_percent,
+            end_percent=lllite_end_percent,
+        )
+        final_image = _run_img2img_pass(
             pipe=pipe,
             prompt=prompt,
             negative_prompt=negative_prompt,
@@ -408,43 +416,8 @@ def generate_anima_inpaint_image(
             seed=seed,
             cfg_scale=cfg_scale,
             progress_callback=progress_callback,
-            stage_name="masked generation pass",
+            stage_name="LLLite inpaint pass",
         )
-
-        # Final pixel-space composite:
-        #   mask white -> generated image
-        #   mask black -> original image
-        # This preserves the unmasked region exactly before optional cohesion.
-        final_image = Image.composite(generated_image, original_image, mask)
-
-        if save_generated_preview:
-            base, ext = os.path.splitext(output_path)
-            preview_path = f"{base}_full_generated{ext or '.png'}"
-            generated_image.save(preview_path)
-            print(f"Saved full generated preview: {preview_path}")
-
-        if cohesion_pass:
-            if save_pre_cohesion_preview:
-                base, ext = os.path.splitext(output_path)
-                pre_cohesion_path = f"{base}_pre_cohesion{ext or '.png'}"
-                final_image.save(pre_cohesion_path)
-                print(f"Saved pre-cohesion composite preview: {pre_cohesion_path}")
-
-            second_pass_seed = None if seed is None else seed + 1
-            final_image = _run_img2img_pass(
-                pipe=pipe,
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                input_image=final_image,
-                denoising_strength=cohesion_denoising_strength,
-                steps=cohesion_steps,
-                width=width,
-                height=height,
-                seed=second_pass_seed,
-                cfg_scale=cfg_scale,
-                progress_callback=progress_callback,
-                stage_name="whole-image cohesion pass",
-            )
 
     except InterruptedError:
         print("Generation cancelled by user")
@@ -453,6 +426,8 @@ def generate_anima_inpaint_image(
         print(f"Error during inference: {e}")
         raise
     finally:
+        if unpatch_lllite is not None:
+            unpatch_lllite()
         if unload_after:
             del pipe
             unload_pipeline()
@@ -467,15 +442,16 @@ def generate_anima_inpaint_image(
         "seed": seed,
         "cfg_scale": cfg_scale,
         "model": "Anima Base v1.0",
-        "mode": "img2img_mask_composite_inpaint",
+        "mode": "anima_lllite_inpaint",
         "denoising_strength": denoising_strength,
         "mask_blur": mask_blur,
         "mask_expand": mask_expand,
         "invert_mask": invert_mask,
         "turbo_lora": turbo_lora,
-        "cohesion_pass": cohesion_pass,
-        "cohesion_denoising_strength": cohesion_denoising_strength if cohesion_pass else None,
-        "cohesion_steps": cohesion_steps if cohesion_pass else None,
+        "lllite_path": lllite_path,
+        "lllite_strength": lllite_strength,
+        "lllite_start_percent": lllite_start_percent,
+        "lllite_end_percent": lllite_end_percent,
     }
     if orig_input_image_path:
         params["input_image_path"] = orig_input_image_path
@@ -508,9 +484,9 @@ def generate_anima_image(
     mask_blur: int = 16,
     mask_expand: int = 8,
     invert_mask: bool = False,
-    cohesion_pass: bool = False,
-    cohesion_denoising_strength: float = 0.25,
-    cohesion_steps: Optional[int] = None,
+    lllite_strength: float = 1.0,
+    lllite_start_percent: float = 0.0,
+    lllite_end_percent: float = 1.0,
 ) -> Optional[str]:
     if mask_image is None:
         raise ValueError(
@@ -536,9 +512,9 @@ def generate_anima_image(
         mask_blur=mask_blur,
         mask_expand=mask_expand,
         invert_mask=invert_mask,
-        cohesion_pass=cohesion_pass,
-        cohesion_denoising_strength=cohesion_denoising_strength,
-        cohesion_steps=cohesion_steps,
+        lllite_strength=lllite_strength,
+        lllite_start_percent=lllite_start_percent,
+        lllite_end_percent=lllite_end_percent,
     )
 
 
@@ -547,8 +523,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         description=(
-            "Standalone Anima inpainting-style generator. "
-            "Uses DiffSynth Anima img2img and composites the generated result through a mask."
+            "Standalone Anima LLLite inpainting generator."
         )
     )
     parser.add_argument("prompt", type=str, help="Prompt for the masked/editable area")
@@ -579,33 +554,9 @@ if __name__ == "__main__":
     parser.add_argument("--mask-blur", type=int, default=16, help="Gaussian blur radius for mask edge blending")
     parser.add_argument("--mask-expand", type=int, default=8, help="Expand editable white region in pixels; negative shrinks")
     parser.add_argument("--invert-mask", action="store_true", help="Use when your mask is black=edit and white=preserve")
-    parser.add_argument(
-        "--save-generated-preview",
-        action="store_true",
-        help="Also save the full img2img result before mask compositing",
-    )
-    parser.add_argument(
-        "--cohesion-pass",
-        action="store_true",
-        help="Run a second low-denoise img2img pass on the whole composited image. Disabled by default.",
-    )
-    parser.add_argument(
-        "--cohesion-denoising-strength",
-        type=float,
-        default=0.25,
-        help="Denoising strength for the optional whole-image cohesion pass.",
-    )
-    parser.add_argument(
-        "--cohesion-steps",
-        type=int,
-        default=None,
-        help="Step count for the optional whole-image cohesion pass. Defaults to a small value based on --steps.",
-    )
-    parser.add_argument(
-        "--save-pre-cohesion-preview",
-        action="store_true",
-        help="If cohesion pass is enabled, also save the composited image before the cohesion pass.",
-    )
+    parser.add_argument("--lllite-strength", type=float, default=1.0, help="LLLite conditioning strength")
+    parser.add_argument("--lllite-start-percent", type=float, default=0.0, help="First denoise percent to apply LLLite")
+    parser.add_argument("--lllite-end-percent", type=float, default=1.0, help="Last denoise percent to apply LLLite")
 
     args = parser.parse_args()
 
@@ -628,11 +579,9 @@ if __name__ == "__main__":
             mask_blur=args.mask_blur,
             mask_expand=args.mask_expand,
             invert_mask=args.invert_mask,
-            save_generated_preview=args.save_generated_preview,
-            cohesion_pass=args.cohesion_pass,
-            cohesion_denoising_strength=args.cohesion_denoising_strength,
-            cohesion_steps=args.cohesion_steps,
-            save_pre_cohesion_preview=args.save_pre_cohesion_preview,
+            lllite_strength=args.lllite_strength,
+            lllite_start_percent=args.lllite_start_percent,
+            lllite_end_percent=args.lllite_end_percent,
         )
     except Exception as e:
         print(f"Failed to generate image: {e}")
