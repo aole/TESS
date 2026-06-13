@@ -365,14 +365,15 @@ def generate_anima_inpaint_image(
         width,
         height,
     )
-    mask = prepare_inpaint_mask(
+    raw_mask = prepare_inpaint_mask(
         mask_image,
         width=width,
         height=height,
-        mask_blur=mask_blur,
+        mask_blur=0,
         mask_expand=mask_expand,
         invert_mask=invert_mask,
     )
+    mask = raw_mask.filter(ImageFilter.GaussianBlur(radius=mask_blur)) if mask_blur > 0 else raw_mask
     lllite_path = _resolve_lllite_path()
 
     if vram_limit is None:
@@ -404,7 +405,7 @@ def generate_anima_inpaint_image(
             start_percent=lllite_start_percent,
             end_percent=lllite_end_percent,
         )
-        final_image = _run_img2img_pass(
+        generated_full = _run_img2img_pass(
             pipe=pipe,
             prompt=prompt,
             negative_prompt=negative_prompt,
@@ -418,6 +419,7 @@ def generate_anima_inpaint_image(
             progress_callback=progress_callback,
             stage_name="LLLite inpaint pass",
         )
+        final_image = Image.composite(generated_full, control_image, mask)
 
     except InterruptedError:
         print("Generation cancelled by user")
