@@ -7,7 +7,7 @@ import json
 import urllib.request
 from typing import Optional, Callable, Union
 
-from PIL import Image, ImageFilter, ImageOps
+from PIL import Image, ImageFilter, ImageOps, ImageStat
 from PIL.PngImagePlugin import PngInfo
 
 # 1. ENVIRONMENT SETUP
@@ -217,6 +217,25 @@ def prepare_inpaint_mask(
     return mask
 
 
+def match_patch_luminance(generated: Image.Image, original: Image.Image, mask: Image.Image) -> Image.Image:
+    """Shift generated RGB channels toward the original's masked-area mean."""
+    mask_bin = mask.convert("L").point(lambda p: 255 if p > 32 else 0)
+    if mask_bin.getbbox() is None:
+        return generated.convert("RGB")
+
+    generated_rgb = generated.convert("RGB")
+    original_rgb = original.convert("RGB")
+    gen_mean = ImageStat.Stat(generated_rgb, mask_bin).mean
+    orig_mean = ImageStat.Stat(original_rgb, mask_bin).mean
+
+    new_channels = []
+    for i, channel in enumerate(generated_rgb.split()):
+        delta = orig_mean[i] - gen_mean[i]
+        new_channels.append(channel.point(lambda p, d=delta: max(0, min(255, int(p + d)))))
+
+    return Image.merge("RGB", new_channels)
+
+
 def apply_turbo_lora(pipe, turbo_lora: float):
     """Loads/clears the official Anima Turbo LoRA if requested."""
     # Enable hot loading to allow clearing LoRA weights dynamically without fusing.
@@ -419,6 +438,7 @@ def generate_anima_inpaint_image(
             progress_callback=progress_callback,
             stage_name="LLLite inpaint pass",
         )
+        generated_full = match_patch_luminance(generated_full, control_image, mask)
         final_image = Image.composite(generated_full, control_image, mask)
 
     except InterruptedError:
