@@ -28,6 +28,7 @@ dependencies = [
     "opencv-python>=4.13.0.92",
     "basicsr>=1.4.2",
     "realesrgan>=0.3.0",
+    "sam-2",
 ]
 
 [[tool.uv.index]]
@@ -39,3 +40,4 @@ explicit = true
 torch = { index = "pytorch" }
 torchaudio = { index = "pytorch" }
 diffsynth = { git = "https://github.com/modelscope/DiffSynth-Studio.git" }
+sam-2 = { git = "https://github.com/facebookresearch/sam2.git" }
