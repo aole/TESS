@@ -362,6 +362,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         'points': [],
         'point_mode': 1,
         'source_path': None,
+        'source_size': (1280, 1280),
         'mask_path': None,
         'overlay_path': None,
         'status': 'Export current Photopea image to start.',
@@ -369,13 +370,16 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
 
     def segment_points_svg() -> str:
         parts = []
+        source_width, source_height = segment_state.get('source_size', (1280, 1280))
+        radius = min(max(max(source_width, source_height) * 0.015, 5), 15)
+        stroke_width = max(radius * 0.25, 2)
         for point in segment_state['points']:
             color = '#22c55e' if point['label'] == 1 else '#ef4444'
             x = point['x']
             y = point['y']
             parts.append(
-                f'<circle cx="{x:.2f}" cy="{y:.2f}" r="8" fill="{color}" '
-                f'stroke="white" stroke-width="2" opacity="0.95" />'
+                f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{radius:.2f}" fill="{color}" '
+                f'stroke="white" stroke-width="{stroke_width:.2f}" opacity="0.95" />'
             )
         return ''.join(parts)
 
@@ -439,17 +443,10 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             .segment-preview {
                 width: 100%;
                 max-height: calc(100vh - 300px);
-                aspect-ratio: 1 / 1;
                 background: rgba(0, 0, 0, 0.25);
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 8px;
                 overflow: hidden;
-            }
-            .segment-preview img,
-            .segment-preview svg {
-                width: 100%;
-                height: 100%;
-                object-fit: contain;
             }
         </style>
     """)
@@ -1224,6 +1221,14 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             return
 
         segment_state['source_path'] = source_path
+        try:
+            with Image.open(source_path) as img:
+                source_size = img.size
+        except Exception:
+            source_size = (1280, 1280)
+        segment_state['source_size'] = source_size
+        segment_image._props['size'] = source_size
+        segment_image.update()
         segment_state['points'] = []
         segment_state['mask_path'] = None
         segment_state['overlay_path'] = None
