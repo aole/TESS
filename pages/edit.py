@@ -369,18 +369,13 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
 
     def segment_points_svg() -> str:
         parts = []
-        for idx, point in enumerate(segment_state['points'], start=1):
-            color = '#22c55e' if point['label'] == 1 else '#3b82f6'
+        for point in segment_state['points']:
+            color = '#22c55e' if point['label'] == 1 else '#ef4444'
             x = point['x']
             y = point['y']
             parts.append(
                 f'<circle cx="{x:.2f}" cy="{y:.2f}" r="8" fill="{color}" '
                 f'stroke="white" stroke-width="2" opacity="0.95" />'
-            )
-            parts.append(
-                f'<text x="{x + 11:.2f}" y="{y - 11:.2f}" fill="white" '
-                f'font-size="20" font-family="sans-serif" stroke="black" '
-                f'stroke-width="3" paint-order="stroke">{idx}</text>'
             )
         return ''.join(parts)
 
@@ -554,7 +549,6 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         if path:
             segment_image.set_source(_web_url(path))
         segment_image.set_content(segment_points_svg())
-        segment_points_label.set_text(f"{len(segment_state['points'])} point(s)")
         segment_status_label.set_text(segment_state['status'])
 
     def clear_segment_points():
@@ -576,7 +570,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             with Image.open(segment_state['source_path']) as img:
                 width, height = img.size
         except Exception:
-            width, height = 1024, 1024
+            width, height = 1280, 1280
         x = min(max(float(e.image_x), 0.0), max(width - 1, 0))
         y = min(max(float(e.image_y), 0.0), max(height - 1, 0))
         segment_state['points'].append({'x': x, 'y': y, 'label': int(segment_state['point_mode'])})
@@ -647,6 +641,17 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         set_i2i_button_generating(True)
         ui.run_javascript(f"window.runPhotopeaSegmentInpaint('{mask_path}');")
 
+    def set_segment_point_mode(label: int):
+        segment_state['point_mode'] = label
+        if label == 1:
+            segment_foreground_button.props('color=green-6 text-color=white')
+            segment_background_button.props('color=grey-8 text-color=grey-4')
+            segment_mode_label.set_text('Inclusion points')
+        else:
+            segment_foreground_button.props('color=grey-8 text-color=grey-4')
+            segment_background_button.props('color=red-6 text-color=white')
+            segment_mode_label.set_text('Exclusion points')
+
     with ui.dialog().props('position=right') as segment_dialog, ui.card().classes('w-[550px] max-w-full h-screen max-h-screen p-6 gap-4 bg-[#1e1f20] border-l border-white/10 text-white rounded-none shadow-2xl'):
         with ui.row().classes('w-full items-center justify-between border-b border-white/10 pb-2'):
             with ui.row().classes('items-center gap-2'):
@@ -657,19 +662,21 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         with ui.column().classes('w-full flex-grow gap-3 overflow-y-auto pr-1'):
             with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
                 segment_source_button = ui.button(
-                    'Refresh',
                     icon='camera',
                     on_click=refresh_segment_source,
-                ).classes('glass-btn').props('dense')
-                point_mode_toggle = ui.toggle(
-                    {1: 'Foreground', 0: 'Background'},
-                    value=1,
-                    on_change=lambda e: segment_state.update({'point_mode': int(e.value)}),
-                ).props('dense toggle-color=emerald-5 color=grey-8').classes('text-xs')
-                segment_points_label = ui.label('0 point(s)').classes('ml-auto text-xs text-gray-400')
+                ).classes('glass-btn').props('dense round').tooltip('Refresh current image')
+                segment_foreground_button = ui.button(
+                    icon='add_circle',
+                    on_click=lambda: set_segment_point_mode(1),
+                ).props('dense round color=green-6 text-color=white').tooltip('Add inclusion point')
+                segment_background_button = ui.button(
+                    icon='remove_circle',
+                    on_click=lambda: set_segment_point_mode(0),
+                ).props('dense round color=grey-8 text-color=grey-4').tooltip('Add exclusion point')
+                segment_mode_label = ui.label('Inclusion points').classes('text-xs text-emerald-300')
 
             segment_image = ui.interactive_image(
-                size=(1024, 1024),
+                size=(1280, 1280),
                 on_mouse=handle_segment_click,
                 events=['click'],
                 cross='#ffffff80',
@@ -679,9 +686,9 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             segment_status_label = ui.label(segment_state['status']).classes('text-xs text-gray-400 min-h-[1.25rem]')
 
             with ui.row().classes('w-full items-center justify-end gap-2 border-t border-white/10 pt-4'):
-                ui.button('Clear', icon='backspace', on_click=clear_segment_points).classes('glass-btn').props('dense')
-                segment_preview_button = ui.button('Preview Mask', icon='visibility', on_click=preview_segment_mask).classes('glass-btn').props('dense')
-                segment_use_button = ui.button('Use for Inpaint', icon='auto_fix_high', on_click=use_segment_mask_for_inpaint).classes('save-btn').props('dense')
+                ui.button(icon='backspace', on_click=clear_segment_points).classes('glass-btn').props('dense round').tooltip('Clear points')
+                segment_preview_button = ui.button(icon='visibility', on_click=preview_segment_mask).classes('glass-btn').props('dense round').tooltip('Preview mask')
+                segment_use_button = ui.button(icon='auto_fix_high', on_click=use_segment_mask_for_inpaint).classes('save-btn').props('dense round').tooltip('Use mask for inpaint')
                 segment_use_button.disable()
 
     def set_i2i_button_generating(active: bool):
