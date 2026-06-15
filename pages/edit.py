@@ -174,10 +174,16 @@ async def upload_edited_image(
         os.makedirs(os.path.dirname(safe_psd_path), exist_ok=True)
         output_path = safe_psd_path
         fname = os.path.basename(output_path)
-    elif action in ("i2i", "mask"):
+    elif action in ("i2i", "mask", "segment-source", "segment-inpaint"):
         os.makedirs("data/visual/temp", exist_ok=True)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        prefix = "selection_mask" if action == "mask" else "i2i_input"
+        prefix_map = {
+            "i2i": "i2i_input",
+            "mask": "selection_mask",
+            "segment-source": "segment_source",
+            "segment-inpaint": "segment_inpaint_input",
+        }
+        prefix = prefix_map[action]
         fname = f"{prefix}_{timestamp}.png"
         output_path = f"data/visual/temp/{fname}"
     else:
@@ -192,7 +198,7 @@ async def upload_edited_image(
     with open(output_path, "wb") as f:
         f.write(contents)
         
-    if action not in ("i2i", "mask", "psd"):
+    if action not in ("i2i", "mask", "psd", "segment-source", "segment-inpaint"):
         _embed_current_edit_metadata(output_path, original_path)
         # Generate thumbnail
         create_thumbnail(output_path)
@@ -352,7 +358,31 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
     init_storage_val('edit_i2i_count', 1)
 
     generating = {'active': False, 'pending': False, 'cancel': False}
+    segment_state = {
+        'points': [],
+        'point_mode': 1,
+        'source_path': None,
+        'mask_path': None,
+        'overlay_path': None,
+        'status': 'Export current Photopea image to start.',
+    }
 
+    def segment_points_svg() -> str:
+        parts = []
+        for idx, point in enumerate(segment_state['points'], start=1):
+            color = '#22c55e' if point['label'] == 1 else '#3b82f6'
+            x = point['x']
+            y = point['y']
+            parts.append(
+                f'<circle cx="{x:.2f}" cy="{y:.2f}" r="8" fill="{color}" '
+                f'stroke="white" stroke-width="2" opacity="0.95" />'
+            )
+            parts.append(
+                f'<text x="{x + 11:.2f}" y="{y - 11:.2f}" fill="white" '
+                f'font-size="20" font-family="sans-serif" stroke="black" '
+                f'stroke-width="3" paint-order="stroke">{idx}</text>'
+            )
+        return ''.join(parts)
 
 
     # Custom UI Header Styling
@@ -410,6 +440,21 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             .stop-btn:hover {
                 background: rgba(220, 38, 38, 0.95);
                 border-color: rgba(252, 165, 165, 1);
+            }
+            .segment-preview {
+                width: 100%;
+                max-height: calc(100vh - 300px);
+                aspect-ratio: 1 / 1;
+                background: rgba(0, 0, 0, 0.25);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+                overflow: hidden;
+            }
+            .segment-preview img,
+            .segment-preview svg {
+                width: 100%;
+                height: 100%;
+                object-fit: contain;
             }
         </style>
     """)
@@ -498,6 +543,147 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
 
     i2i_options_dialog.on_value_change(handle_dialog_close)
 
+    async def refresh_segment_source():
+        segment_state['status'] = 'Exporting current Photopea image...'
+        segment_status_label.set_text(segment_state['status'])
+        segment_source_button.props('loading')
+        segment_source_button.disable()
+        ui.run_javascript("window.exportPhotopeaSegmentSource();")
+
+    def update_segment_preview(path: str | None = None):
+        if path:
+            segment_image.set_source(_web_url(path))
+        segment_image.set_content(segment_points_svg())
+        segment_points_label.set_text(f"{len(segment_state['points'])} point(s)")
+        segment_status_label.set_text(segment_state['status'])
+
+    def clear_segment_points():
+        segment_state['points'] = []
+        segment_state['mask_path'] = None
+        segment_state['overlay_path'] = None
+        segment_state['status'] = 'Points cleared.'
+        if segment_state.get('source_path'):
+            segment_image.set_source(_web_url(segment_state['source_path']))
+        update_segment_preview()
+
+    def handle_segment_click(e):
+        if not segment_state.get('source_path'):
+            ui.notify("Export the current Photopea image before adding points.", type='warning')
+            return
+        if e.button != 0:
+            return
+        try:
+            with Image.open(segment_state['source_path']) as img:
+                width, height = img.size
+        except Exception:
+            width, height = 1024, 1024
+        x = min(max(float(e.image_x), 0.0), max(width - 1, 0))
+        y = min(max(float(e.image_y), 0.0), max(height - 1, 0))
+        segment_state['points'].append({'x': x, 'y': y, 'label': int(segment_state['point_mode'])})
+        segment_state['mask_path'] = None
+        segment_state['overlay_path'] = None
+        segment_state['status'] = 'Point added. Preview mask when ready.'
+        if segment_state.get('source_path'):
+            segment_image.set_source(_web_url(segment_state['source_path']))
+        update_segment_preview()
+
+    async def preview_segment_mask():
+        source_path = segment_state.get('source_path')
+        points = segment_state.get('points') or []
+        if not source_path or not os.path.exists(source_path):
+            ui.notify("Export the current Photopea image before segmenting.", type='warning')
+            return
+        if not points:
+            ui.notify("Add at least one foreground or background point.", type='warning')
+            return
+
+        segment_state['status'] = 'Segmenting...'
+        update_segment_preview()
+        segment_preview_button.props('loading')
+        segment_preview_button.disable()
+        segment_use_button.disable()
+        try:
+            import numpy as np
+            from core.point_to_segment import segment_from_points
+
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_dir = f"data/visual/temp/segment_{timestamp}"
+            point_coords = np.array([[point['x'], point['y']] for point in points], dtype=np.float32)
+            point_labels = np.array([point['label'] for point in points], dtype=np.int32)
+            mask_path, overlay_path, _best_idx, best_score = await run.io_bound(
+                segment_from_points,
+                image_path=source_path,
+                points=point_coords,
+                labels=point_labels,
+                out_dir=out_dir,
+            )
+            segment_state['mask_path'] = str(mask_path).replace('\\', '/')
+            segment_state['overlay_path'] = str(overlay_path).replace('\\', '/')
+            segment_state['status'] = f"Mask ready. Score: {best_score:.4f}"
+            update_segment_preview(segment_state['overlay_path'])
+            segment_use_button.enable()
+        except Exception as ex:
+            import traceback
+            traceback.print_exc()
+            segment_state['status'] = f"Segmentation failed: {ex}"
+            update_segment_preview()
+            ui.notify(f"Segmentation failed: {ex}", type='negative')
+        finally:
+            segment_preview_button.props(remove='loading')
+            segment_preview_button.enable()
+
+    def use_segment_mask_for_inpaint():
+        mask_path = segment_state.get('mask_path')
+        if not mask_path or not os.path.exists(mask_path):
+            ui.notify("Preview a segmentation mask before using it for inpaint.", type='warning')
+            return
+        if generating['active']:
+            ui.notify("Generation already in progress", type='warning')
+            return
+        segment_dialog.close()
+        generating['active'] = True
+        generating['pending'] = True
+        generating['cancel'] = False
+        set_i2i_button_generating(True)
+        ui.run_javascript(f"window.runPhotopeaSegmentInpaint('{mask_path}');")
+
+    with ui.dialog().props('position=right') as segment_dialog, ui.card().classes('w-[550px] max-w-full h-screen max-h-screen p-6 gap-4 bg-[#1e1f20] border-l border-white/10 text-white rounded-none shadow-2xl'):
+        with ui.row().classes('w-full items-center justify-between border-b border-white/10 pb-2'):
+            with ui.row().classes('items-center gap-2'):
+                ui.icon('select_all', size='24px').classes('text-emerald-400')
+                ui.label('Point Segmentation').classes('text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 to-cyan-300')
+            ui.button(icon='close', on_click=segment_dialog.close).props('flat dense round').classes('text-gray-400 hover:text-white')
+
+        with ui.column().classes('w-full flex-grow gap-3 overflow-y-auto pr-1'):
+            with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
+                segment_source_button = ui.button(
+                    'Refresh',
+                    icon='camera',
+                    on_click=refresh_segment_source,
+                ).classes('glass-btn').props('dense')
+                point_mode_toggle = ui.toggle(
+                    {1: 'Foreground', 0: 'Background'},
+                    value=1,
+                    on_change=lambda e: segment_state.update({'point_mode': int(e.value)}),
+                ).props('dense toggle-color=emerald-5 color=grey-8').classes('text-xs')
+                segment_points_label = ui.label('0 point(s)').classes('ml-auto text-xs text-gray-400')
+
+            segment_image = ui.interactive_image(
+                size=(1024, 1024),
+                on_mouse=handle_segment_click,
+                events=['click'],
+                cross='#ffffff80',
+                sanitize=False,
+            ).classes('segment-preview')
+
+            segment_status_label = ui.label(segment_state['status']).classes('text-xs text-gray-400 min-h-[1.25rem]')
+
+            with ui.row().classes('w-full items-center justify-end gap-2 border-t border-white/10 pt-4'):
+                ui.button('Clear', icon='backspace', on_click=clear_segment_points).classes('glass-btn').props('dense')
+                segment_preview_button = ui.button('Preview Mask', icon='visibility', on_click=preview_segment_mask).classes('glass-btn').props('dense')
+                segment_use_button = ui.button('Use for Inpaint', icon='auto_fix_high', on_click=use_segment_mask_for_inpaint).classes('save-btn').props('dense')
+                segment_use_button.disable()
+
     def set_i2i_button_generating(active: bool):
         if active:
             i2i_btn.props('icon=stop color=red')
@@ -585,6 +771,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
 
                 # Image-to-image options and generation
                 i2i_btn = ui.button(icon='brush', on_click=handle_i2i_toolbar_click).classes('glass-btn').props('dense round').tooltip('Image-to-Image')
+                ui.button(icon='select_all', on_click=segment_dialog.open).classes('glass-btn').props('dense round').tooltip('Point Segmentation')
 
                 # Vertical Separator
                 ui.element('div').classes('h-6 w-px bg-white/20 mx-1')
@@ -735,6 +922,27 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         if (action !== 'i2i') {
           window.photopeaSelectionMaskPath = null;
         }
+        const iframe = getIframe();
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage('app.activeDocument.saveToOE("png");', "*");
+        }
+      };
+
+      window.exportPhotopeaSegmentSource = function() {
+        window.photopeaAction = 'segment-source';
+        window.photopeaExportPhase = 'image';
+        window.photopeaSelectionMaskPath = null;
+        const iframe = getIframe();
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage('app.activeDocument.saveToOE("png");', "*");
+        }
+      };
+
+      window.runPhotopeaSegmentInpaint = function(maskPath) {
+        window.photopeaAction = 'segment-inpaint';
+        window.photopeaExportPhase = 'image';
+        window.photopeaSelectionMaskPath = null;
+        window.tessSegmentMaskPath = maskPath;
         const iframe = getIframe();
         if (iframe && iframe.contentWindow) {
           iframe.contentWindow.postMessage('app.activeDocument.saveToOE("png");', "*");
@@ -899,6 +1107,17 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
               } else if (uploadAction === 'mask') {
                 window.photopeaSelectionMaskPath = result.path;
                 window.cleanupPhotopeaSelectionMaskAndExport();
+              } else if (uploadAction === 'segment-source') {
+                window.photopeaExportPhase = null;
+                emitEvent('photopea-segment-source', { path: result.path, filename: result.filename });
+              } else if (uploadAction === 'segment-inpaint') {
+                const payload = { path: result.path, filename: result.filename };
+                if (window.tessSegmentMaskPath) {
+                  payload.mask_path = window.tessSegmentMaskPath;
+                }
+                window.photopeaExportPhase = null;
+                window.tessSegmentMaskPath = null;
+                emitEvent('photopea-i2i', payload);
               } else if (window.photopeaAction === 'i2i') {
                 const payload = { path: result.path, filename: result.filename };
                 if (window.photopeaSelectionMaskPath) {
@@ -978,6 +1197,34 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             app.storage.user['edit_session_psd_path'] = psd_path
 
     ui.on('photopea-psd-saved', handle_photopea_psd_saved)
+
+    def handle_photopea_segment_source(e):
+        args = e.args
+        if isinstance(args, dict):
+            source_path = args.get('path')
+        elif isinstance(args, list) and len(args) > 0 and isinstance(args[0], dict):
+            source_path = args[0].get('path')
+        else:
+            source_path = None
+
+        segment_source_button.props(remove='loading')
+        segment_source_button.enable()
+
+        if not source_path or not os.path.exists(source_path):
+            segment_state['status'] = 'Failed to export current Photopea image.'
+            update_segment_preview()
+            ui.notify("Failed to export current Photopea image for segmentation.", type='negative')
+            return
+
+        segment_state['source_path'] = source_path
+        segment_state['points'] = []
+        segment_state['mask_path'] = None
+        segment_state['overlay_path'] = None
+        segment_state['status'] = 'Click the preview to add foreground/background points.'
+        segment_use_button.disable()
+        update_segment_preview(source_path)
+
+    ui.on('photopea-segment-source', handle_photopea_segment_source)
 
     async def handle_photopea_i2i(e):
         if generating['active'] and not generating.get('pending'):
@@ -1145,10 +1392,22 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                 or fname.startswith("i2i_input_")
                 or fname.startswith("i2i_output_")
                 or fname.startswith("inpaint_output_")
+                or fname.startswith("segment_source_")
+                or fname.startswith("segment_inpaint_input_")
+                or fname.startswith("segment_")
             ):
                 continue
+            path = os.path.join(temp_dir, fname)
             try:
-                os.remove(os.path.join(temp_dir, fname))
+                if os.path.isdir(path):
+                    for child in os.listdir(path):
+                        try:
+                            os.remove(os.path.join(path, child))
+                        except OSError:
+                            pass
+                    os.rmdir(path)
+                else:
+                    os.remove(path)
             except OSError:
                 pass
     ui.context.client.on_disconnect(cleanup_temp_dir)
