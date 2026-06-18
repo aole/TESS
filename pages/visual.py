@@ -753,18 +753,34 @@ def create_page():
             return
 
         prompt_val = ''
+        image_context_lines = []
         try:
             with Image.open(targets[0]) as img:
+                width, height = img.size
                 params_str = (img.text if hasattr(img, 'text') else img.info).get('parameters')
+            image_context_lines.append(f'- {targets[0]} ({width}x{height})')
             if params_str:
                 params = json.loads(params_str)
                 prompt_val = params.get('prompt', '') if isinstance(params, dict) else ''
         except Exception:
             prompt_val = ''
 
+        for path in targets[1:]:
+            try:
+                with Image.open(path) as img:
+                    width, height = img.size
+                image_context_lines.append(f'- {path} ({width}x{height})')
+            except Exception:
+                image_context_lines.append(f'- {path}')
+
+        context_text = ''
+        if image_context_lines:
+            context_text = 'Attached image info:\n' + '\n'.join(image_context_lines)
+
         app.storage.user['pending_chat_draft'] = {
             'prompt': prompt_val,
             'images': targets,
+            'context_text': context_text,
             'source': 'visual',
         }
         if not prompt_val:

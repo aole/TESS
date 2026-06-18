@@ -758,9 +758,15 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                     if not isinstance(draft, dict):
                         return
 
+                    prompt_parts = []
                     prompt = draft.get('prompt')
-                    if isinstance(prompt, str):
-                        user_input.set_value(prompt)
+                    if isinstance(prompt, str) and prompt.strip():
+                        prompt_parts.append(prompt)
+                    context_text = draft.get('context_text')
+                    if isinstance(context_text, str) and context_text.strip():
+                        prompt_parts.append(context_text)
+                    if prompt_parts:
+                        user_input.set_value('\n\n'.join(prompt_parts))
 
                     loaded = 0
                     for path in draft.get('images') or []:
