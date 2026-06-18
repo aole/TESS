@@ -538,9 +538,11 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
     async def refresh_segment_source():
         segment_state['status'] = 'Exporting current Photopea image...'
         segment_status_label.set_text(segment_state['status'])
-        segment_source_button.props('loading')
-        segment_source_button.disable()
         ui.run_javascript("window.exportPhotopeaSegmentSource();")
+
+    async def open_segment_dialog():
+        segment_dialog.open()
+        await refresh_segment_source()
 
     def update_segment_preview(path: str | None = None):
         if path:
@@ -550,11 +552,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
 
     def clear_segment_points():
         segment_state['points'] = []
-        segment_state['mask_path'] = None
-        segment_state['overlay_path'] = None
-        segment_state['status'] = 'Points cleared.'
-        if segment_state.get('source_path'):
-            segment_image.set_source(_web_url(segment_state['source_path']))
+        segment_state['status'] = 'Points cleared. Current mask preserved.'
         update_segment_preview()
 
     def handle_segment_click(e):
@@ -592,7 +590,6 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         update_segment_preview()
         segment_preview_button.props('loading')
         segment_preview_button.disable()
-        segment_use_button.disable()
         try:
             import numpy as np
             from core.point_to_segment import segment_from_points
@@ -612,7 +609,6 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             segment_state['overlay_path'] = str(overlay_path).replace('\\', '/')
             segment_state['status'] = f"Mask ready. Score: {best_score:.4f}"
             update_segment_preview(segment_state['overlay_path'])
-            segment_use_button.enable()
         except Exception as ex:
             import traceback
             traceback.print_exc()
@@ -623,20 +619,15 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             segment_preview_button.props(remove='loading')
             segment_preview_button.enable()
 
-    def use_segment_mask_for_inpaint():
+    def create_segment_mask_layer():
         mask_path = segment_state.get('mask_path')
         if not mask_path or not os.path.exists(mask_path):
-            ui.notify("Preview a segmentation mask before using it for inpaint.", type='warning')
+            ui.notify("Preview a segmentation mask before creating a mask layer.", type='warning')
             return
-        if generating['active']:
-            ui.notify("Generation already in progress", type='warning')
-            return
-        segment_dialog.close()
-        generating['active'] = True
-        generating['pending'] = True
-        generating['cancel'] = False
-        set_i2i_button_generating(True)
-        ui.run_javascript(f"window.runPhotopeaSegmentInpaint('{mask_path}');")
+        mask_web_path = _web_url(mask_path)
+        ui.run_javascript(f"window.loadPhotopeaMaskLayer('{mask_web_path}');")
+        segment_state['status'] = 'Mask layer created. Add or adjust points to create another.'
+        update_segment_preview(segment_state.get('overlay_path') or segment_state.get('source_path'))
 
     def set_segment_point_mode(label: int):
         segment_state['point_mode'] = label
@@ -658,10 +649,6 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
 
         with ui.column().classes('w-full flex-grow gap-3 overflow-y-auto pr-1'):
             with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
-                segment_source_button = ui.button(
-                    icon='camera',
-                    on_click=refresh_segment_source,
-                ).classes('glass-btn').props('dense round').tooltip('Refresh current image')
                 segment_foreground_button = ui.button(
                     icon='add_circle',
                     on_click=lambda: set_segment_point_mode(1),
@@ -685,8 +672,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             with ui.row().classes('w-full items-center justify-end gap-2 border-t border-white/10 pt-4'):
                 ui.button(icon='backspace', on_click=clear_segment_points).classes('glass-btn').props('dense round').tooltip('Clear points')
                 segment_preview_button = ui.button(icon='visibility', on_click=preview_segment_mask).classes('glass-btn').props('dense round').tooltip('Preview mask')
-                segment_use_button = ui.button(icon='auto_fix_high', on_click=use_segment_mask_for_inpaint).classes('save-btn').props('dense round').tooltip('Use mask for inpaint')
-                segment_use_button.disable()
+                ui.button(icon='layers', on_click=create_segment_mask_layer).classes('save-btn').props('dense round').tooltip('Create mask layer')
 
     def set_i2i_button_generating(active: bool):
         if active:
@@ -775,7 +761,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
 
                 # Image-to-image options and generation
                 i2i_btn = ui.button(icon='brush', on_click=handle_i2i_toolbar_click).classes('glass-btn').props('dense round').tooltip('Image-to-Image')
-                ui.button(icon='select_all', on_click=segment_dialog.open).classes('glass-btn').props('dense round').tooltip('Point Segmentation')
+                ui.button(icon='select_all', on_click=open_segment_dialog).classes('glass-btn').props('dense round').tooltip('Point Segmentation')
 
                 # Vertical Separator
                 ui.element('div').classes('h-6 w-px bg-white/20 mx-1')
@@ -920,6 +906,37 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         }
       };
 
+      window.loadPhotopeaMaskLayer = async function(imageUrl) {
+        const iframe = getIframe();
+        if (!iframe || !iframe.contentWindow) {
+          return;
+        }
+
+        try {
+          const response = await fetch(imageUrl);
+          if (!response.ok) return;
+          const blob = await response.blob();
+
+          const reader = new FileReader();
+          reader.onloadend = function() {
+            const dataUrl = reader.result;
+            requestPhotopeaPsdSaveAfterDone();
+            iframe.contentWindow.postMessage(`
+              app.open("${dataUrl}", null, true);
+              var doc = app.activeDocument;
+              var layer = doc.activeLayer;
+              layer.name = "__tess_segment_mask_" + Date.now() + "__";
+              if (doc.layers.length > 1 && doc.layers[0] !== layer) {
+                layer.move(doc.layers[0], ElementPlacement.PLACEBEFORE);
+              }
+            `, "*");
+          };
+          reader.readAsDataURL(blob);
+        } catch (_err) {
+          return;
+        }
+      };
+
       window.exportPhotopeaImage = function(action = 'save') {
         window.photopeaAction = action;
         window.photopeaExportPhase = 'image';
@@ -936,17 +953,6 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         window.photopeaAction = 'segment-source';
         window.photopeaExportPhase = 'image';
         window.photopeaSelectionMaskPath = null;
-        const iframe = getIframe();
-        if (iframe && iframe.contentWindow) {
-          iframe.contentWindow.postMessage('app.activeDocument.saveToOE("png");', "*");
-        }
-      };
-
-      window.runPhotopeaSegmentInpaint = function(maskPath) {
-        window.photopeaAction = 'segment-inpaint';
-        window.photopeaExportPhase = 'image';
-        window.photopeaSelectionMaskPath = null;
-        window.tessSegmentMaskPath = maskPath;
         const iframe = getIframe();
         if (iframe && iframe.contentWindow) {
           iframe.contentWindow.postMessage('app.activeDocument.saveToOE("png");', "*");
@@ -1211,9 +1217,6 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         else:
             source_path = None
 
-        segment_source_button.props(remove='loading')
-        segment_source_button.enable()
-
         if not source_path or not os.path.exists(source_path):
             segment_state['status'] = 'Failed to export current Photopea image.'
             update_segment_preview()
@@ -1233,7 +1236,6 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         segment_state['mask_path'] = None
         segment_state['overlay_path'] = None
         segment_state['status'] = 'Click the preview to add foreground/background points.'
-        segment_use_button.disable()
         update_segment_preview(source_path)
 
     ui.on('photopea-segment-source', handle_photopea_segment_source)
