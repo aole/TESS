@@ -371,8 +371,8 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
     def segment_points_svg() -> str:
         parts = []
         source_width, source_height = segment_state.get('source_size', (1280, 1280))
-        radius = min(max(max(source_width, source_height) * 0.015, 5), 15)
-        stroke_width = max(radius * 0.25, 2)
+        radius = min(max(max(source_width, source_height) * 0.01, 4), 10)
+        stroke_width = max(radius * 0.3, 1.5)
         for point in segment_state['points']:
             color = '#22c55e' if point['label'] == 1 else '#ef4444'
             x = point['x']
@@ -555,6 +555,18 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         segment_state['status'] = 'Points cleared. Current mask preserved.'
         update_segment_preview()
 
+    def undo_segment_point():
+        if not segment_state['points']:
+            ui.notify("No points to undo.", type='warning')
+            return
+        segment_state['points'].pop()
+        segment_state['mask_path'] = None
+        segment_state['overlay_path'] = None
+        segment_state['status'] = 'Last point removed. Preview mask when ready.'
+        if segment_state.get('source_path'):
+            segment_image.set_source(_web_url(segment_state['source_path']))
+        update_segment_preview()
+
     def handle_segment_click(e):
         if not segment_state.get('source_path'):
             ui.notify("Export the current Photopea image before adding points.", type='warning')
@@ -659,6 +671,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                         on_click=lambda: set_segment_point_mode(0),
                     ).props('dense round color=grey-8 text-color=grey-4').tooltip('Add exclusion point')
                     segment_mode_label = ui.label('Inclusion points').classes('text-xs text-emerald-300')
+                    ui.button(icon='undo', on_click=undo_segment_point).classes('glass-btn').props('dense round').tooltip('Undo last point')
                 with ui.row().classes('ml-auto items-center'):
                     segment_preview_button = ui.button(icon='visibility', on_click=preview_segment_mask).classes('glass-btn').props('dense round').tooltip('Preview mask')
 
