@@ -85,11 +85,13 @@ def generate_anima_image(
     Generates an image using the Anima diffusion model and saves it to the output path.
     """
     orig_input_image_path = input_image if isinstance(input_image, str) else None
+    opened_input_image = None
     if input_image is not None:
         from PIL import Image
         if isinstance(input_image, str):
             print(f"Loading input image: {input_image}")
-            input_image = Image.open(input_image).convert("RGB")
+            opened_input_image = Image.open(input_image)
+            input_image = opened_input_image.convert("RGB")
         input_image = input_image.resize((width, height), Image.Resampling.LANCZOS)
     if vram_limit is None:
         if torch.cuda.is_available():
@@ -99,6 +101,11 @@ def generate_anima_image(
             vram_limit = 6.0
 
     pipe = get_pipeline(vram_limit)
+
+    # Reused img2img runs on low-VRAM GPUs benefit from clearing stale cached blocks
+    # before the next inference begins.
+    if input_image is not None and not unload_after:
+        flush()
 
     # Enable hot loading to allow clearing LoRA weights dynamically without fusing
     if hasattr(pipe, "enable_lora_hot_loading"):
@@ -149,6 +156,7 @@ def generate_anima_image(
             for item in tqdm(items, desc="Generating", **kwargs):
                 yield item
 
+    image = None
     try:
         with torch.no_grad():
             image = pipe(
@@ -170,6 +178,8 @@ def generate_anima_image(
         print(f"Error during inference: {e}")
         raise e
     finally:
+        if opened_input_image is not None:
+            opened_input_image.close()
         if unload_after:
             del pipe
             unload_pipeline()
@@ -210,6 +220,11 @@ def generate_anima_image(
     # Save the generated image
     image.save(output_path, pnginfo=metadata)
     print(f"Success: saved as {output_path}")
+
+    # Release per-image allocations before the next batch item reuses the pipeline.
+    del image
+    if input_image is not None and not unload_after:
+        flush()
         
     return output_path
 

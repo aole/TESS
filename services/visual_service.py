@@ -51,7 +51,7 @@ def generate_image_task(
     # 1. Setup output paths
     os.makedirs("data/visual/images", exist_ok=True)
     os.makedirs("data/visual/thumbs", exist_ok=True)
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     fname = f"tess_{timestamp}.png"
     output_path = f"data/visual/images/{fname}"
 
