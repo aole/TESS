@@ -649,15 +649,18 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
 
         with ui.column().classes('w-full flex-grow gap-3 overflow-y-auto pr-1'):
             with ui.row().classes('w-full items-center gap-2 flex-nowrap'):
-                segment_foreground_button = ui.button(
-                    icon='add_circle',
-                    on_click=lambda: set_segment_point_mode(1),
-                ).props('dense round color=green-6 text-color=white').tooltip('Add inclusion point')
-                segment_background_button = ui.button(
-                    icon='remove_circle',
-                    on_click=lambda: set_segment_point_mode(0),
-                ).props('dense round color=grey-8 text-color=grey-4').tooltip('Add exclusion point')
-                segment_mode_label = ui.label('Inclusion points').classes('text-xs text-emerald-300')
+                with ui.row().classes('items-center gap-2 flex-nowrap'):
+                    segment_foreground_button = ui.button(
+                        icon='add_circle',
+                        on_click=lambda: set_segment_point_mode(1),
+                    ).props('dense round color=green-6 text-color=white').tooltip('Add inclusion point')
+                    segment_background_button = ui.button(
+                        icon='remove_circle',
+                        on_click=lambda: set_segment_point_mode(0),
+                    ).props('dense round color=grey-8 text-color=grey-4').tooltip('Add exclusion point')
+                    segment_mode_label = ui.label('Inclusion points').classes('text-xs text-emerald-300')
+                with ui.row().classes('ml-auto items-center'):
+                    segment_preview_button = ui.button(icon='visibility', on_click=preview_segment_mask).classes('glass-btn').props('dense round').tooltip('Preview mask')
 
             segment_image = ui.interactive_image(
                 size=(1280, 1280),
@@ -671,7 +674,6 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
 
             with ui.row().classes('w-full items-center justify-end gap-2 border-t border-white/10 pt-4'):
                 ui.button(icon='backspace', on_click=clear_segment_points).classes('glass-btn').props('dense round').tooltip('Clear points')
-                segment_preview_button = ui.button(icon='visibility', on_click=preview_segment_mask).classes('glass-btn').props('dense round').tooltip('Preview mask')
                 ui.button(icon='layers', on_click=create_segment_mask_layer).classes('save-btn').props('dense round').tooltip('Create mask layer')
 
     def set_i2i_button_generating(active: bool):
