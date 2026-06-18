@@ -86,7 +86,7 @@ _VISUAL_DIR  = 'data/visual/images'
 # State is managed in core/modify_image.py
 
 def expand_prompt(prompt_str: str) -> list:
-    pattern = re.compile(r'\[\[(.*?)\]\]')
+    pattern = re.compile(r'\[\[(.*?)\]\]', re.DOTALL)
     matches = list(pattern.finditer(prompt_str))
     if not matches:
         return [prompt_str]
