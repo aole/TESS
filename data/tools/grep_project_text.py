@@ -25,7 +25,8 @@ def grep_project_text(
         max_file_size_kb: Maximum file size to inspect.
 
     Returns:
-        Matching lines in ``path:line: content`` format, or an error message.
+        Matching lines grouped by file, with content lines in ``LINE_NUMBER|LINE_CONTENT`` format,
+        or an error message.
     """
     root = Path(project_path).expanduser().resolve()
     if not root.exists():

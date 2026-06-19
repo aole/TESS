@@ -94,6 +94,9 @@ SPECIAL_TEXT_FILES = {
     "changelog",
 }
 
+MAX_OUTPUT_LINES = 2000
+MAX_LINE_LENGTH = 500
+
 
 def is_ignored(path: Path, root: Path) -> bool:
     try:
@@ -193,7 +196,7 @@ def print_tree(root: Path, max_depth: int = 4) -> None:
     walk(root)
 
 
-def read_file(root: Path, relative_path: str, max_file_size_kb: int) -> str:
+def read_raw_file(root: Path, relative_path: str, max_file_size_kb: int) -> str:
     target = resolve_inside_root(root, relative_path)
 
     if not target.exists():
@@ -215,13 +218,58 @@ def read_file(root: Path, relative_path: str, max_file_size_kb: int) -> str:
         return target.read_text(encoding="utf-8", errors="replace")
 
 
-def print_line_numbered_file(root: Path, relative_path: str, max_file_size_kb: int) -> None:
-    content = read_file(root, relative_path, max_file_size_kb)
+def truncate_line(line: str) -> str:
+    if len(line) <= MAX_LINE_LENGTH:
+        return line
+    return line[:MAX_LINE_LENGTH] + "..."
 
-    print(f"==> {relative_path} <==")
 
-    for line_number, line in enumerate(content.splitlines(), start=1):
-        print(f"{line_number:5} | {line}")
+def format_numbered_lines(lines: list[tuple[int, str]]) -> str:
+    if not lines:
+        return "File is empty."
+
+    output_lines = [
+        f"{line_number}|{truncate_line(line)}"
+        for line_number, line in lines[:MAX_OUTPUT_LINES]
+    ]
+
+    if len(lines) > MAX_OUTPUT_LINES:
+        output_lines.append("...")
+
+    return "\n".join(output_lines)
+
+
+def read_file(
+    root: Path,
+    relative_path: str,
+    max_file_size_kb: int,
+    line_offset: int = 0,
+    line_limit: int | None = None,
+) -> str:
+    if line_offset < 0:
+        raise ValueError("line_offset must be non-negative.")
+    if line_limit is not None and line_limit < 0:
+        raise ValueError("line_limit must be non-negative.")
+
+    content = read_raw_file(root, relative_path, max_file_size_kb)
+    lines = list(enumerate(content.splitlines(), start=1))
+
+    if line_offset:
+        lines = lines[line_offset:]
+    if line_limit is not None:
+        lines = lines[:line_limit]
+
+    return format_numbered_lines(lines)
+
+
+def print_line_numbered_file(
+    root: Path,
+    relative_path: str,
+    max_file_size_kb: int,
+    line_offset: int = 0,
+    line_limit: int | None = None,
+) -> None:
+    print(read_file(root, relative_path, max_file_size_kb, line_offset, line_limit))
 
 
 def glob_paths(root: Path, pattern: str, include_dirs: bool = True) -> None:
@@ -255,12 +303,13 @@ def grep_repository(
         raise SystemExit(f"Invalid regex: {exc}")
 
     root = root.resolve()
+    first_match = True
 
     for path in iter_project_files(root, max_file_size_kb, include_pattern):
         rel = safe_relative_path(path, root)
 
         try:
-            content = read_file(root, rel, max_file_size_kb)
+            content = read_raw_file(root, rel, max_file_size_kb)
         except Exception:
             continue
 
@@ -276,20 +325,16 @@ def grep_repository(
                 for line_index in range(start, end):
                     matched_line_numbers.add(line_index)
 
-        previous_line_number = None
-
-        for line_index in sorted(matched_line_numbers):
-            line_number = line_index + 1
-            line = lines[line_index]
-
-            if (
-                previous_line_number is not None
-                and line_number > previous_line_number + 1
-            ):
-                print("--")
-
-            print(f"{rel}:{line_number}: {line}")
-            previous_line_number = line_number
+        if matched_line_numbers:
+            if not first_match:
+                print()
+            print(f"==> {rel} <==")
+            numbered_lines = [
+                (line_index + 1, lines[line_index])
+                for line_index in sorted(matched_line_numbers)
+            ]
+            print(format_numbered_lines(numbered_lines))
+            first_match = False
 
 
 def main() -> None:
@@ -312,6 +357,19 @@ def main() -> None:
         "--read",
         metavar="FILE",
         help="Read a single file with line numbers, e.g. --read src/main.py",
+    )
+
+    parser.add_argument(
+        "--line-offset",
+        type=int,
+        default=0,
+        help="Skip this many lines before returning file content with --read",
+    )
+
+    parser.add_argument(
+        "--line-limit",
+        type=int,
+        help="Return at most this many lines with --read",
     )
 
     parser.add_argument(
@@ -382,7 +440,13 @@ def main() -> None:
         did_something = True
 
     if args.read:
-        print_line_numbered_file(root, args.read, args.max_file_size_kb)
+        print_line_numbered_file(
+            root,
+            args.read,
+            args.max_file_size_kb,
+            line_offset=args.line_offset,
+            line_limit=args.line_limit,
+        )
         did_something = True
 
     if args.glob:
