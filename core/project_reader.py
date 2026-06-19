@@ -183,11 +183,11 @@ def print_tree(root: Path, max_depth: int = 4) -> None:
             return
 
         for index, path in enumerate(entries):
-            connector = "└── " if index == len(entries) - 1 else "├── "
+            connector = "\\-- " if index == len(entries) - 1 else "+-- "
             print(prefix + connector + path.name + ("/" if path.is_dir() else ""))
 
             if path.is_dir():
-                extension = "    " if index == len(entries) - 1 else "│   "
+                extension = "    " if index == len(entries) - 1 else "|   "
                 walk(path, prefix + extension, depth + 1)
 
     walk(root)
