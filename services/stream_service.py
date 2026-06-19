@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import uuid
 from typing import Dict, Any, List, Callable, Optional
@@ -22,6 +23,40 @@ def _could_be_partial_suppressed_thought_marker(content: str) -> bool:
         return False
     compact = "".join(content.split())
     return "".join(SUPPRESSED_THOUGHT_MARKER.split()).startswith(compact)
+
+
+def _normalize_tool_arguments(args: Any) -> str:
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except Exception:
+            return args.strip()
+
+    try:
+        return json.dumps(args, sort_keys=True, separators=(',', ':'), default=str)
+    except Exception:
+        return str(args)
+
+
+def _get_tool_call_signature(tool_call: Dict[str, Any]) -> tuple[str, str]:
+    function_data = tool_call.get('function', {})
+    name = function_data.get('name', '')
+    args = function_data.get('arguments', {})
+    return name, _normalize_tool_arguments(args)
+
+
+def _dedupe_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    unique_calls = []
+    seen_signatures = set()
+
+    for tool_call in tool_calls:
+        signature = _get_tool_call_signature(tool_call)
+        if signature in seen_signatures:
+            continue
+        seen_signatures.add(signature)
+        unique_calls.append(tool_call)
+
+    return unique_calls
 
 
 class StreamService:
@@ -221,7 +256,7 @@ class StreamService:
                             tc_part = msg_chunk.get('tool_calls', [])
                             
                             if thinking_part: full_thinking += thinking_part
-                            if tc_part: tool_calls.extend(tc_part)
+                            if tc_part: tool_calls = _dedupe_tool_calls(tool_calls + tc_part)
                             if part: 
                                 if part.startswith("Error:") and "does not support tools" in part.lower():
                                     raise Exception(part)
@@ -287,6 +322,7 @@ class StreamService:
                         break
 
                 # End of stream (or stop)
+                tool_calls = _dedupe_tool_calls(tool_calls)
                 assistant_msg['content'] = response_content
                 assistant_msg['thinking'] = full_thinking
                 if tool_calls: assistant_msg['tool_calls'] = tool_calls
