@@ -6,13 +6,18 @@ import re
 import gc
 import itertools
 import io
+import random
 from PIL import Image, ImageOps
 from pathlib import Path
 from nicegui import ui, run, app
 from core.generate_image import generate_anima_image, unload_pipeline
 from core.config.settings_service import settings_service
 from utils.llm_client import client as llm_client
-from core.modify_image import modify_image as core_modify_image, unload_session as unload_modify_image_session
+from core.modify_image import (
+    modify_image as core_modify_image,
+    tool_png_metadata,
+    unload_session as unload_modify_image_session,
+)
 
 def parse_resolution(res_str: str, default: tuple = (1024, 1024)) -> tuple[int, int]:
     try:
@@ -27,6 +32,7 @@ def generate_image_task(
     steps: int = None,
     width: int = None,
     height: int = None,
+    seed: int = None,
     progress_callback = None,
     unload_after: bool = True,
     cfg_scale: float = None,
@@ -63,6 +69,7 @@ def generate_image_task(
         steps=steps,
         width=width,
         height=height,
+        seed=seed,
         progress_callback=progress_callback,
         unload_after=unload_after,
         cfg_scale=cfg_scale,
@@ -209,6 +216,15 @@ def upscale_image_file(fpath: str, outscale: float, tile: int) -> str:
     )
     if not success:
         raise RuntimeError("Upscaling failed.")
+    tool_meta = {
+        "operation": "upscale",
+        "scale": outscale,
+        "tile": tile,
+        "timestamp": datetime.datetime.now().isoformat(),
+    }
+    with Image.open(output_path) as img:
+        output_img = img.copy()
+    output_img.save(output_path, pnginfo=tool_png_metadata(fpath, tool_meta))
     create_thumbnail(output_path)
     return output_path
 
@@ -259,8 +275,10 @@ def _update_select_options(select_el, val):
             select_el.update()
 
 
-# Shared state is managed dynamically per client connection/session
-_initialized_users = set()
+MAX_SEED = 2_147_483_647
+
+def random_seed_value() -> int:
+    return random.randint(0, MAX_SEED)
 
 class VisualPageState:
     def __init__(self, client):
@@ -342,6 +360,8 @@ class VisualPageState:
         steps_val: int,
         size_val: str,
         batch_count_val: int,
+        seed_val: int = None,
+        random_seed_val: bool = False,
         cfg_scale_val=None,
         turbo_lora_val=None,
         input_image_val=None,
@@ -369,11 +389,15 @@ class VisualPageState:
             cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
         if turbo_lora_val is None:
             turbo_lora_val = float(app.storage.user.get('visual_turbo_lora_strength', 1.0)) if app.storage.user.get('visual_turbo_lora_enabled', False) else 0.0
+        if seed_val is None:
+            seed_val = int(app.storage.user.get('visual_seed', 0))
         job = {
             'prompts': expanded_prompts,
             'negative_prompt': neg_prompt,
             'steps': steps_val,
             'image_size': size_val,
+            'seed': seed_val,
+            'random_seed': random_seed_val,
             'remove_background_auto': app.storage.user.get('visual_remove_background_auto', False),
             'remove_background_model': app.storage.user.get('visual_remove_background_model', 'isnet-anime'),
             'upscale_auto': app.storage.user.get('visual_upscale_auto', False),
@@ -409,8 +433,9 @@ class VisualPageState:
             size_val = f"{w}x{h}"
             cfg_scale_val = params.get('cfg_scale', 4.0)
             turbo_lora_val = params.get('turbo_lora', 0.0)
+            seed_val = params.get('seed')
             
-            success = self.enqueue_job(prompt_val, neg_prompt, steps_val, size_val, 1, cfg_scale_val=cfg_scale_val, turbo_lora_val=turbo_lora_val)
+            success = self.enqueue_job(prompt_val, neg_prompt, steps_val, size_val, 1, seed_val=seed_val, random_seed_val=False, cfg_scale_val=cfg_scale_val, turbo_lora_val=turbo_lora_val)
             if success:
                 if self.gen_active:
                     ui.notify('Regeneration added to queue.', type='info')
@@ -446,6 +471,9 @@ class VisualPageState:
                 self.settings_ui['steps'].value = params.get('steps', 30)
                 w = int(params.get('width', w))
                 h = int(params.get('height', h))
+                seed_val = params.get('seed')
+                if seed_val is not None and 'seed' in self.settings_ui:
+                    self.settings_ui['seed'].value = int(seed_val)
                 
                 cfg_val = params.get('cfg_scale', 4.0)
                 self.settings_ui['cfg_scale_slider'].value = cfg_val
@@ -550,6 +578,7 @@ class VisualPageState:
                 
                 raw_prompts = job['prompts']
                 total_prompts = len(raw_prompts)
+                base_seed = int(job.get('seed', 0))
                 
                 self.grid_element_ref = None
                 self.gen_total = total_prompts
@@ -569,6 +598,7 @@ class VisualPageState:
 
                     try:
                         w, h = parse_resolution(job['image_size'])
+                        image_seed = base_seed + idx
                         output_path = await run.io_bound(
                             generate_image_task,
                             current_p,
@@ -576,6 +606,7 @@ class VisualPageState:
                             job['steps'],
                             w,
                             h,
+                            image_seed,
                             on_progress,
                             unload_after=False,
                             cfg_scale=job['cfg_scale'],
@@ -586,6 +617,13 @@ class VisualPageState:
                         
                         if not output_path:
                             break
+
+                        if job.get('random_seed'):
+                            next_seed = random_seed_value()
+                            user_storage['visual_seed'] = next_seed
+                            seed_input = self.settings_ui.get('seed')
+                            if seed_input is not None:
+                                seed_input.value = next_seed
 
                         if job['remove_background_auto']:
                             safe_notify('Removing background...', type='info', pos='bottom-right', timeout=1500)

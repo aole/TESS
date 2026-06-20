@@ -16,12 +16,13 @@ from services.visual_service import (
     remove_background_file as _remove_background_file,
     upscale_image_file as _upscale_image_file,
     unload_upsampler as _unload_upsampler,
-    _initialized_users,
     _update_select_options,
     get_hidden_images,
     set_hidden_images,
     VisualPageState,
-    parse_resolution
+    parse_resolution,
+    MAX_SEED,
+    random_seed_value
 )
 from core.config.settings_service import settings_service
 from core.session_state import SERVER_SESSION_ID
@@ -94,6 +95,8 @@ def initialize_user_defaults(user_storage):
         'visual_remove_background_model': 'isnet-anime',
         'visual_remove_background_models': ['isnet-anime'],
         'visual_cfg_scale': cfg,
+        'visual_seed': random_seed_value(),
+        'visual_random_seed': True,
         'visual_turbo_lora_enabled': False,
         'visual_turbo_lora_strength': 1.0,
         'visual_denoising_strength': 0.6
@@ -225,6 +228,31 @@ def create_page():
         await _run_remove_background_from_context(model_name=model_name)
 
     initialize_user_defaults(app.storage.user)
+
+    def _normalize_seed(value) -> int:
+        try:
+            return max(0, min(int(value), MAX_SEED))
+        except (TypeError, ValueError):
+            return random_seed_value()
+
+    def _update_seed_controls():
+        if 'seed' not in state.settings_ui or 'random_seed_btn' not in state.settings_ui:
+            return
+        seed_input = state.settings_ui['seed']
+        random_seed_btn = state.settings_ui['random_seed_btn']
+        random_enabled = bool(app.storage.user.get('visual_random_seed', True))
+        if random_enabled:
+            seed_input.disable()
+            seed_input.classes(add='opacity-50')
+            random_seed_btn.props('color=primary icon=casino')
+        else:
+            seed_input.enable()
+            seed_input.classes(remove='opacity-50')
+            random_seed_btn.props('color=grey icon=casino')
+
+    def _toggle_random_seed():
+        app.storage.user['visual_random_seed'] = not bool(app.storage.user.get('visual_random_seed', True))
+        _update_seed_controls()
 
     # ── Main layout ──────────────────────────────────────────────────────────
     with ui.row().classes('w-full gap-3 p-2 flex-wrap'):
@@ -424,6 +452,29 @@ def create_page():
                     ui.label('Count').classes('text-sm text-gray-400')
                     batch_count = ui.number(value=1, min=1, max=50, format='%d').classes('w-full').bind_value(app.storage.user, 'visual_batch_count')
 
+            def on_seed_change(e):
+                seed_val = _normalize_seed(e.value)
+                if e.sender.value != seed_val:
+                    e.sender.value = seed_val
+                app.storage.user['visual_seed'] = seed_val
+
+            with ui.row().classes('w-full items-end gap-2 flex-nowrap'):
+                with ui.column().classes('flex-grow gap-1'):
+                    ui.label('Seed').classes('text-sm text-gray-400')
+                    seed_input = ui.number(
+                        value=app.storage.user.get('visual_seed', random_seed_value()),
+                        min=0,
+                        max=MAX_SEED,
+                        format='%d',
+                        on_change=on_seed_change,
+                    ).classes('w-full').bind_value(app.storage.user, 'visual_seed')
+                random_seed_btn = ui.button(
+                    icon='casino',
+                    on_click=_toggle_random_seed,
+                ).props('flat round dense').classes(
+                    'h-10 w-10 shrink-0 text-white/80 hover:text-white'
+                ).tooltip('Toggle random seed')
+
             with ui.row().classes('w-full flex-nowrap gap-3'):
                 with ui.column().classes('flex-grow gap-1'):
                     with ui.row().classes('w-full justify-between items-center'):
@@ -469,11 +520,14 @@ def create_page():
             state.settings_ui['steps'] = steps
             state.settings_ui['image_width'] = image_width
             state.settings_ui['image_height'] = image_height
+            state.settings_ui['seed'] = seed_input
+            state.settings_ui['random_seed_btn'] = random_seed_btn
             state.settings_ui['cfg_scale_slider'] = cfg_scale_slider
             state.settings_ui['cfg_scale_label'] = cfg_scale_label
             state.settings_ui['turbo_checkbox'] = turbo_checkbox
             state.settings_ui['turbo_strength_slider'] = turbo_strength_slider
             state.settings_ui['turbo_strength_label'] = turbo_strength_label
+            _update_seed_controls()
             # Generate
             with ui.row().classes('w-full gap-4 mt-2 flex-nowrap items-center'):
                 generate_btn = ui.button('Generate', icon='brush').classes(
@@ -1387,6 +1441,8 @@ def create_page():
             steps_val = int(steps.value)
             size_val = f"{image_width.value}x{image_height.value}"
             batch_count_val = int(batch_count.value)
+            seed_val = _normalize_seed(seed_input.value)
+            random_seed_val = bool(app.storage.user.get('visual_random_seed', True))
             
             cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
             turbo_lora_val = float(app.storage.user.get('visual_turbo_lora_strength', 1.0)) if app.storage.user.get('visual_turbo_lora_enabled', False) else 0.0
@@ -1397,6 +1453,8 @@ def create_page():
                 steps_val, 
                 size_val, 
                 batch_count_val,
+                seed_val=seed_val,
+                random_seed_val=random_seed_val,
                 cfg_scale_val=cfg_scale_val,
                 turbo_lora_val=turbo_lora_val
             )
@@ -1411,6 +1469,8 @@ def create_page():
         steps_val = int(steps.value)
         size_val = f"{image_width.value}x{image_height.value}"
         batch_count_val = int(batch_count.value)
+        seed_val = _normalize_seed(seed_input.value)
+        random_seed_val = bool(app.storage.user.get('visual_random_seed', True))
         
         cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
         turbo_lora_val = float(app.storage.user.get('visual_turbo_lora_strength', 1.0)) if app.storage.user.get('visual_turbo_lora_enabled', False) else 0.0
@@ -1421,6 +1481,8 @@ def create_page():
             steps_val, 
             size_val, 
             batch_count_val,
+            seed_val=seed_val,
+            random_seed_val=random_seed_val,
             cfg_scale_val=cfg_scale_val,
             turbo_lora_val=turbo_lora_val
         )
@@ -1448,6 +1510,8 @@ def create_page():
             steps_val = int(steps.value)
             size_val = f"{image_width.value}x{image_height.value}"
             batch_count_val = int(batch_count.value)
+            seed_val = _normalize_seed(seed_input.value)
+            random_seed_val = bool(app.storage.user.get('visual_random_seed', True))
             
             cfg_scale_val = float(app.storage.user.get('visual_cfg_scale', 4.0))
             turbo_lora_val = float(app.storage.user.get('visual_turbo_lora_strength', 1.0)) if app.storage.user.get('visual_turbo_lora_enabled', False) else 0.0
@@ -1461,6 +1525,8 @@ def create_page():
                     steps_val,
                     size_val,
                     batch_count_val,
+                    seed_val=seed_val,
+                    random_seed_val=random_seed_val,
                     cfg_scale_val=cfg_scale_val,
                     turbo_lora_val=turbo_lora_val,
                     input_image_val=path,
