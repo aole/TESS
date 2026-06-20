@@ -114,7 +114,9 @@ class StreamService:
                              listener: Callable = None,
                              keep_alive: str = "5m",
                              memory_enabled: bool = False,
-                             has_attachments: bool = False
+                             has_attachments: bool = False,
+                             send_system_message: bool = True,
+                             send_history: bool = True
                              ):
         
         if self.is_streaming(stream_id):
@@ -133,7 +135,7 @@ class StreamService:
         task = asyncio.create_task(self._process_stream(
             stream_id, messages, model, temperature, top_p, min_p, repeat_penalty, top_k, system_prompt, 
             tool_funcs_map, log_requests, persist_callback, listener, keep_alive,
-            memory_enabled, has_attachments
+            memory_enabled, has_attachments, send_system_message, send_history
         ))
         self.active_tasks[stream_id] = task
         
@@ -145,7 +147,7 @@ class StreamService:
         task.add_done_callback(cleanup)
         return task
 
-    async def _process_stream(self, stream_id, messages, model, temperature, top_p, min_p, repeat_penalty, top_k, system_prompt, tool_funcs_map, log_requests, persist_callback, listener=None, keep_alive="5m", memory_enabled=False, has_attachments=False):
+    async def _process_stream(self, stream_id, messages, model, temperature, top_p, min_p, repeat_penalty, top_k, system_prompt, tool_funcs_map, log_requests, persist_callback, listener=None, keep_alive="5m", memory_enabled=False, has_attachments=False, send_system_message=True, send_history=True):
         try:
             import time
             from datetime import datetime
@@ -161,17 +163,24 @@ class StreamService:
 
             # Prepare API messages
             api_messages = []
-            from services.system_message_service import system_message_service
-            sys_content = system_message_service.compile_message(
-                base_prompt=system_prompt,
-                memory_enabled=memory_enabled,
-                has_attachments=has_attachments,
-                tool_funcs_map=tool_funcs_map
-            )
-
-            api_messages.append({'role': 'system', 'content': sys_content})
+            if send_system_message:
+                from services.system_message_service import system_message_service
+                sys_content = system_message_service.compile_message(
+                    base_prompt=system_prompt,
+                    memory_enabled=memory_enabled,
+                    has_attachments=has_attachments,
+                    tool_funcs_map=tool_funcs_map
+                )
+                api_messages.append({'role': 'system', 'content': sys_content})
             
-            for msg in messages:
+            source_messages = messages
+            if not send_history:
+                source_messages = next(
+                    ([msg] for msg in reversed(messages) if msg.get('role') == 'user'),
+                    []
+                )
+
+            for msg in source_messages:
                 if msg['role'] in ['user', 'assistant', 'tool']:
                     clean_msg = {k:v for k,v in msg.items() if k in ['role', 'content', 'images', 'tool_calls']}
                     api_messages.append(clean_msg)

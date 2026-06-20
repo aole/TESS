@@ -904,6 +904,8 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                         min_p = model_cfg.get('min_p', model_params.get('min_p', 0.0))
                         repeat_penalty = model_cfg.get('repeat_penalty') or model_params.get('repeat_penalty', 1.1)
                         top_k = model_cfg.get('top_k') or model_params.get('top_k', 40)
+                        send_system_message = model_cfg.get('send_system_message', True)
+                        send_history = model_cfg.get('send_history', True)
 
                         await stream_service.start_generation(
                             stream_id=current_chat_id,
@@ -920,7 +922,9 @@ async def create_page(model_param: str = None, new_chat: bool = False):
                             persist_callback=persist_chat,
                             listener=on_stream_event,
                             memory_enabled=memory_enabled,
-                            has_attachments=has_attachments
+                            has_attachments=has_attachments,
+                            send_system_message=send_system_message,
+                            send_history=send_history
                         )
                     else:
                         ui.notify("Error: No chat ID", type='negative')

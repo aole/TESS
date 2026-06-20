@@ -239,6 +239,8 @@ def create_page():
         saved_min_p = model_cfg.get('min_p', 0.0)
         saved_repeat_penalty = model_cfg.get('repeat_penalty', 1.1)
         saved_top_k = model_cfg.get('top_k', 40)
+        saved_system_message = model_cfg.get('send_system_message', True)
+        saved_history = model_cfg.get('send_history', True)
         tools_permanently_disabled = not supports_tools(model_name, family_str)
         saved_tools = False if tools_permanently_disabled else model_cfg.get('tools_enabled', True)
         saved_memory = False if (tools_permanently_disabled or not saved_tools) else model_cfg.get('memory_enabled', True)
@@ -384,7 +386,9 @@ def create_page():
                         top_k_val.bind_text_from(top_k_slider, 'value', backward=lambda v: f"{top_k_feel(v)} {int(v)}")
 
             # Checkboxes
-            with ui.row().classes('w-full gap-6 mb-6'):
+            with ui.row().classes('w-full gap-6 mb-6 flex-wrap'):
+                system_message_checkbox = ui.checkbox('System Message', value=saved_system_message).classes('text-sm text-gray-300')
+                history_checkbox = ui.checkbox('History', value=saved_history).classes('text-sm text-gray-300')
                 tools_checkbox = ui.checkbox('Can use Tools', value=saved_tools).classes('text-sm text-gray-300')
                 memory_checkbox = ui.checkbox('Can use Memory', value=saved_memory).classes('text-sm text-gray-300')
 
@@ -419,6 +423,8 @@ def create_page():
                     'min_p': min_p_slider.value,
                     'repeat_penalty': repeat_penalty_slider.value,
                     'top_k': int(top_k_slider.value),
+                    'send_system_message': system_message_checkbox.value,
+                    'send_history': history_checkbox.value,
                     'tools_enabled': tools_checkbox.value,
                     'memory_enabled': memory_checkbox.value
                 }
