@@ -22,7 +22,8 @@ from services.visual_service import (
     VisualPageState,
     parse_resolution,
     MAX_SEED,
-    random_seed_value
+    random_seed_value,
+    _initialized_users
 )
 from core.config.settings_service import settings_service
 from core.session_state import SERVER_SESSION_ID

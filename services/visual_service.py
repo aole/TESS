@@ -275,6 +275,8 @@ def _update_select_options(select_el, val):
             select_el.update()
 
 
+# Shared state is managed dynamically per client connection/session
+_initialized_users = set()
 MAX_SEED = 2_147_483_647
 
 def random_seed_value() -> int:
