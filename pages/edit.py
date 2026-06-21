@@ -141,6 +141,9 @@ def _current_edit_parameters(original_path: str, image_path: str) -> dict:
         "mode": user_storage.get('edit_last_generation_mode', 'photopea_edit'),
         "denoising_strength": _as_float(user_storage.get('edit_i2i_denoising', 0.6), 0.6),
         "turbo_lora": turbo_lora,
+        "section_enabled": bool(user_storage.get('edit_i2i_section_enabled', False)),
+        "section_width": _as_int(user_storage.get('edit_i2i_section_width', 512), 512),
+        "section_height": _as_int(user_storage.get('edit_i2i_section_height', 512), 512),
     }
     if original_path:
         params["input_image_path"] = original_path
@@ -155,6 +158,77 @@ def _embed_current_edit_metadata(image_path: str, original_path: str):
             img.save(image_path, pnginfo=metadata)
     except Exception as ex:
         print(f"Failed to embed edit metadata in {image_path}: {ex}")
+
+
+def _prepare_inpaint_section(input_path: str, mask_path: str, width: int, height: int, section_width: int, section_height: int, output_prefix: str):
+    try:
+        section_width = max(1, int(section_width))
+        section_height = max(1, int(section_height))
+    except (TypeError, ValueError):
+        section_width, section_height = 512, 512
+
+    with Image.open(input_path) as input_img, Image.open(mask_path) as mask_img:
+        source = input_img.convert("RGBA")
+        mask = mask_img.convert("L")
+        if source.size != (width, height):
+            source = source.resize((width, height), Image.Resampling.LANCZOS)
+        if mask.size != (width, height):
+            mask = mask.resize((width, height), Image.Resampling.NEAREST)
+
+        selection_mask = mask.point(lambda p: 255 if p > 32 else 0)
+        selection_bbox = selection_mask.getbbox()
+        if not selection_bbox:
+            return None
+
+        center_x = (selection_bbox[0] + selection_bbox[2]) / 2
+        center_y = (selection_bbox[1] + selection_bbox[3]) / 2
+        section_left = int(round(center_x - section_width / 2))
+        section_top = int(round(center_y - section_height / 2))
+        section_right = section_left + section_width
+        section_bottom = section_top + section_height
+
+        src_left = max(0, section_left)
+        src_top = max(0, section_top)
+        src_right = min(width, section_right)
+        src_bottom = min(height, section_bottom)
+        if src_left >= src_right or src_top >= src_bottom:
+            return None
+
+        paste_x = src_left - section_left
+        paste_y = src_top - section_top
+        section_input = Image.new("RGBA", (section_width, section_height), (0, 0, 0, 0))
+        section_mask = Image.new("L", (section_width, section_height), 0)
+        crop_box = (src_left, src_top, src_right, src_bottom)
+        section_input.paste(source.crop(crop_box), (paste_x, paste_y))
+        section_mask.paste(mask.crop(crop_box), (paste_x, paste_y))
+
+        input_output_path = f"{output_prefix}_input.png"
+        mask_output_path = f"{output_prefix}_mask.png"
+        section_input.save(input_output_path)
+        section_mask.save(mask_output_path)
+
+    return {
+        "input_path": input_output_path,
+        "mask_path": mask_output_path,
+        "paste_box": (src_left, src_top, src_right, src_bottom),
+        "section_offset": (paste_x, paste_y),
+        "section_size": (section_width, section_height),
+    }
+
+
+def _section_output_to_canvas(section_output_path: str, section_info: dict, canvas_width: int, canvas_height: int, output_path: str) -> str:
+    src_left, src_top, src_right, src_bottom = section_info["paste_box"]
+    paste_x, paste_y = section_info["section_offset"]
+    crop_width = src_right - src_left
+    crop_height = src_bottom - src_top
+
+    with Image.open(section_output_path) as generated:
+        generated_rgba = generated.convert("RGBA")
+        section_crop = generated_rgba.crop((paste_x, paste_y, paste_x + crop_width, paste_y + crop_height))
+        canvas = Image.new("RGBA", (canvas_width, canvas_height), (0, 0, 0, 0))
+        canvas.paste(section_crop, (src_left, src_top), section_crop)
+        canvas.save(output_path)
+    return output_path
 
 
 # Register the upload API route at import time
@@ -356,6 +430,9 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         init_storage_val('edit_i2i_turbo_enabled', user_storage.get('visual_turbo_lora_enabled', False))
         init_storage_val('edit_i2i_turbo_strength', user_storage.get('visual_turbo_lora_strength', 1.0))
     init_storage_val('edit_i2i_count', 1)
+    init_storage_val('edit_i2i_section_enabled', False)
+    init_storage_val('edit_i2i_section_width', 512)
+    init_storage_val('edit_i2i_section_height', 512)
 
     generating = {'active': False, 'pending': False, 'cancel': False}
     segment_state = {
@@ -514,6 +591,16 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                     turbo_strength_slider, 'value', backward=lambda v: f"{v:.2f}"
                 )
 
+            # Section inpaint
+            with ui.row().classes('w-full items-center gap-2 flex-nowrap border-t border-white/5 pt-2'):
+                section_check = ui.checkbox('Section').classes('text-xs text-gray-400').bind_value(app.storage.user, 'edit_i2i_section_enabled')
+                section_width_input = ui.number(
+                    label='Width', value=int(user_storage.get('edit_i2i_section_width', 512)), min=64, max=4096, step=8, format='%d'
+                ).classes('w-24 text-sm').props('dense outlined dark color=indigo-400').bind_value(app.storage.user, 'edit_i2i_section_width').bind_enabled_from(section_check, 'value')
+                section_height_input = ui.number(
+                    label='Height', value=int(user_storage.get('edit_i2i_section_height', 512)), min=64, max=4096, step=8, format='%d'
+                ).classes('w-24 text-sm').props('dense outlined dark color=indigo-400').bind_value(app.storage.user, 'edit_i2i_section_height').bind_enabled_from(section_check, 'value')
+
         with ui.row().classes('w-full justify-end border-t border-white/10 pt-4'):
             generate_i2i_btn = ui.button(
                 'Generate',
@@ -531,6 +618,9 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             turbo_check.update()
             turbo_strength_slider.update()
             turbo_strength_label.update()
+            section_check.update()
+            section_width_input.update()
+            section_height_input.update()
             count_input.update()
 
     i2i_options_dialog.on_value_change(handle_dialog_close)
@@ -1309,7 +1399,15 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         denoising_val = float(user_storage.get('edit_i2i_denoising', 0.6))
         turbo_enabled = user_storage.get('edit_i2i_turbo_enabled', False)
         turbo_strength = float(user_storage.get('edit_i2i_turbo_strength', 1.0)) if turbo_enabled else 0.0
-        user_storage['edit_last_generation_mode'] = "photopea_inpaint" if mask_path else "photopea_i2i"
+        section_enabled = bool(user_storage.get('edit_i2i_section_enabled', False)) and bool(mask_path)
+        try:
+            section_width_val = int(user_storage.get('edit_i2i_section_width', 512))
+            section_height_val = int(user_storage.get('edit_i2i_section_height', 512))
+        except (TypeError, ValueError):
+            section_width_val, section_height_val = 512, 512
+        section_width_val = max(64, section_width_val)
+        section_height_val = max(64, section_height_val)
+        user_storage['edit_last_generation_mode'] = "photopea_section_inpaint" if section_enabled else ("photopea_inpaint" if mask_path else "photopea_i2i")
 
         generating['active'] = True
         generating['pending'] = False
@@ -1334,8 +1432,10 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                     break
 
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                mode_label = "inpaint" if mask_path else "i2i"
-                temp_output_path = f"data/visual/temp/{mode_label}_output_{timestamp}_{idx}.png"
+                mode_label = "section inpaint" if section_enabled else ("inpaint" if mask_path else "i2i")
+                filename_mode = "inpaint" if mask_path else "i2i"
+                section_info = None
+                temp_output_path = f"data/visual/temp/{filename_mode}_output_{timestamp}_{idx}.png"
 
                 ui.notify(f"Generating {mode_label} image {idx + 1} of {count_val}...", type='info', pos='bottom-right')
 
@@ -1346,22 +1446,55 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
 
                 # Run in a background thread to prevent UI blocking
                 if mask_path:
+                    generation_input_path = input_path
+                    generation_mask_path = mask_path
+                    generation_width = width_val
+                    generation_height = height_val
+                    load_output_path = temp_output_path
+                    if section_enabled:
+                        section_prefix = f"data/visual/temp/inpaint_section_{timestamp}_{idx}"
+                        section_info = _prepare_inpaint_section(
+                            input_path=input_path,
+                            mask_path=mask_path,
+                            width=width_val,
+                            height=height_val,
+                            section_width=section_width_val,
+                            section_height=section_height_val,
+                            output_prefix=section_prefix,
+                        )
+                        if section_info:
+                            generation_input_path = section_info["input_path"]
+                            generation_mask_path = section_info["mask_path"]
+                            generation_width, generation_height = section_info["section_size"]
+                            temp_output_path = f"{section_prefix}_output.png"
+                            load_output_path = f"{section_prefix}_canvas.png"
+                        else:
+                            ui.notify("Section inpaint could not find a selected mask area; using full image.", type='warning')
+
                     output_path = await run.io_bound(
                         generate_anima_inpaint_image,
                         prompt=prompt_val,
                         output_path=temp_output_path,
                         negative_prompt=neg_prompt,
                         steps=steps_val,
-                        width=width_val,
-                        height=height_val,
+                        width=generation_width,
+                        height=generation_height,
                         cfg_scale=cfg_scale_val,
                         turbo_lora=turbo_strength,
-                        input_image=input_path,
-                        mask_image=mask_path,
+                        input_image=generation_input_path,
+                        mask_image=generation_mask_path,
                         denoising_strength=denoising_val,
                         progress_callback=generation_progress_callback,
                         unload_after=False
                     )
+                    if output_path and section_enabled and section_info:
+                        output_path = _section_output_to_canvas(
+                            section_output_path=output_path,
+                            section_info=section_info,
+                            canvas_width=width_val,
+                            canvas_height=height_val,
+                            output_path=load_output_path,
+                        )
                 else:
                     output_path = await run.io_bound(
                         generate_anima_image,
@@ -1421,6 +1554,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                 or fname.startswith("i2i_input_")
                 or fname.startswith("i2i_output_")
                 or fname.startswith("inpaint_output_")
+                or fname.startswith("inpaint_section_")
                 or fname.startswith("segment_source_")
                 or fname.startswith("segment_inpaint_input_")
                 or fname.startswith("segment_")
