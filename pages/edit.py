@@ -10,7 +10,7 @@ from fastapi import UploadFile, File, Form
 from nicegui import ui, app, run
 from core.session_state import SERVER_SESSION_ID
 from core.config.settings_service import settings_service
-from services.visual_service import create_thumbnail
+from core.db import visual_images_repo
 from core.generate_image import generate_anima_image, unload_pipeline as unload_image_pipeline
 from core.generate_inpaint import generate_anima_inpaint_image, unload_pipeline as unload_inpaint_pipeline
 
@@ -284,21 +284,19 @@ async def upload_edited_image(
         fname = f"{prefix}_{timestamp}.png"
         output_path = f"data/visual/temp/{fname}"
     else:
-        os.makedirs("data/visual/images", exist_ok=True)
-        os.makedirs("data/visual/thumbs", exist_ok=True)
+        os.makedirs("data/visual/temp", exist_ok=True)
         
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         fname = _edited_image_filename(original_path, timestamp)
             
-        output_path = f"data/visual/images/{fname}"
+        output_path = f"data/visual/temp/{fname}"
         
     with open(output_path, "wb") as f:
         f.write(contents)
         
     if action not in ("i2i", "mask", "psd", "segment-source", "segment-inpaint"):
         _embed_current_edit_metadata(output_path, original_path)
-        # Generate thumbnail
-        create_thumbnail(output_path)
+        output_path = visual_images_repo.save_image_file(output_path, operation="edit_save")
         app.storage.user['visual_last_image'] = output_path
     elif action == "psd":
         app.storage.user['edit_session_psd_path'] = output_path
@@ -307,22 +305,16 @@ async def upload_edited_image(
 
 
 def get_image_files():
-    visual_dir = 'data/visual/images'
-    if not os.path.isdir(visual_dir):
-        return []
-    exts = {'.png', '.jpg', '.jpeg', '.webp'}
     try:
-        files = sorted(
-            [f for f in os.listdir(visual_dir)
-             if os.path.isfile(os.path.join(visual_dir, f)) and os.path.splitext(f)[1].lower() in exts],
-            reverse=True,
-        )
-        return [os.path.join(visual_dir, f).replace('\\', '/') for f in files]
+        return [row["path"] for row in visual_images_repo.list_images(include_hidden=False)]
     except Exception:
         return []
 
 
 def extract_metadata(fpath: str):
+    db_metadata = visual_images_repo.get_metadata(fpath)
+    if db_metadata:
+        return db_metadata
     if not fpath or not os.path.exists(fpath):
         return None
     try:
@@ -864,19 +856,17 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                     contents = e.content.read()
                     filename = e.name
                     
-                    os.makedirs("data/visual/images", exist_ok=True)
-                    os.makedirs("data/visual/thumbs", exist_ok=True)
+                    os.makedirs("data/visual/temp", exist_ok=True)
                     
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                     name, ext = os.path.splitext(filename)
                     fname = f"tess_upload_{name}_{timestamp}{ext}"
-                    output_path = f"data/visual/images/{fname}"
+                    output_path = f"data/visual/temp/{fname}"
                     
                     with open(output_path, "wb") as f:
                         f.write(contents)
                         
-                    # Generate thumbnail
-                    create_thumbnail(output_path)
+                    output_path = visual_images_repo.save_image_file(output_path, operation="upload")
                         
                     app.storage.user['visual_last_image'] = output_path
                     web_path = f"/{output_path}"
@@ -1555,6 +1545,11 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                     )
                 
                 if output_path and os.path.exists(output_path):
+                    output_path = visual_images_repo.save_image_file(
+                        output_path,
+                        operation="edit_inpaint" if mask_path else "edit_i2i",
+                    )
+                    app.storage.user['visual_last_image'] = output_path
                     ui.notify(f"{mode_label} generation {idx + 1}/{count_val} completed successfully!", type='positive')
                     web_path = f"/{output_path}"
                     # Load the generated image back as a new layer in Photopea

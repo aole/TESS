@@ -8,6 +8,7 @@ from services.visual_service import (
     _VISUAL_DIR,
     get_hidden_images
 )
+from core.db import visual_images_repo
 
 class VisualActionCallbacks(TypedDict):
     delete: Callable[[str, Any], None]
@@ -64,32 +65,19 @@ def get_image_dimensions(path: str) -> str:
         return ''
 
 def render_image_with_nav(path: str, show_history_cb, show_image_cb, callbacks: VisualActionCallbacks):
-    hidden_images = get_hidden_images()
-    hidden_set = set(hidden_images)
-
-    images = []
-    if os.path.isdir(_VISUAL_DIR):
-        all_files = sorted(
-            [f for f in os.listdir(_VISUAL_DIR)
-             if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
-            reverse=True,
-        )
-        if app.storage.user.get('visual_show_hidden', False):
-            images = all_files
-        else:
-            images = [f for f in all_files if f not in hidden_set]
-        
-    filename = path.split('/')[-1]
+    images = visual_images_repo.list_images(include_hidden=app.storage.user.get('visual_show_hidden', False))
+    paths = [row['path'] for row in images]
+    filename = os.path.basename(path)
     dimensions = get_image_dimensions(path)
     prev_img = None
     next_img = None
     
     try:
-        idx = images.index(filename)
+        idx = paths.index(path.lstrip('/'))
         if idx > 0:
-            prev_img = f"/{_VISUAL_DIR}/{images[idx - 1]}"
-        if idx < len(images) - 1:
-            next_img = f"/{_VISUAL_DIR}/{images[idx + 1]}"
+            prev_img = f"/{paths[idx - 1]}"
+        if idx < len(paths) - 1:
+            next_img = f"/{paths[idx + 1]}"
     except ValueError:
         pass
 

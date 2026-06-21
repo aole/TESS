@@ -3,6 +3,7 @@ from utils.config import config_manager
 from utils.ui_components import ui_card, ui_info_card
 from core.config.settings_service import settings_service as _ss
 from core.config.defaults import DEFAULT_SETTINGS as _DEFAULTS
+from core.db import visual_images_repo
 from services.note_service import note_service
 from services.tts_service import VOICES, tts_service
 from services.persona_service import persona_service
@@ -143,6 +144,24 @@ def create_page():
                 )
                 ui.notify('Saved', type='positive', position='top-right', timeout=1200)
 
+            async def _save_thumbnail_setting(key, value, control, old_value):
+                # Thumbnail setting changes affect stored thumbnail columns, so confirm the rebuild.
+                with ui.dialog() as dialog, ui.card().classes('gap-3'):
+                    ui.label('Regenerate existing thumbnails?').classes('text-lg font-semibold')
+                    ui.label('Existing thumbnail data must be rebuilt to use this setting.')
+                    with ui.row().classes('justify-end gap-2 w-full'):
+                        ui.button('Cancel', on_click=lambda: dialog.submit(False)).props('flat no-caps')
+                        ui.button('Regenerate', icon='refresh', on_click=lambda: dialog.submit(True)).props('no-caps')
+                regenerate = await dialog
+                if not regenerate:
+                    control.set_value(old_value)
+                    ui.notify('Thumbnail setting reverted.', type='info', position='top-right', timeout=1500)
+                    return False
+                _save(key, value)
+                count = await run.io_bound(visual_images_repo.regenerate_all_thumbnails)
+                ui.notify(f'Regenerated {count} thumbnail(s).', type='positive', position='top-right', timeout=2000)
+                return True
+
             def _reset_btn(key, on_reset):
                 dv = _db_default(key)
                 def _do_reset(k=key, d=dv, cb=on_reset):
@@ -227,21 +246,67 @@ def create_page():
                 with ui.column().classes('gap-3 w-full'):
                     with ui.row().classes('items-center gap-3 w-full'):
                         ui.label('Thumbnail Size').classes('text-sm text-gray-300 w-32 shrink-0')
+                        old_thumb_size = {'value': _ss.get('thumbnail_size', 256)}
                         thumb_num = ui.number(
-                            value=_ss.get('thumbnail_size', 256),
+                            value=old_thumb_size['value'],
                             min=64, max=1024, step=32,
-                            on_change=lambda e: _save('thumbnail_size', int(e.value)) if e.value is not None else None,
                         ).classes('flex-1').props('outlined dense dark')
-                        _reset_btn('thumbnail_size', lambda v: thumb_num.set_value(v))
+                        async def _on_thumb_size_change(e):
+                            if e.value is None:
+                                return
+                            old = old_thumb_size['value']
+                            new = int(e.value)
+                            if new == old:
+                                return
+                            await _save_thumbnail_setting('thumbnail_size', new, thumb_num, old)
+                            old_thumb_size['value'] = _ss.get('thumbnail_size', old)
+                        thumb_num.on('update:model-value', _on_thumb_size_change)
+                        async def _reset_thumb_size():
+                            old = old_thumb_size['value']
+                            new = _db_default('thumbnail_size')
+                            saved = await _save_thumbnail_setting('thumbnail_size', new, thumb_num, old)
+                            if saved:
+                                old_thumb_size['value'] = new
+                                thumb_num.set_value(new)
+                            old_thumb_size['value'] = _ss.get('thumbnail_size', old_thumb_size['value'])
+                        ui.button(icon='restart_alt', on_click=_reset_thumb_size).props('flat round dense color=grey-7').tooltip(f"Reset to default: {_db_default('thumbnail_size')}")
 
                     with ui.row().classes('items-center gap-3 w-full'):
                         ui.label('Thumbnail Format').classes('text-sm text-gray-300 w-32 shrink-0')
+                        old_thumb_format = {'value': _ss.get('thumbnail_format', 'webp')}
                         tfmt_sel = ui.select(
                             ['webp', 'png', 'jpg'],
-                            value=_ss.get('thumbnail_format', 'webp'),
-                            on_change=lambda e: _save('thumbnail_format', e.value),
+                            value=old_thumb_format['value'],
                         ).classes('flex-1').props('outlined dense dark')
-                        _reset_btn('thumbnail_format', lambda v: tfmt_sel.set_value(v))
+                        async def _on_thumb_format_change(e):
+                            old = old_thumb_format['value']
+                            if e.value == old:
+                                return
+                            await _save_thumbnail_setting('thumbnail_format', e.value, tfmt_sel, old)
+                            old_thumb_format['value'] = _ss.get('thumbnail_format', old)
+                        tfmt_sel.on('update:model-value', _on_thumb_format_change)
+                        async def _reset_thumb_format():
+                            old = old_thumb_format['value']
+                            new = _db_default('thumbnail_format')
+                            saved = await _save_thumbnail_setting('thumbnail_format', new, tfmt_sel, old)
+                            if saved:
+                                old_thumb_format['value'] = new
+                                tfmt_sel.set_value(new)
+                            old_thumb_format['value'] = _ss.get('thumbnail_format', old_thumb_format['value'])
+                        ui.button(icon='restart_alt', on_click=_reset_thumb_format).props('flat round dense color=grey-7').tooltip(f"Reset to default: {_db_default('thumbnail_format')}")
+
+                    for _key, _label, _min, _max, _step in [
+                        ('visual_deleted_retention_days', 'Deleted Retention Days', 1, 365, 1),
+                        ('visual_db_max_size_mb', 'Visual DB Max MB', 10, 10240, 10),
+                    ]:
+                        with ui.row().classes('items-center gap-3 w-full'):
+                            ui.label(_label).classes('text-sm text-gray-300 w-32 shrink-0')
+                            _num = ui.number(
+                                value=_ss.get(_key, _db_default(_key)),
+                                min=_min, max=_max, step=_step,
+                                on_change=lambda e, k=_key: _save(k, int(e.value)) if e.value is not None else None,
+                            ).classes('flex-1').props('outlined dense dark')
+                            _reset_btn(_key, lambda v, n=_num: n.set_value(v))
 
             # ── Default Models ────────────────────────────────────────────────
             with ui_card(heading="Default Models", heading_icon="psychology", heading_color="indigo"):

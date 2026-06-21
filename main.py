@@ -6,6 +6,7 @@ from core.config.defaults import seed_default_settings
 from core.config.settings_service import settings_service
 from core.db.connection import get_connection
 from core.db.migrations import run_migrations
+from core.db.visual_images_repo import purge_expired_deleted
 from pages import models, chat, batch, tools, settings, audio, visual, edit, apps, python_page, personas
 from services import system_service
 from utils.llm_client import client
@@ -20,6 +21,7 @@ def initialize_database() -> None:
 
     run_migrations()
     seed_default_settings()
+    purge_expired_deleted()
     settings_service.get_all()
 
 # Page styling and configuration

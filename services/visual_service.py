@@ -18,6 +18,7 @@ from core.modify_image import (
     tool_png_metadata,
     unload_session as unload_modify_image_session,
 )
+from core.db import visual_images_repo
 
 def parse_resolution(res_str: str, default: tuple = (1024, 1024)) -> tuple[int, int]:
     try:
@@ -54,12 +55,11 @@ def generate_image_task(
     if cfg_scale is None:
         cfg_scale = settings_service.get('default_cfg', 4.0)
     
-    # 1. Setup output paths
-    os.makedirs("data/visual/images", exist_ok=True)
-    os.makedirs("data/visual/thumbs", exist_ok=True)
+    # Generate to a temp file, then persist the durable image bytes in SQLite.
+    os.makedirs("data/visual/temp", exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     fname = f"tess_{timestamp}.png"
-    output_path = f"data/visual/images/{fname}"
+    output_path = f"data/visual/temp/{fname}"
 
     # 2. Generate the image
     res_path = generate_anima_image(
@@ -81,10 +81,7 @@ def generate_image_task(
     if not res_path:
         return None
 
-    # 5. Generate and save thumbnail
-    create_thumbnail(res_path)
-
-    return res_path
+    return visual_images_repo.save_image_file(res_path, operation="generate")
 
 
 _VISUAL_EXTS = {'.png', '.jpg', '.jpeg', '.webp'}
@@ -114,9 +111,9 @@ def expand_prompt(prompt_str: str) -> list:
     return expanded
 
 def new_visual_output_path(ext: str = '.png') -> str:
-    os.makedirs(_VISUAL_DIR, exist_ok=True)
+    os.makedirs("data/visual/temp", exist_ok=True)
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    candidate = os.path.join(_VISUAL_DIR, f'tess_{timestamp}{ext}').replace('\\', '/')
+    candidate = os.path.join("data/visual/temp", f'tess_{timestamp}{ext}').replace('\\', '/')
     idx = 2
     while os.path.exists(candidate):
         candidate = os.path.join(_VISUAL_DIR, f'tess_{timestamp}_{idx}{ext}').replace('\\', '/')
@@ -141,6 +138,9 @@ def create_thumbnail(fpath: str):
         print(f"Failed to generate thumbnail for {fpath}: {e}")
 
 def remove_image_files(fpath: str):
+    if visual_images_repo.db_id_from_path(fpath):
+        visual_images_repo.soft_delete(fpath)
+        return
     if os.path.exists(fpath):
         os.remove(fpath)
     fname = os.path.basename(fpath)
@@ -161,8 +161,7 @@ def remove_background_file(fpath: str, model_name: str) -> str:
         model_name=model_name,
         unload_after=False,
     )
-    create_thumbnail(output_path)
-    return output_path
+    return visual_images_repo.save_image_file(output_path, operation="remove_background")
 
 _cached_upsampler = None
 _cached_upsampler_tile = None
@@ -225,8 +224,7 @@ def upscale_image_file(fpath: str, outscale: float, tile: int) -> str:
     with Image.open(output_path) as img:
         output_img = img.copy()
     output_img.save(output_path, pnginfo=tool_png_metadata(fpath, tool_meta))
-    create_thumbnail(output_path)
-    return output_path
+    return visual_images_repo.save_image_file(output_path, operation="upscale")
 
 
 _HIDDEN_IMAGES_FILE = 'data/visual/hidden_images.json'
@@ -701,9 +699,15 @@ class VisualPageState:
                     if last and os.path.exists(last):
                         if self.show_image:
                             self.show_image(f'/{last}')
-                    else:
-                        if self.show_placeholder:
+                    elif self.show_image:
+                        rows = visual_images_repo.list_images(include_hidden=False)
+                        if rows:
+                            user_storage['visual_last_image'] = rows[0]['path']
+                            self.show_image(f"/{rows[0]['path']}")
+                        elif self.show_placeholder:
                             self.show_placeholder()
+                    elif self.show_placeholder:
+                        self.show_placeholder()
                 
                 if is_canceled:
                     safe_notify('Generation stopped.', type='warning')

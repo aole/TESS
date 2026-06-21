@@ -6,10 +6,9 @@ import base64
 import json
 from PIL import Image
 from nicegui import ui, run, app
-from fastapi import UploadFile, File, HTTPException
+from fastapi import UploadFile, File, HTTPException, Response
 from services.visual_service import (
     _VISUAL_EXTS,
-    _VISUAL_DIR,
     create_thumbnail as _create_thumbnail,
     remove_image_files as _remove_image_files,
     unload_remove_background_session as _unload_remove_background_session,
@@ -26,6 +25,7 @@ from services.visual_service import (
     _initialized_users
 )
 from core.config.settings_service import settings_service
+from core.db import visual_images_repo
 from core.session_state import SERVER_SESSION_ID
 from utils.config import config_manager
 from utils.llm_client import client
@@ -51,25 +51,29 @@ async def upload_visual_image(file: UploadFile = File(...)):
     if ext not in _VISUAL_EXTS:
         raise HTTPException(status_code=400, detail="Invalid file extension")
     
-    os.makedirs(_VISUAL_DIR, exist_ok=True)
+    os.makedirs("data/visual/temp", exist_ok=True)
     
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     # Clean filename to avoid directory traversal
     safe_name = "".join(c for c in filename if c.isalnum() or c in "._-")
     out_fname = f"tess_{timestamp}_{safe_name}"
-    out_path = os.path.join(_VISUAL_DIR, out_fname).replace('\\', '/')
+    out_path = os.path.join("data/visual/temp", out_fname).replace('\\', '/')
     
     # Save the file
     with open(out_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
-    # Generate thumbnail
+    db_path = visual_images_repo.save_image_file(out_path, operation="upload")
+    return {"status": "success", "filepath": db_path}
+
+
+@app.get('/visual-db/thumb/{image_id}')
+def visual_db_thumb(image_id: int):
     try:
-        _create_thumbnail(out_path)
-    except Exception as e:
-        print(f"Failed to generate thumbnail for uploaded image: {e}")
-        
-    return {"status": "success", "filepath": out_path}
+        data, mime_type = visual_images_repo.thumbnail_response(image_id)
+        return Response(content=data, media_type=mime_type)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
 
 
 def initialize_user_defaults(user_storage):
@@ -137,6 +141,25 @@ def create_page():
     upscale_size_label = None
     upscale_scale_val_label = None
     state = VisualPageState(page_client)
+
+    # Database-backed gallery helpers keep the UI path-shaped while SQLite is durable storage.
+    def _gallery_rows():
+        return visual_images_repo.list_images(include_hidden=app.storage.user.get('visual_show_hidden', False))
+
+    def _gallery_paths():
+        return [row['path'] for row in _gallery_rows()]
+
+    def _next_gallery_path(current_path: str):
+        paths = _gallery_paths()
+        try:
+            idx = paths.index(current_path)
+        except ValueError:
+            return paths[0] if paths else None
+        if idx < len(paths) - 1:
+            return paths[idx + 1]
+        if idx > 0:
+            return paths[idx - 1]
+        return None
 
     def _set_remove_background_busy(active: bool):
         if active:
@@ -849,50 +872,24 @@ def create_page():
             _toggle_selected_images_hide()
             return
 
-        hidden_images = get_hidden_images()
-        fname = os.path.basename(fpath)
-        hidden_now = False
-        if fname in hidden_images:
-            hidden_images.remove(fname)
-            ui.notify('Image unhidden.', type='info')
-        else:
-            hidden_images.append(fname)
-            hidden_now = True
+        hidden_now = not visual_images_repo.is_hidden(fpath)
+        visual_images_repo.set_hidden(fpath, hidden_now)
+        if hidden_now:
             ui.notify('Image hidden.', type='info')
+        else:
+            ui.notify('Image unhidden.', type='info')
 
-        set_hidden_images(hidden_images)
         if state.grid_open:
             state.grid_element_ref = None
             show_history()
             return
 
         if hidden_now:
-            next_to_show = None
-            hidden_set = set(hidden_images)
-            if os.path.isdir(_VISUAL_DIR):
-                all_files = sorted(
-                    [f for f in os.listdir(_VISUAL_DIR)
-                     if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
-                    reverse=True,
-                )
-                try:
-                    idx = all_files.index(fname)
-                    for i in range(idx + 1, len(all_files)):
-                        if all_files[i] not in hidden_set:
-                            next_to_show = f"/{_VISUAL_DIR}/{all_files[i]}"
-                            break
-                    if not next_to_show:
-                        for i in range(idx - 1, -1, -1):
-                            if all_files[i] not in hidden_set:
-                                next_to_show = f"/{_VISUAL_DIR}/{all_files[i]}"
-                                break
-                except ValueError:
-                    pass
-
+            next_to_show = _next_gallery_path(fpath)
             state.grid_element_ref = None
             if next_to_show:
-                app.storage.user['visual_last_image'] = next_to_show.lstrip('/')
-                show_image(next_to_show)
+                app.storage.user['visual_last_image'] = next_to_show
+                show_image(f'/{next_to_show}')
             else:
                 app.storage.user['visual_last_image'] = None
                 show_placeholder()
@@ -1020,30 +1017,15 @@ def create_page():
         selected = list(state.selected_images)
         if not selected:
             return
-            
-        hidden_images = get_hidden_images()
-            
-        any_visible = False
-        for fpath in selected:
-            fname = os.path.basename(fpath)
-            if fname not in hidden_images:
-                any_visible = True
-                break
-                
+        any_visible = any(not visual_images_repo.is_hidden(fpath) for fpath in selected)
         if any_visible:
             for fpath in selected:
-                fname = os.path.basename(fpath)
-                if fname not in hidden_images:
-                    hidden_images.append(fname)
+                visual_images_repo.set_hidden(fpath, True)
             ui.notify(f"Hid {len(selected)} image(s).", type='info')
         else:
             for fpath in selected:
-                fname = os.path.basename(fpath)
-                if fname in hidden_images:
-                    hidden_images.remove(fname)
+                visual_images_repo.set_hidden(fpath, False)
             ui.notify(f"Unhid {len(selected)} image(s).", type='info')
-            
-        set_hidden_images(hidden_images)
         state.selected_images.clear()
         state.selection_active = False
         state.grid_element_ref = None
@@ -1192,17 +1174,7 @@ def create_page():
             show_history()
 
     def next_page():
-        hidden_images = get_hidden_images()
-        hidden_set = set(hidden_images)
-
-        images = []
-        if os.path.isdir(_VISUAL_DIR):
-            all_files = [f for f in os.listdir(_VISUAL_DIR)
-                         if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS]
-            if app.storage.user.get('visual_show_hidden', False):
-                images = all_files
-            else:
-                images = [f for f in all_files if f not in hidden_set]
+        images = _gallery_rows()
         total_pages = max(1, (len(images) + state.page_size - 1) // state.page_size)
         if state.current_page < total_pages:
             state.current_page += 1
@@ -1210,17 +1182,7 @@ def create_page():
             show_history()
 
     def last_page():
-        hidden_images = get_hidden_images()
-        hidden_set = set(hidden_images)
-
-        images = []
-        if os.path.isdir(_VISUAL_DIR):
-            all_files = [f for f in os.listdir(_VISUAL_DIR)
-                         if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS]
-            if app.storage.user.get('visual_show_hidden', False):
-                images = all_files
-            else:
-                images = [f for f in all_files if f not in hidden_set]
+        images = _gallery_rows()
         total_pages = max(1, (len(images) + state.page_size - 1) // state.page_size)
         if state.current_page < total_pages:
             state.current_page = total_pages
@@ -1240,20 +1202,7 @@ def create_page():
         if state.grid_element_ref is not None:
             return  # Grid already built
 
-        hidden_images = get_hidden_images()
-        hidden_set = set(hidden_images)
-
-        images = []
-        if os.path.isdir(_VISUAL_DIR):
-            all_files = sorted(
-                [f for f in os.listdir(_VISUAL_DIR)
-                 if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
-                reverse=True,
-            )
-            if app.storage.user.get('visual_show_hidden', False):
-                images = all_files
-            else:
-                images = [f for f in all_files if f not in hidden_set]
+        images = _gallery_rows()
 
         total_images = len(images)
         page_size = state.page_size
@@ -1327,22 +1276,14 @@ def create_page():
                 )
                 state.grid_element_ref = grid
                 with grid:
-                    os.makedirs("data/visual/thumbs", exist_ok=True)
-                    for fname in visible_images:
-                        fpath = f'{_VISUAL_DIR}/{fname}'
+                    for row in visible_images:
+                        fpath = row['path']
                         src = f'/{fpath}'
-                        thumb_name = os.path.splitext(fname)[0] + ".webp"
-                        thumb_path = f'data/visual/thumbs/{thumb_name}'
-                        
-                        if not os.path.exists(thumb_path):
-                            thumb_src = src
-                            asyncio.create_task(run.io_bound(_create_thumbnail, fpath))
-                        else:
-                            thumb_src = f'/{thumb_path}'
+                        thumb_src = row['thumb']
                                 
                         add_grid_cell(
                             grid, thumb_src, src, fpath,
-                            fname in hidden_set,
+                            row['hidden'],
                             _handle_grid_cell_click,
                             _register_selectable_cell,
                             _get_image_callbacks()
@@ -1351,29 +1292,7 @@ def create_page():
     # ── Helper: delete an image file and refresh the grid ───────────────────
     def _delete_image(fpath: str, cell_div=None):
         try:
-            next_to_show = None
-            if not state.grid_open:
-                filename = os.path.basename(fpath)
-                hidden_images = get_hidden_images()
-                hidden_set = set(hidden_images)
-                if os.path.isdir(_VISUAL_DIR):
-                    all_files = sorted(
-                        [f for f in os.listdir(_VISUAL_DIR)
-                         if os.path.isfile(os.path.join(_VISUAL_DIR, f)) and os.path.splitext(f)[1].lower() in _VISUAL_EXTS],
-                        reverse=True,
-                    )
-                    if app.storage.user.get('visual_show_hidden', False):
-                        images = all_files
-                    else:
-                        images = [f for f in all_files if f not in hidden_set]
-                    try:
-                        idx = images.index(filename)
-                        if idx < len(images) - 1:
-                            next_to_show = f"/{_VISUAL_DIR}/{images[idx + 1]}"
-                        elif idx > 0:
-                            next_to_show = f"/{_VISUAL_DIR}/{images[idx - 1]}"
-                    except ValueError:
-                        pass
+            next_to_show = None if state.grid_open else _next_gallery_path(fpath)
 
             _remove_image_files(fpath)
             last = app.storage.user.get('visual_last_image')
@@ -1390,8 +1309,8 @@ def create_page():
                 show_history()
             elif not state.grid_open:
                 if next_to_show:
-                    app.storage.user['visual_last_image'] = next_to_show.lstrip('/')
-                    show_image(next_to_show)
+                    app.storage.user['visual_last_image'] = next_to_show
+                    show_image(f'/{next_to_show}')
                 else:
                     show_placeholder()
                 state.grid_element_ref = None  # Force rebuild next time grid is opened
@@ -1413,7 +1332,12 @@ def create_page():
         if last and os.path.exists(last):
             show_image(f'/{last}')
         else:
-            show_placeholder()
+            latest = _gallery_paths()
+            if latest:
+                app.storage.user['visual_last_image'] = latest[0]
+                show_image(f'/{latest[0]}')
+            else:
+                show_placeholder()
         
     if state.gen_active:
         generate_btn.props('color=red icon=stop')

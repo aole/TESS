@@ -62,6 +62,18 @@ DEFAULT_SETTINGS = {
         "category": "storage",
         "description": "Thumbnail output format",
     },
+    "visual_deleted_retention_days": {
+        "value": 30,
+        "type": "int",
+        "category": "storage",
+        "description": "Days to keep soft-deleted visual images before purge",
+    },
+    "visual_db_max_size_mb": {
+        "value": 1024,
+        "type": "int",
+        "category": "storage",
+        "description": "Maximum durable visual image storage size in SQLite",
+    },
     "default_story_processing_model": {
         "value": None,
         "type": "json",

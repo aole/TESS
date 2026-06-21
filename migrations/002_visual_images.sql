@@ -1,0 +1,35 @@
+CREATE TABLE IF NOT EXISTS visual_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    original_filename TEXT,
+    mime_type TEXT NOT NULL,
+    width INTEGER,
+    height INTEGER,
+    file_size INTEGER NOT NULL,
+    image_data BLOB NOT NULL,
+    thumbnail_data BLOB,
+    thumbnail_mime_type TEXT,
+    thumbnail_width INTEGER,
+    thumbnail_height INTEGER,
+    thumbnail_generated_at TEXT,
+    prompt TEXT,
+    negative_prompt TEXT,
+    seed INTEGER,
+    model TEXT,
+    steps INTEGER,
+    cfg_scale REAL,
+    denoising REAL,
+    turbo_lora REAL,
+    generation_mode TEXT,
+    operation TEXT,
+    input_image_path TEXT,
+    mask_image_path TEXT,
+    comment TEXT,
+    hidden INTEGER NOT NULL DEFAULT 0,
+    deleted_at TEXT,
+    metadata_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_visual_images_gallery
+ON visual_images(deleted_at, hidden, created_at);

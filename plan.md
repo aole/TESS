@@ -1,163 +1,100 @@
-# Plan: Add SAM2 Point Segmentation To Edit Page
+# Plan: Store Generated Images In The Database
 
 ## Goal
 
-Use the new `core/point_to_segment.py` helper from the edit page so a user can create an inpaint mask from foreground/background clicks, then run the existing Photopea inpaint flow with that generated mask.
+Save and retrieve generated images, thumbnails, and related metadata from SQLite. The database is the only durable image store; the filesystem may be used only for temporary/cache images needed by processing, previewing, or serving.
 
-## Best Integration Direction
+## Things To Do
 
-The best path is to treat SAM2 segmentation as a mask creation feature, not a separate generation mode. The edit page already supports mask-based inpaint:
+1. Add image storage tables through the existing migration path:
+   - `visual_images` for one row per generated, uploaded, edited, or processed image.
+   - Store full image bytes and full thumbnail bytes in the same row.
+   - Include created/updated timestamps, original filename, MIME type, width, height, file size, image bytes, thumbnail bytes, thumbnail MIME type, thumbnail width, thumbnail height, thumbnail generated timestamp, operation, optional comment, hidden flag, soft-delete fields, and JSON metadata.
 
-- Photopea exports a current image as `i2i_input_*.png`.
-- Photopea selection export can produce `selection_mask_*.png`.
-- `handle_photopea_i2i(...)` receives `mask_path`.
-- `generate_anima_inpaint_image(...)` already consumes `mask_image=mask_path`.
-- Generated output is loaded back into Photopea as a new top layer.
+2. Add queryable metadata columns plus raw metadata JSON:
+   - Promote important fields into columns: prompt, negative prompt, seed, model, width, height, steps, CFG, denoising, Turbo LoRA, generation mode, operation, input image id/path, mask image id/path, and created timestamp.
+   - Keep a JSON metadata column that can be written back into exported image files as PNG metadata.
+   - Preserve existing PNG `parameters`, `tools`, and `source_metadata` data when present.
 
-SAM2 should produce a mask file that plugs into the same `mask_path` behavior.
+3. Add a database repository/service for visual image records:
+   - create image record with bytes and metadata
+   - attach or update thumbnail bytes on the image record
+   - fetch image by id
+   - fetch thumbnail columns by image id
+   - list images for the visual gallery ordered by `created_at DESC`
+   - update metadata, operation, and comment
+   - hide/unhide image using a per-image flag
+   - soft-delete image
+   - permanently purge images after the configured retention window
 
-## Recommended UX
+4. Add a setting for permanent deletion retention:
+   - Default soft-deleted images to a 30-day retention period.
+   - Expose the retention period on the Settings page.
+   - Add a cleanup routine that permanently deletes expired soft-deleted image rows.
 
-Add a compact "Segment" control near the existing Photopea generation controls:
+5. Add a setting for maximum visual database size:
+   - Default the maximum SQLite visual image storage size to 1 GB.
+   - Put the value in the existing settings/config path so it can be changed later.
+   - Check the configured limit before durable image writes.
+   - Show a clear error when saving a new image would exceed the configured limit.
 
-- A toggle or segmented control for point mode:
-  - foreground point
-  - background point
-- Buttons:
-  - clear points
-  - preview mask
-  - use mask for inpaint
-- A small status line in the same control area:
-  - waiting for points
-  - segmenting
-  - mask ready
-  - segmentation failed
+6. Update generation and save paths to write database records:
+   - `services.visual_service.generate_image_task(...)`
+   - visual upload handling
+   - visual post-processing outputs such as upscale and background removal
+   - edit-page saves from Photopea
+   - edit-page i2i/inpaint generated outputs
+   - any future visual operation that creates a durable image
 
-Avoid a separate page or modal-heavy workflow at first. The user should stay in `/edit`, click points, preview the mask, then run the same inpaint action.
+7. Restrict filesystem image output to temporary/cache use:
+   - Stop treating `data/visual/images` and `data/visual/thumbs` as durable storage.
+   - Use temp files only when a library requires a file path or when serving/cache behavior needs one.
+   - Clean up temp/cache files after use or through an existing temp cleanup path.
+   - Keep durable image bytes, thumbnail bytes, and metadata in SQLite.
 
-## Point Collection Options
+8. Update thumbnail creation and settings behavior:
+   - Keep thumbnail generation centralized in `services.visual_service.create_thumbnail(...)` or a replacement helper with the same single responsibility.
+   - Store thumbnail bytes, dimensions, format, MIME type, and generation timestamp on the image row.
+   - When thumbnail settings change, show a confirmation popup to regenerate existing thumbnails.
+   - If the user declines regeneration, revert the thumbnail settings change.
 
-### Option A: Overlay Click Layer Outside Photopea
+9. Update visual gallery retrieval:
+   - Replace directory scanning in `data/visual/images` with database listing.
+   - Sort by `created_at DESC`.
+   - Preserve hidden-image filtering through the per-image hidden flag.
+   - Preserve soft-deleted images outside normal gallery results.
+   - Load thumbnails from SQLite instead of `data/visual/thumbs`.
 
-Export the current Photopea image to a temporary PNG, show it in a NiceGUI image preview with a click-capture overlay, and collect points there.
+10. Update image open/load/serve paths:
+   - Resolve selected gallery items from database ids.
+   - Add routes or helpers to serve image bytes and thumbnail bytes from SQLite.
+   - Use temporary/cache files only when external tools, Photopea handoff, or browser serving requires a file path.
+   - Keep export behavior able to write an image file with embedded metadata when the user saves or exports.
 
-Pros:
+11. Add a standalone upgrade script:
+    - Scan existing `data/visual/images`.
+    - Read image bytes and PNG metadata with Pillow.
+    - Create database records for existing images.
+    - Read existing thumbnails from `data/visual/thumbs` into the matching image rows or regenerate missing thumbnails.
+    - Preserve current hidden-image state from `data/visual/hidden_images.json`.
+    - Respect the configured 1 GB visual database size limit.
+    - Do not run this migration automatically on startup unless explicitly added later.
 
-- Easiest to implement and debug in NiceGUI.
-- No need to inject more complex point-tracking JavaScript into Photopea.
-- Click coordinates map directly to the exported image size.
-- Segmentation preview can be shown before touching Photopea layers.
+12. Add retrieval helpers for metadata consumers:
+    - Visual page metadata panel.
+    - Visual-to-edit handoff.
+    - Visual-to-chat draft handoff.
+    - Edit-page metadata inheritance for i2i settings.
+    - PNG export metadata reconstruction from database fields plus raw JSON metadata.
 
-Cons:
-
-- It is a separate preview surface, so the user is not clicking directly inside Photopea.
-- Requires exporting the current Photopea image before segmentation.
-
-This is the recommended first implementation.
-
-### Option B: Capture Clicks Directly Inside Photopea
-
-Inject JavaScript into Photopea to capture document click coordinates and send them back to NiceGUI.
-
-Pros:
-
-- Best long-term ergonomics.
-- The user clicks exactly where they are editing.
-
-Cons:
-
-- Photopea coordinate handling, zoom/pan state, active tool state, and iframe event routing make this riskier.
-- More likely to conflict with normal Photopea editing behavior.
-- Harder to verify and debug.
-
-This is a good second pass after the segmentation pipeline is proven.
-
-### Option C: Use Current Photopea Selection As A Seed
-
-Let the user make a rough Photopea selection, export that selection, derive sample points or a bounding region, then run SAM2.
-
-Pros:
-
-- Reuses familiar Photopea selection tools.
-- Can improve segmentation for large subjects.
-
-Cons:
-
-- More complex than point clicks.
-- SAM2 point prompting does not directly consume masks, so this would need conversion logic.
-
-Keep this as a later refinement.
-
-## Proposed Implementation Steps
-
-1. Add a server-side helper in `pages/edit.py` or a small adjacent module:
-   - export current Photopea image to `data/visual/temp/i2i_input_*.png`
-   - store it as the active segmentation source
-   - collect point records as `{x, y, label}`
-   - call `segment_from_points(...)` via `run.io_bound(...)`
-   - write outputs to `data/visual/temp/segment_<timestamp>/mask.png` and `overlay.png`
-
-2. Extend `core/point_to_segment.py` for app reuse:
-   - optionally add `mask_filename` and `overlay_filename` parameters
-   - optionally return the number of masks or selected score metadata
-   - keep model cache under `models/huggingface`
-
-3. Add edit-page UI state:
-   - `edit_segment_points`
-   - `edit_segment_source_path`
-   - `edit_segment_mask_path`
-   - `edit_segment_overlay_path`
-   - `edit_segment_status`
-
-4. Build the first UI as a preview panel:
-   - current exported image or overlay image
-   - click handler records coordinates
-   - foreground/background mode selector
-   - clear, preview, and use buttons
-
-5. When "preview mask" runs:
-   - ensure a current image export exists
-   - call SAM2 with collected points
-   - show `overlay.png` in the preview panel
-   - keep `mask.png` as `edit_segment_mask_path`
-
-6. When "use mask for inpaint" runs:
-   - export the current Photopea image again if needed
-   - call the same logic as `photopea-i2i` with:
-     - `path`: current image export
-     - `mask_path`: SAM2 mask path
-   - preserve the existing inpaint metadata path and generated-layer insertion behavior
-
-## Important Technical Notes
-
-- Coordinate mapping must be explicit. Store natural image width/height for the preview image and scale click coordinates back to natural pixels before calling SAM2.
-- The SAM2 mask should be a binary white-on-black PNG, matching the selection mask behavior expected by `generate_anima_inpaint_image(...)`.
-- Do not store segmentation points in durable user storage unless there is a clear reason. Treat them as edit-session state.
-- Keep temporary segmentation outputs under `data/visual/temp` and include them in the existing temp cleanup pattern if needed.
-- The model may take time to load. Show inline status near the segment controls instead of only a toast.
-- If CUDA is unavailable, allow CPU fallback but make the status clear because segmentation will be slower.
-
-## Verification Plan
-
-- Syntax check:
-  - `python -m py_compile pages\edit.py core\point_to_segment.py`
-- Manual edit-page check:
-  - open `/edit` with an image
-  - export current image for segmentation
-  - add one foreground point and one background point
-  - preview mask
-  - confirm `mask.png` and `overlay.png` are written under `data/visual/temp`
-  - run inpaint with the SAM2 mask
-  - confirm generated layer appears on top in Photopea
-  - save final image and confirm metadata still records inpaint mode and current controls
-
-## Future Enhancements
-
-- Cache the loaded SAM2 predictor during the server process to avoid repeated model initialization.
-- Add box prompts if the installed SAM2 API exposes them cleanly.
-- Add mask refinement controls:
-  - grow/shrink
-  - blur edge
-  - invert
-  - keep largest component
-- Add direct Photopea point picking once the preview-based path is stable.
+13. Verify the migration:
+    - Initialize a fresh database.
+    - Run the standalone upgrade script against an existing image folder.
+    - Generate a new image and confirm image bytes, thumbnail bytes, queryable metadata, and raw metadata are stored on one row.
+    - Upload an image and confirm one row is created.
+    - Save from `/edit` and confirm current edit metadata is stored.
+    - Hide, unhide, soft-delete, restore if supported, and permanently purge expired image rows.
+    - Change thumbnail settings, accept regeneration, and confirm existing image rows update their thumbnail columns.
+    - Change thumbnail settings, decline regeneration, and confirm settings revert.
+    - Reload the gallery and confirm it is ordered by `created_at DESC`.
+    - Export an image and confirm PNG metadata is embedded from database metadata.
