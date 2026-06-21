@@ -1545,11 +1545,6 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                     )
                 
                 if output_path and os.path.exists(output_path):
-                    output_path = visual_images_repo.save_image_file(
-                        output_path,
-                        operation="edit_inpaint" if mask_path else "edit_i2i",
-                    )
-                    app.storage.user['visual_last_image'] = output_path
                     ui.notify(f"{mode_label} generation {idx + 1}/{count_val} completed successfully!", type='positive')
                     web_path = f"/{output_path}"
                     # Load the generated image back as a new layer in Photopea
