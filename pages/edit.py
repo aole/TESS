@@ -129,8 +129,12 @@ def _current_edit_parameters(original_path: str, image_path: str) -> dict:
         width = user_storage.get('visual_image_width', 1024)
         height = user_storage.get('visual_image_height', 1024)
 
+    section_prompt = user_storage.get('edit_i2i_section_prompt', '')
+    mode = user_storage.get('edit_last_generation_mode', 'photopea_edit')
+    prompt = section_prompt if mode == "photopea_section_inpaint" and section_prompt.strip() else user_storage.get('edit_i2i_prompt', '')
+
     params = {
-        "prompt": user_storage.get('edit_i2i_prompt', ''),
+        "prompt": prompt,
         "negative_prompt": user_storage.get('edit_i2i_neg_prompt', ''),
         "steps": _as_int(user_storage.get('edit_i2i_steps', 30), 30),
         "width": _as_int(width, 1024),
@@ -138,12 +142,13 @@ def _current_edit_parameters(original_path: str, image_path: str) -> dict:
         "seed": None,
         "cfg_scale": _as_float(user_storage.get('edit_i2i_cfg', 4.0), 4.0),
         "model": "Anima Base v1.0",
-        "mode": user_storage.get('edit_last_generation_mode', 'photopea_edit'),
+        "mode": mode,
         "denoising_strength": _as_float(user_storage.get('edit_i2i_denoising', 0.6), 0.6),
         "turbo_lora": turbo_lora,
         "section_enabled": bool(user_storage.get('edit_i2i_section_enabled', False)),
         "section_width": _as_int(user_storage.get('edit_i2i_section_width', 512), 512),
         "section_height": _as_int(user_storage.get('edit_i2i_section_height', 512), 512),
+        "section_prompt": section_prompt,
     }
     if original_path:
         params["input_image_path"] = original_path
@@ -166,6 +171,8 @@ def _prepare_inpaint_section(input_path: str, mask_path: str, width: int, height
         section_height = max(1, int(section_height))
     except (TypeError, ValueError):
         section_width, section_height = 512, 512
+    section_width = min(section_width, width)
+    section_height = min(section_height, height)
 
     with Image.open(input_path) as input_img, Image.open(mask_path) as mask_img:
         source = input_img.convert("RGBA")
@@ -182,20 +189,20 @@ def _prepare_inpaint_section(input_path: str, mask_path: str, width: int, height
 
         center_x = (selection_bbox[0] + selection_bbox[2]) / 2
         center_y = (selection_bbox[1] + selection_bbox[3]) / 2
-        section_left = int(round(center_x - section_width / 2))
-        section_top = int(round(center_y - section_height / 2))
+        section_left = min(max(0, int(round(center_x - section_width / 2))), width - section_width)
+        section_top = min(max(0, int(round(center_y - section_height / 2))), height - section_height)
         section_right = section_left + section_width
         section_bottom = section_top + section_height
 
-        src_left = max(0, section_left)
-        src_top = max(0, section_top)
-        src_right = min(width, section_right)
-        src_bottom = min(height, section_bottom)
+        src_left = section_left
+        src_top = section_top
+        src_right = section_right
+        src_bottom = section_bottom
         if src_left >= src_right or src_top >= src_bottom:
             return None
 
-        paste_x = src_left - section_left
-        paste_y = src_top - section_top
+        paste_x = 0
+        paste_y = 0
         section_input = Image.new("RGBA", (section_width, section_height), (0, 0, 0, 0))
         section_mask = Image.new("L", (section_width, section_height), 0)
         crop_box = (src_left, src_top, src_right, src_bottom)
@@ -433,6 +440,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
     init_storage_val('edit_i2i_section_enabled', False)
     init_storage_val('edit_i2i_section_width', 512)
     init_storage_val('edit_i2i_section_height', 512)
+    init_storage_val('edit_i2i_section_prompt', '')
 
     generating = {'active': False, 'pending': False, 'cancel': False}
     segment_state = {
@@ -600,6 +608,11 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                 section_height_input = ui.number(
                     label='Height', value=int(user_storage.get('edit_i2i_section_height', 512)), min=64, max=4096, step=8, format='%d'
                 ).classes('w-24 text-sm').props('dense outlined dark color=indigo-400').bind_value(app.storage.user, 'edit_i2i_section_height').bind_enabled_from(section_check, 'value')
+            with ui.column().classes('w-full gap-1').bind_visibility_from(section_check, 'value'):
+                ui.label('Section Prompt').classes('text-xs text-gray-400')
+                section_prompt_textarea = ui.textarea(
+                    placeholder='Optional positive prompt for section inpaint...'
+                ).classes('w-full text-sm bg-black/20 border border-white/10 rounded p-2 text-white').props('outlined rows="3"').bind_value(app.storage.user, 'edit_i2i_section_prompt')
 
         with ui.row().classes('w-full justify-end border-t border-white/10 pt-4'):
             generate_i2i_btn = ui.button(
@@ -621,6 +634,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             section_check.update()
             section_width_input.update()
             section_height_input.update()
+            section_prompt_textarea.update()
             count_input.update()
 
     i2i_options_dialog.on_value_change(handle_dialog_close)
@@ -1377,12 +1391,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             
         # Retrieve options
         prompt_val = user_storage.get('edit_i2i_prompt', '')
-        if not prompt_val.strip():
-            ui.notify("Please enter a prompt in Image-to-Image Options", type='warning')
-            reset_i2i_generation_state()
-            i2i_options_dialog.open()
-            return
-            
+        section_prompt_val = user_storage.get('edit_i2i_section_prompt', '')
         neg_prompt = user_storage.get('edit_i2i_neg_prompt', '')
         steps_val = int(user_storage.get('edit_i2i_steps', 30))
         
@@ -1407,6 +1416,12 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             section_width_val, section_height_val = 512, 512
         section_width_val = max(64, section_width_val)
         section_height_val = max(64, section_height_val)
+        generation_prompt_val = section_prompt_val if section_enabled and section_prompt_val.strip() else prompt_val
+        if not generation_prompt_val.strip():
+            ui.notify("Please enter a prompt in Image-to-Image Options", type='warning')
+            reset_i2i_generation_state()
+            i2i_options_dialog.open()
+            return
         user_storage['edit_last_generation_mode'] = "photopea_section_inpaint" if section_enabled else ("photopea_inpaint" if mask_path else "photopea_i2i")
 
         generating['active'] = True
@@ -1473,7 +1488,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
 
                     output_path = await run.io_bound(
                         generate_anima_inpaint_image,
-                        prompt=prompt_val,
+                        prompt=generation_prompt_val,
                         output_path=temp_output_path,
                         negative_prompt=neg_prompt,
                         steps=steps_val,
@@ -1498,7 +1513,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                 else:
                     output_path = await run.io_bound(
                         generate_anima_image,
-                        prompt=prompt_val,
+                        prompt=generation_prompt_val,
                         output_path=temp_output_path,
                         negative_prompt=neg_prompt,
                         steps=steps_val,
