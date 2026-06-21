@@ -1462,16 +1462,32 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
         
         try:
             os.makedirs("data/visual/temp", exist_ok=True)
+            batch_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            batch_section_info = None
+            if section_enabled:
+                section_prefix = f"data/visual/temp/inpaint_section_{batch_timestamp}_source"
+                batch_section_info = _prepare_inpaint_section(
+                    input_path=input_path,
+                    mask_path=mask_path,
+                    width=width_val,
+                    height=height_val,
+                    section_width=section_width_val,
+                    section_height=section_height_val,
+                    output_prefix=section_prefix,
+                    max_scale_size=section_max_scale_size,
+                )
+                if not batch_section_info:
+                    ui.notify("Section inpaint could not find a selected mask area; using full image.", type='warning')
+
             for idx in range(count_val):
                 if generating['cancel']:
                     ui.notify("Generation stopped", type='warning', pos='bottom-right')
                     break
 
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 mode_label = "section inpaint" if section_enabled else ("inpaint" if mask_path else "i2i")
                 filename_mode = "inpaint" if mask_path else "i2i"
                 section_info = None
-                temp_output_path = f"data/visual/temp/{filename_mode}_output_{timestamp}_{idx}.png"
+                temp_output_path = f"data/visual/temp/{filename_mode}_output_{batch_timestamp}_{idx}.png"
 
                 ui.notify(f"Generating {mode_label} image {idx + 1} of {count_val}...", type='info', pos='bottom-right')
 
@@ -1488,25 +1504,14 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                     generation_height = height_val
                     load_output_path = temp_output_path
                     if section_enabled:
-                        section_prefix = f"data/visual/temp/inpaint_section_{timestamp}_{idx}"
-                        section_info = _prepare_inpaint_section(
-                            input_path=input_path,
-                            mask_path=mask_path,
-                            width=width_val,
-                            height=height_val,
-                            section_width=section_width_val,
-                            section_height=section_height_val,
-                            output_prefix=section_prefix,
-                            max_scale_size=section_max_scale_size,
-                        )
+                        section_info = batch_section_info
                         if section_info:
                             generation_input_path = section_info["input_path"]
                             generation_mask_path = section_info["mask_path"]
                             generation_width, generation_height = section_info["generation_size"]
+                            section_prefix = f"data/visual/temp/inpaint_section_{batch_timestamp}_{idx}"
                             temp_output_path = f"{section_prefix}_output.png"
                             load_output_path = f"{section_prefix}_canvas.png"
-                        else:
-                            ui.notify("Section inpaint could not find a selected mask area; using full image.", type='warning')
 
                     output_path = await run.io_bound(
                         generate_anima_inpaint_image,
