@@ -9,6 +9,7 @@ from PIL.PngImagePlugin import PngInfo
 from fastapi import UploadFile, File, Form
 from nicegui import ui, app, run
 from core.session_state import SERVER_SESSION_ID
+from core.config.settings_service import settings_service
 from services.visual_service import create_thumbnail
 from core.generate_image import generate_anima_image, unload_pipeline as unload_image_pipeline
 from core.generate_inpaint import generate_anima_inpaint_image, unload_pipeline as unload_inpaint_pipeline
@@ -121,6 +122,7 @@ def _current_edit_parameters(original_path: str, image_path: str) -> dict:
 
     turbo_enabled = user_storage.get('edit_i2i_turbo_enabled', False)
     turbo_lora = _as_float(user_storage.get('edit_i2i_turbo_strength', 1.0), 1.0) if turbo_enabled else 0.0
+    section_max_scale_size = _as_int(settings_service.get('section_inpaint_max_size', 1024), 1024)
 
     try:
         with Image.open(image_path) as img:
@@ -148,6 +150,7 @@ def _current_edit_parameters(original_path: str, image_path: str) -> dict:
         "section_enabled": bool(user_storage.get('edit_i2i_section_enabled', False)),
         "section_width": _as_int(user_storage.get('edit_i2i_section_width', 512), 512),
         "section_height": _as_int(user_storage.get('edit_i2i_section_height', 512), 512),
+        "section_inpaint_max_size": section_max_scale_size,
         "section_prompt": section_prompt,
     }
     if original_path:
@@ -165,7 +168,7 @@ def _embed_current_edit_metadata(image_path: str, original_path: str):
         print(f"Failed to embed edit metadata in {image_path}: {ex}")
 
 
-def _prepare_inpaint_section(input_path: str, mask_path: str, width: int, height: int, section_width: int, section_height: int, output_prefix: str):
+def _prepare_inpaint_section(input_path: str, mask_path: str, width: int, height: int, section_width: int, section_height: int, output_prefix: str, max_scale_size: int):
     try:
         section_width = max(1, int(section_width))
         section_height = max(1, int(section_height))
@@ -211,8 +214,9 @@ def _prepare_inpaint_section(input_path: str, mask_path: str, width: int, height
 
         generation_width = section_width
         generation_height = section_height
-        if max(section_width, section_height) < 1536:
-            scale = 1536 / max(section_width, section_height)
+        max_scale_size = max(1, int(max_scale_size))
+        if max(section_width, section_height) < max_scale_size:
+            scale = max_scale_size / max(section_width, section_height)
             generation_width = max(1, int(round(section_width * scale)))
             generation_height = max(1, int(round(section_height * scale)))
             section_input = section_input.resize((generation_width, generation_height), Image.Resampling.LANCZOS)
@@ -1428,6 +1432,11 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
             section_width_val, section_height_val = 512, 512
         section_width_val = max(64, section_width_val)
         section_height_val = max(64, section_height_val)
+        try:
+            section_max_scale_size = int(settings_service.get('section_inpaint_max_size', 1024))
+        except (TypeError, ValueError):
+            section_max_scale_size = 1024
+        section_max_scale_size = max(1, section_max_scale_size)
         generation_prompt_val = section_prompt_val if section_enabled and section_prompt_val.strip() else prompt_val
         if not generation_prompt_val.strip():
             ui.notify("Please enter a prompt in Image-to-Image Options", type='warning')
@@ -1488,6 +1497,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                             section_width=section_width_val,
                             section_height=section_height_val,
                             output_prefix=section_prefix,
+                            max_scale_size=section_max_scale_size,
                         )
                         if section_info:
                             generation_input_path = section_info["input_path"]

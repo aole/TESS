@@ -44,6 +44,12 @@ DEFAULT_SETTINGS = {
         "category": "generation",
         "description": "Default image format",
     },
+    "section_inpaint_max_size": {
+        "value": 1024,
+        "type": "int",
+        "category": "generation",
+        "description": "Target max side for section inpaint upscale",
+    },
     "thumbnail_size": {
         "value": 256,
         "type": "int",

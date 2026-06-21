@@ -184,6 +184,7 @@ def create_page():
                         ('default_width',  'Width',  64, 4096, 64),
                         ('default_height', 'Height', 64, 4096, 64),
                         ('default_steps',  'Steps',   1,  200,  1),
+                        ('section_inpaint_max_size', 'Section Inpaint Max Size', 64, 4096, 64),
                     ]:
                         with ui.row().classes('items-center gap-3 w-full'):
                             ui.label(_label).classes('text-sm text-gray-300 w-32 shrink-0')
