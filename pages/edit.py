@@ -209,6 +209,15 @@ def _prepare_inpaint_section(input_path: str, mask_path: str, width: int, height
         section_input.paste(source.crop(crop_box), (paste_x, paste_y))
         section_mask.paste(mask.crop(crop_box), (paste_x, paste_y))
 
+        generation_width = section_width
+        generation_height = section_height
+        if max(section_width, section_height) < 1536:
+            scale = 1536 / max(section_width, section_height)
+            generation_width = max(1, int(round(section_width * scale)))
+            generation_height = max(1, int(round(section_height * scale)))
+            section_input = section_input.resize((generation_width, generation_height), Image.Resampling.LANCZOS)
+            section_mask = section_mask.resize((generation_width, generation_height), Image.Resampling.NEAREST)
+
         input_output_path = f"{output_prefix}_input.png"
         mask_output_path = f"{output_prefix}_mask.png"
         section_input.save(input_output_path)
@@ -220,6 +229,7 @@ def _prepare_inpaint_section(input_path: str, mask_path: str, width: int, height
         "paste_box": (src_left, src_top, src_right, src_bottom),
         "section_offset": (paste_x, paste_y),
         "section_size": (section_width, section_height),
+        "generation_size": (generation_width, generation_height),
     }
 
 
@@ -231,6 +241,8 @@ def _section_output_to_canvas(section_output_path: str, section_info: dict, canv
 
     with Image.open(section_output_path) as generated:
         generated_rgba = generated.convert("RGBA")
+        if generated_rgba.size != section_info["section_size"]:
+            generated_rgba = generated_rgba.resize(section_info["section_size"], Image.Resampling.LANCZOS)
         section_crop = generated_rgba.crop((paste_x, paste_y, paste_x + crop_width, paste_y + crop_height))
         canvas = Image.new("RGBA", (canvas_width, canvas_height), (0, 0, 0, 0))
         canvas.paste(section_crop, (src_left, src_top), section_crop)
@@ -1480,7 +1492,7 @@ def create_page(initial_img: str = None, initial_imgs: str = None):
                         if section_info:
                             generation_input_path = section_info["input_path"]
                             generation_mask_path = section_info["mask_path"]
-                            generation_width, generation_height = section_info["section_size"]
+                            generation_width, generation_height = section_info["generation_size"]
                             temp_output_path = f"{section_prefix}_output.png"
                             load_output_path = f"{section_prefix}_canvas.png"
                         else:
